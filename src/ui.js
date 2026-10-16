@@ -75,17 +75,17 @@
     const sc = w / cw;
     return `background-image:url(${sheetUrl});background-size:${cols * cw * sc}px auto;background-position:-${col * cw * sc}px -${row * chh * sc}px`;
   }
-  // 선수 사진 (size px, 원형). ring = 테두리 색
+  // 선수 사진: 얼굴이 잘리지 않는 3:4 세로 카드. size는 대략적인 크기(px), ring = 아래 띠 색(구단 색)
   function avatar(p, size, ring) {
-    size = size || 40;
-    const st = `width:${size}px;height:${size}px;--ring:${ring || 'var(--line)'}`;
+    size = Math.round((size || 40) * 0.82);
+    const st = `width:${size}px;height:${Math.round(size * 1.3)}px;--ring:${ring || 'var(--line)'}`;
     const SP = KM.SPRITES;
     if (SP && SP.p[p.id]) {
       const [sheet, i] = SP.p[p.id];
       return `<span class="ph" style="${st};${spriteCss(`assets/p${sheet}.webp`, i % 12, Math.floor(i / 12), SP.pw, SP.ph, size, 12)}" role="img" aria-label="${esc(p.name)}"></span>`;
     }
     if (p.photo && !SP) return `<img class="ph" style="${st}" src="${IMG}/portrait/medium/${p.photo}.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" data-ini="${esc(initials(p.name))}">`;
-    return `<span class="ph fb" style="${st};font-size:${Math.round(size * 0.34)}px">${esc(initials(p.name))}</span>`;
+    return `<span class="ph fb" style="${st};font-size:${Math.round(size * 0.36)}px">${esc(initials(p.name))}</span>`;
   }
   function bigPhoto(p) {
     const SP = KM.SPRITES;
@@ -444,7 +444,7 @@
       const ro = p ? W.roleOvr(p, sl[0]) : 0;
       const bad = p && D.fit(sl[0], p) < 0.86;
       return `<button class="slot ${sel === i ? 'sel' : ''} ${bad ? 'bad' : ''}" style="left:${l}%;top:${tp}%" data-act="slot" data-v="${i}" aria-label="${sl[0]} ${p ? esc(p.name) : ''}">
-        ${p ? avatar(p, 42, t.c1) : '<span class="ph fb" style="width:42px;height:42px">?</span>'}
+        ${p ? avatar(p, 42, t.c1) : '<span class="ph fb" style="width:36px;height:47px">?</span>'}
         <span class="lbl">${p ? esc(shortPlayerName(p.name)) : '비어 있음'}</span><span class="rt">${sl[0]} ${ro}</span></button>`;
     }).join('');
     const inXI = new Set(t.lineup);
@@ -1208,6 +1208,18 @@
     document.addEventListener('visibilitychange', () => { if (document.hidden && UI.G && !UI.live) save(true); });
     render();
   }
+
+  // 안드로이드 뒤로 가기: 처리했으면 true
+  UI.back = function () {
+    if (UI.live) { const b = $('#lv-pause'); if (b && !UI.live.paused && !UI.live.m.finished) actions.lvpause(b); return true; }
+    if ($('.sheet-bg')) { actions.closesheet(); return true; }
+    if (UI.prematch) { actions.closepre(); return true; }
+    if (UI.newGame) { actions.ngback(); return true; }
+    if (UI.G && UI.tab !== 'home') { UI.tab = 'home'; render(); window.scrollTo(0, 0); return true; }
+    if (UI.G) save(true);
+    return false;
+  };
+  UI.autosave = function () { if (UI.G && !UI.live) save(true); };
 
   UI.init = init;
   UI.render = render;

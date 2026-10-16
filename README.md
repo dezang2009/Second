@@ -27,6 +27,15 @@ npm start            # http://localhost:8080
 
 휴대폰에서 같은 와이파이로 `http://<컴퓨터 IP>:8080`에 접속한 뒤 "홈 화면에 추가"를 누르면 앱처럼 설치됩니다. 선수 사진과 엠블럼은 인터넷 연결이 있을 때 트랜스퍼마크트에서 불러옵니다.
 
+## 안드로이드 APK
+
+```bash
+python3 tools/build_assets.py --sprites && node tools/build.js
+ANDROID_BUILD_TOOLS=<build-tools 35 경로> ANDROID_JAR=<platforms/android-34/android.jar> tools/build_apk.sh
+```
+
+`dist/KickoffManager.apk`가 만들어집니다 (Gradle 없이 aapt2·d8·apksigner만 사용). 게임 파일과 선수 사진 스프라이트를 앱 안에 담아 오프라인에서도 동작하고, 글꼴만 인터넷이 있을 때 내려받습니다. 안드로이드 7.0(API 24) 이상에서 설치할 수 있어요. 서명 키(`android/release.keystore`)는 처음 빌드할 때 만들어지며 저장소에는 올리지 않습니다. 같은 키로 서명해야 업데이트 설치가 되니 잘 보관하세요.
+
 ## 데이터 갱신
 
 ```bash
@@ -59,4 +68,5 @@ npm run season       # 시즌 전체 진행 확인
 | `src/season.js` | 6개 리그 일정, 결과 반영, AI 경기 빠른 시뮬레이션, 이적, 재정, 훈련, 시즌 종료 |
 | `src/render.js` | 캔버스 경기장 렌더러 |
 | `src/ui.js` | 모든 화면과 입력 처리, 세이브 |
-| `tools/` | 데이터 수집, 에셋 처리, 밸런스 테스트, 번들러 |
+| `android/` | WebView 앱 껍데기 (매니페스트, 액티비티, 아이콘) |
+| `tools/` | 데이터 수집, 에셋 처리, 밸런스 테스트, 번들러, APK 빌드 |

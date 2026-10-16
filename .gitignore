@@ -5,3 +5,4 @@ node_modules/
 dist/
 data/sprites.json
 __pycache__/
+android/release.keystore

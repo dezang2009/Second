@@ -50,4 +50,10 @@ ${artBody}
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(root, 'dist/kickoff-manager.html'), full);
 fs.writeFileSync(path.join(root, 'dist/artifact.html'), artifact);
+// 안드로이드 앱용: 완성 문서 + 스프라이트 (tools/build_apk.sh가 dist/app을 APK assets/www로 넣는다)
+if (sprites) {
+  fs.mkdirSync(path.join(root, 'dist/app/assets'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'dist/app/index.html'), full.replace(body, artBody));
+  for (const f of fs.readdirSync(path.join(root, 'dist/assets'))) fs.copyFileSync(path.join(root, 'dist/assets', f), path.join(root, 'dist/app/assets', f));
+}
 console.log('dist/kickoff-manager.html', (full.length / 1024).toFixed(0) + 'KB');
