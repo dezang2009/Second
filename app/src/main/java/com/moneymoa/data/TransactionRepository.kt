@@ -1,16 +1,39 @@
 package com.moneymoa.data
 
 import android.content.Context
+import com.moneymoa.parser.Categorizer
+import com.moneymoa.parser.Category
 import com.moneymoa.parser.ParsedTransaction
+import com.moneymoa.parser.TxType
+import com.moneymoa.service.BudgetNotifier
+import java.time.YearMonth
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
-class TransactionRepository(private val dao: TransactionDao) {
+class TransactionRepository private constructor(
+    private val context: Context,
+    private val dao: TransactionDao,
+) {
 
     fun observeBetween(from: Long, to: Long) = dao.observeBetween(from, to)
 
-    suspend fun add(tx: Transaction) = dao.insert(tx)
+    fun observeInstitutions() = dao.observeInstitutions()
+
+    suspend fun categorize(type: TxType, description: String, rawText: String?): Category =
+        Categorizer.categorize(type, description, rawText, dao.rules().associate { it.keyword to it.category })
+
+    suspend fun add(tx: Transaction) {
+        dao.insert(tx)
+        afterChange(tx)
+    }
 
     suspend fun delete(tx: Transaction) = dao.delete(tx)
+
+    /** 카테고리를 바꾸고, remember면 같은 내용의 다음 거래에도 적용한다. */
+    suspend fun changeCategory(tx: Transaction, category: Category, remember: Boolean) {
+        dao.update(tx.copy(category = category))
+        if (remember && tx.description.isNotBlank()) dao.putRule(CategoryRule(tx.description.trim(), category))
+    }
 
     /**
      * 알림에서 뽑은 거래를 저장한다. 같은 거래가 은행 앱 푸시와 문자로 두 번 오거나,
@@ -35,7 +58,7 @@ class TransactionRepository(private val dao: TransactionDao) {
         }
         if (duplicate) return false
 
-        dao.insert(
+        add(
             Transaction(
                 timestamp = postedAt,
                 type = parsed.type,
@@ -45,12 +68,29 @@ class TransactionRepository(private val dao: TransactionDao) {
                 balance = parsed.balance,
                 rawText = rawText,
                 sourcePackage = sourcePackage,
+                category = categorize(parsed.type, parsed.description, rawText),
             )
         )
         return true
     }
 
+    private suspend fun afterChange(tx: Transaction) {
+        if (tx.type != TxType.EXPENSE) return
+        val zone = ZoneId.systemDefault()
+        val month = YearMonth.from(java.time.Instant.ofEpochMilli(tx.timestamp).atZone(zone))
+        if (month != YearMonth.now()) return
+        val from = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val to = month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        BudgetNotifier.check(context, dao.sumBetween(TxType.EXPENSE, from, to), month)
+    }
+
     companion object {
-        fun get(context: Context) = TransactionRepository(AppDatabase.get(context).transactions())
+        @Volatile private var instance: TransactionRepository? = null
+        fun get(context: Context) = instance ?: synchronized(this) {
+            instance ?: TransactionRepository(
+                context.applicationContext,
+                AppDatabase.get(context).transactions(),
+            ).also { instance = it }
+        }
     }
 }
