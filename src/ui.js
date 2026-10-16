@@ -57,8 +57,18 @@
   async function loadSlot(n) {
     try {
       const raw = localStorage.getItem(KEY(n));
-      return raw ? JSON.parse(await gunz(raw)) : null;
+      return raw ? migrate(JSON.parse(await gunz(raw))) : null;
     } catch (e) { return null; }
+  }
+  // 예전 세이브: 실제 선수 이름을 최신 데이터(한글 이름)로 바꾼다
+  function migrate(G) {
+    const names = {};
+    for (const l of KM.REAL.leagues) for (const c of l.clubs) for (const p of c.players) names[p.id] = p;
+    for (const id in G.players) {
+      const p = G.players[id], r = names[id];
+      if (r) { p.name = r.name; p.en = r.en; }
+    }
+    return G;
   }
   function slotInfo(n) {
     try { const m = localStorage.getItem(KEY(n) + '.meta'); return m ? JSON.parse(m) : null; } catch (e) { return null; }
