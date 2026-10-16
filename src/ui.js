@@ -539,7 +539,7 @@
     const cur = D.TACTIC_PRESETS.find((p) => Object.keys(p[3]).every((k) => p[3][k] === tac[k]));
     const open = UI.tacOpen || 'ip';
     return `<section class="card stack tac-panel">
-      <div class="row"><h2 class="grow h2" style="margin:0">전술</h2><button class="btn sm ghost" data-act="engineguide">엔진 설명</button></div>
+      <h2 class="h2" style="margin:0">전술</h2>
       <div class="eyebrow">전술 스타일</div>
       <div class="tac-presets">${D.TACTIC_PRESETS.map(([k, n, d]) => `<button class="tac-preset ${cur && cur[0] === k ? 'on' : ''}" data-act="tacpreset" data-scope="${scope}" data-v="${k}"><b>${n}</b><span>${d}</span></button>`).join('')}</div>
       ${cur ? '' : '<div class="muted" style="font-size:12px">팀 지시를 직접 바꾼 사용자 전술이에요.</div>'}
@@ -1278,48 +1278,6 @@
     if (!S.currentEvent(G)) render();
   }
 
-  // 매치 엔진 설명 (표)
-  function showEngineGuide() {
-    const rows = (arr) => arr.map((r) => `<tr>${r.map((c, i) => `<${i ? 'td' : 'th'}>${c}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('');
-    sheet(`<span class="eyebrow">MATCH ENGINE</span><h2>매치 엔진은 이렇게 움직여요</h2>
-      <div class="guide"><h3>1. 경기 한 판의 흐름</h3><table>${rows([
-        ['시간', '엔진 1틱 = 0.1초. 90분을 약 1,200초 분량으로 압축해 22명을 매 틱 움직여요.'],
-        ['위치 선정', '포메이션 자리를 기준으로 공 위치·공격/수비 여부·전술(라인 높이, 폭, 블록)에 따라 선수마다 목표 위치를 계산해요.'],
-        ['공 가진 선수', '패스(팀원 전원 후보)·드리블·슈팅의 기대 가치를 계산해 확률적으로 하나를 고릅니다.'],
-        ['패스', '거리·패스 능력에 따른 오차, 경로 위 수비수의 가로채기, 받는 선수의 볼 컨트롤을 차례로 판정해요.'],
-        ['슈팅', '거리·각도로 기대 득점(xG)을 정하고 슈팅·헤더 능력과 골키퍼 능력으로 골/선방/빗나감/블록을 판정해요.'],
-        ['수비', '가까운 선수가 압박하고 1.8m 안에서 태클을 시도해요. 수비와 드리블 능력 차이로 성공, 실패 시 파울·카드 가능.'],
-        ['체력', '뛸수록 체력이 줄어 속도·태클에 영향을 줘요. 압박이 강할수록 더 빨리 지쳐요.'],
-        ['후반', '하프타임에 진영을 바꾸고 체력을 조금 회복해요.'],
-      ])}</table>
-      <h3>2. 능력치가 쓰이는 곳</h3><table>${rows([
-        ['스피드', '최고 속도, 패스 가로채기 범위'],
-        ['슈팅', '슈팅 정확도와 결정력, 중거리 슈팅 선호'],
-        ['패스', '패스 오차, 위험한 패스 판단, 판단의 일관성'],
-        ['드리블', '태클 회피, 볼 컨트롤, 드리블 속도'],
-        ['수비', '태클 성공률, 가로채기, 패스 경로 차단'],
-        ['피지컬', '몸싸움(루즈볼), 헤더, 체력 소모'],
-        ['골키핑', '선방률, 크로스·스루패스 차단'],
-      ])}</table>
-      <h3>3. 팀 지시가 바꾸는 값</h3><table>${rows([
-        ['공격 성향', '라인 높이, 슈팅 선호, 패스 모험도'],
-        ['패스 길이', '짧게: 위험 패스 회피·짧은 패스 선호 / 직선적: 전진 패스 가산'],
-        ['템포', '공을 잡고 판단하기까지 시간 (빠르게 ≈ 0.45초, 느리게 ≈ 0.9초)'],
-        ['빌드업 방식', '후방 빌드업: 수비 진영 롱볼 금지·센터백 벌리기 / 공간 침투: 공격수 침투 강화 / 오버랩: 풀백 전진'],
-        ['파이널 서드', '보이면 슈팅: 중거리 가산 / 박스까지: 박스 밖 슈팅 감점 / 크로스: 측면 대기·박스 쇄도'],
-        ['수비 블록', '압박 시작선 (낮음 48m · 중간 70m · 높음 전역), 낮을수록 대형이 좁고 촘촘'],
-        ['압박·태클', '압박 인원(1~3명)과 반경, 태클 시도율·성공률·파울 확률'],
-        ['압박 함정', '압박 각도로 상대를 중앙/측면으로 몰고 그쪽 패스를 더 위험하게 만듦'],
-        ['전환', '카운터 프레스: 잃은 직후 4초간 압박 +2명 / 즉시 역습: 뺏은 직후 5초간 빠른 판단·전진 가산'],
-        ['골키퍼 배급', '짧게: 32m 이상 패스 금지 / 롱킥: 공격수 겨냥 가산'],
-      ])}</table>
-      <h3>4. 다른 경기는?</h3><table>${rows([
-        ['우리 경기', '위의 2D 엔진으로 실시간 계산'],
-        ['다른 구단 경기', '양 팀 선발 전력·컨디션·사기·공격 성향으로 득점 기대값을 계산한 빠른 확률 모델 (엔진 결과에 맞춰 보정)'],
-      ])}</table></div>
-      <button class="btn primary" data-act="closesheet">확인</button>`);
-  }
-
   function simWeek() {
     const G = UI.G;
     const summary = S.playWeek(G, null);
@@ -1426,7 +1384,6 @@
       const t = S.userTeam(UI.G); Object.assign(t.tactics, pr[3]); D.normTactics(t.tactics); refreshLineupHost(); toast(`${pr[1]} 전술을 적용했어요.`);
     },
     tacgroup(el) { UI.tacOpen = UI.tacOpen === el.dataset.v ? '' : el.dataset.v; if (UI.live) renderLivePanel(true); else refreshLineupHost(); },
-    engineguide() { showEngineGuide(); },
     ocounter(el) { const o = UI.G.offers.find((x) => x.id === +el.dataset.v); if (!o) return; UI.counter = { id: o.id, amount: Math.round(o.amount * 1.1 / 25) * 25 }; rerenderView(); },
     oamt(el) { const c = UI.counter; const o = UI.G.offers.find((x) => x.id === c.id); const step = Math.max(25, Math.round(o.amount * 0.05 / 25) * 25); c.amount = Math.max(o.amount + step, c.amount + step * +el.dataset.v); rerenderView(); },
     ocancel() { UI.counter = null; rerenderView(); },
