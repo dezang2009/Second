@@ -108,7 +108,7 @@
     const rng = new RNG((raw.id * 2654435761) >>> 0);
     const p = basePlayer(raw.id, raw.name, role, raw.age);
     const h = parseInt(String(raw.h || '').replace(/\D/g, ''), 10) || 0;
-    p.h = h; p.nat = raw.nat || ''; p.photo = raw.photo || ''; p.foot = raw.foot || '';
+    p.h = h; p.nat = raw.nat || ''; p.photo = raw.photo || ''; p.foot = raw.foot || ''; p.en = raw.en || '';
     p.num = raw.num || 0;
     p.value = Math.max(25, Math.round((raw.value || 50000) / 1000));
     const target = ovrFromValue(p.value, p.age);

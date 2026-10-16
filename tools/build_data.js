@@ -4,6 +4,15 @@ const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
 const tm = JSON.parse(fs.readFileSync(path.join(root, 'data/transfermarkt.json'), 'utf8'));
+// 한글 이름: ① 트랜스퍼마크트 프로필의 본국 이름(한국 선수) ② 위키데이터 한국어 표기 ③ 직접 음역한 목록
+const KO = {};
+try { Object.assign(KO, JSON.parse(fs.readFileSync(path.join(root, 'data/names_wikidata.json'), 'utf8'))); } catch (e) { /* 없음 */ }
+for (const f of fs.readdirSync(path.join(root, 'data')).filter((x) => /^names_ko_\d+\.txt$/.test(x))) {
+  for (const line of fs.readFileSync(path.join(root, 'data', f), 'utf8').split('\n')) {
+    const [id, ko] = line.split('|');
+    if (id && ko) KO[id.trim()] = ko.trim();
+  }
+}
 let colors = {};
 try { colors = JSON.parse(fs.readFileSync(path.join(root, 'data/club_colors.json'), 'utf8')); } catch (e) { /* 없으면 기본색 */ }
 
@@ -35,13 +44,13 @@ const leagues = tm.leagues.map((lg) => {
       if (KIT[c.name]) colors[c.id] = KIT[c.name];
       return {
         id: c.id, name: c.name, slug: c.slug, stadium: c.stadium || '', cap: c.cap || 0,
-        // [id, 이름, 포지션, 등번호, 나이, 국적, 키, 주발, 계약만료, 가치(€), 사진키]
+        // [id, 한글 이름, 포지션, 등번호, 나이, 국적, 키, 주발, 계약만료, 가치(€), 사진키, 원어 이름]
         players: c.players.map((p) => {
           // 시장 가치가 없는 선수(주로 유망주·백업)는 리그 하위권 가치로 추정
           const ageF = p.age <= 19 ? 0.6 : p.age >= 33 ? 0.5 : 0.8;
           const value = p.value > 0 ? p.value : Math.round((floor * ageF) / 25000) * 25000;
           const photo = (p.photo || '').replace(/^.*\/portrait\/medium\//, '').replace(/\.jpg$/, '');
-          return [p.id, p.ko || p.name, p.pos, p.num, p.age, p.nat, p.h, p.foot, p.until, value, photo];
+          return [p.id, p.ko || KO[p.id] || p.name, p.pos, p.num, p.age, p.nat, p.h, p.foot, p.until, value, photo, p.name];
         }),
       };
     }),
@@ -53,7 +62,7 @@ const out = `// 자동 생성 파일: node tools/build_data.js
 (function (KM) {
   'use strict';
   const RAW = ${JSON.stringify({ season: tm.season, fetched: tm.fetched, colors, leagues })};
-  const F = ['id', 'name', 'pos', 'num', 'age', 'nat', 'h', 'foot', 'until', 'value', 'photo'];
+  const F = ['id', 'name', 'pos', 'num', 'age', 'nat', 'h', 'foot', 'until', 'value', 'photo', 'en'];
   for (const lg of RAW.leagues) for (const c of lg.clubs) {
     c.players = c.players.map((row) => { const o = {}; F.forEach((k, i) => { o[k] = row[i]; }); return o; });
   }

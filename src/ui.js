@@ -9,7 +9,7 @@
   const IMG = 'https://img.a.transfermarkt.technology';
   const UI = {
     G: null, slot: 0, tab: 'home', sub: { squad: 'list', league: 'table', transfer: 'market', club: 'club' },
-    filter: { pos: 'ALL', sort: 'pos', budget: false, league: null, round: null, mlg: -1 },
+    filter: { pos: 'ALL', sort: 'pos', budget: false, league: null, round: null, mlg: -1, q: '', age: '', limit: 40 },
     selSlot: null, live: null, draft: null, newGame: null, confirm: null,
   };
   KM.UI = UI;
@@ -661,50 +661,166 @@
   // ── 이적 ───────────────────────────────────────────────────
   function transferView() {
     const G = UI.G, sub = UI.sub.transfer;
+    const ut = S.userTeam(G);
     let body;
     if (sub === 'offers') body = offersView();
-    else if (sub === 'free') body = marketList(G.freeAgents.map((id) => G.players[id]).filter(Boolean), 'free');
-    else if (sub === 'short') body = marketList((G.short || []).map((id) => G.players[id]).filter((p) => p && p.teamId !== G.user.teamId), 'short');
-    else if (sub === 'news') body = `<section class="card"><h2>이적 소식</h2><div class="list">${G.transfers.slice(0, 40).map((x) => {
+    else if (sub === 'free') body = searchBar('free') + `<div id="tx-results">${txResults('free')}</div>`;
+    else if (sub === 'short') body = `<div id="tx-results">${txResults('short')}</div>`;
+    else if (sub === 'news') body = newsTxView();
+    else body = searchBar('market') + recommendHtml() + `<div id="tx-results">${txResults('market')}</div>`;
+    const short = (G.short || []).filter((id) => G.players[id] && G.players[id].teamId !== ut.id).length;
+    return txHero() + seg('transfer', [['market', '선수 찾기'], ['free', '자유계약'], ['offers', `제안${G.offers.length ? ' ' + G.offers.length : ''}`], ['short', `관심${short ? ' ' + short : ''}`], ['news', '이적 소식']], sub) + body;
+  }
+
+  function windowInfo(G) {
+    const w = G.week, len = G.calendar.length;
+    if (w >= len) return { open: false, text: '시즌 종료 후 새 시즌에 열려요' };
+    if (w < 4) return { open: true, text: `여름 이적시장 · ${4 - w}주 남음` };
+    if (w >= G.window.mid0 && w <= G.window.mid1) return { open: true, text: `겨울 이적시장 · ${G.window.mid1 - w + 1}주 남음` };
+    if (w < G.window.mid0) return { open: false, text: `겨울 이적시장까지 ${G.window.mid0 - w}주` };
+    return { open: false, text: '다음 시즌에 다시 열려요' };
+  }
+  function txHero() {
+    const G = UI.G, ut = S.userTeam(G);
+    const wi = windowInfo(G);
+    return `<section class="tx-hero">
+      <div class="row"><div class="grow"><div class="eyebrow" style="color:#9fb0c6">TRANSFER CENTER</div><h2 class="tx-title">이적시장</h2></div>
+        <span class="tx-pill ${wi.open ? 'on' : ''}"><i></i>${wi.open ? '열림' : '닫힘'}</span></div>
+      <div class="tx-sub">${esc(wi.text)}${wi.open ? '' : ' · 자유계약 선수는 언제든 영입할 수 있어요'}</div>
+      <div class="tx-stats">
+        <div><small>이적 예산</small><b>${money(ut.balance)}</b></div>
+        <div><small>주급 총액</small><b>${money(W.wageBill(G, ut))}</b></div>
+        <div><small>선수단</small><b>${ut.squad.length}<span>/32</span></b></div>
+      </div></section>`;
+  }
+
+  function searchBar(mode) {
+    const G = UI.G, fl = UI.filter;
+    const sorts = mode === 'free' ? [['ovr', '능력순'], ['pot', '잠재력순'], ['age', '나이순']] : [['ovr', '능력순'], ['pot', '잠재력순'], ['value', '가치 높은순'], ['cheap', '가치 낮은순'], ['age', '나이순']];
+    const sort = sorts.some((s) => s[0] === fl.sort) ? fl.sort : 'ovr';
+    return `<section class="tx-search">
+      <label class="tx-q"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+        <input id="tx-q" type="search" inputmode="search" autocomplete="off" placeholder="선수·구단·국적 검색 (한글/영문)" value="${esc(fl.q || '')}" aria-label="선수 검색">
+        ${fl.q ? '<button class="tx-clear" data-act="txclear" aria-label="검색어 지우기">×</button>' : ''}</label>
+      <div class="row" style="gap:6px"><div class="grow" style="min-width:0">${posChips()}</div>${mode === 'market' ? `<button class="chip ${fl.budget ? 'on' : ''}" data-act="fbudget" style="flex:none">예산 안</button>` : ''}</div>
+      <div class="tx-filters">
+        ${mode === 'market' ? `<select class="sel" data-act="fmlg2" aria-label="리그"><option value="-1">전체 리그</option>${G.leagues.map((l, i) => `<option value="${i}" ${fl.mlg === i ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>` : ''}
+        <select class="sel" data-act="fage" aria-label="나이"><option value="">모든 나이</option>${[['u21', '21세 이하'], ['mid', '22~28세'], ['vet', '29세 이상']].map(([k, l]) => `<option value="${k}" ${fl.age === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <select class="sel" data-act="fsort" aria-label="정렬">${sorts.map(([k, l]) => `<option value="${k}" ${sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      </div></section>`;
+  }
+
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+  function txPool(mode) {
+    const G = UI.G, ut = S.userTeam(G), fl = UI.filter;
+    let ps;
+    if (mode === 'free') ps = G.freeAgents.map((id) => G.players[id]).filter(Boolean);
+    else if (mode === 'short') ps = (G.short || []).map((id) => G.players[id]).filter((p) => p && p.teamId !== ut.id);
+    else {
+      ps = Object.values(G.players).filter((p) => p.teamId != null && p.teamId !== ut.id);
+      if (fl.mlg >= 0) ps = ps.filter((p) => G.teams[p.teamId].league === fl.mlg);
+      if (fl.budget) ps = ps.filter((p) => p.value <= ut.balance);
+    }
+    if (mode !== 'short') {
+      if (fl.pos !== 'ALL') ps = ps.filter((p) => p.pos === fl.pos);
+      if (fl.age === 'u21') ps = ps.filter((p) => p.age <= 21);
+      else if (fl.age === 'mid') ps = ps.filter((p) => p.age >= 22 && p.age <= 28);
+      else if (fl.age === 'vet') ps = ps.filter((p) => p.age >= 29);
+      const q = norm(fl.q);
+      if (q) {
+        const terms = q.split(' ');
+        ps = ps.filter((p) => {
+          const t = teamOf(p);
+          const hay = norm([p.name, p.en, t && t.name, t && t.short, p.nat, D.ROLE_NAME[p.role], p.role].join(' '));
+          return terms.every((x) => hay.includes(x));
+        });
+      }
+    }
+    const sort = UI.filter.sort;
+    if (sort === 'cheap') ps.sort((a, b) => a.value - b.value || b.ovr - a.ovr);
+    else sortPlayers(ps, sort === 'pos' || sort === 'cond' ? 'ovr' : sort);
+    return ps;
+  }
+  function txResults(mode) {
+    const G = UI.G, ut = S.userTeam(G);
+    const all = txPool(mode);
+    const LIMIT = UI.filter.limit || 40;
+    const ps = all.slice(0, LIMIT);
+    const empty = mode === 'short' ? '관심 선수가 없어요. 선수 정보에서 ☆를 눌러 추가하세요.' : UI.filter.q ? `'${esc(UI.filter.q)}'에 맞는 선수가 없어요.` : '조건에 맞는 선수가 없어요.';
+    return `<div class="row" style="padding:0 4px;margin-bottom:6px"><span class="eyebrow grow">${mode === 'short' ? '관심 선수' : '검색 결과'} ${all.length.toLocaleString('ko-KR')}명</span></div>
+      <section class="card tx-list">${ps.map((p) => txRow(p, mode, ut)).join('') || `<div class="empty">${empty}</div>`}</section>
+      ${all.length > LIMIT ? `<button class="btn ghost block" data-act="txmore" style="margin-top:10px">더 보기 (${Math.min(40, all.length - LIMIT)}명)</button>` : ''}`;
+  }
+  function txRow(p, mode, ut) {
+    const G = UI.G, t = teamOf(p);
+    const fav = (G.short || []).includes(p.id);
+    const price = mode === 'free' ? `${money(S.wageDemand(G, p, ut))}<small>/주</small>` : money(p.value);
+    const affordable = mode === 'free' || p.value <= ut.balance;
+    return `<div class="tx-row tap" data-act="player" data-v="${p.id}">
+      ${avatar(p, 50, t ? t.c1 : null)}
+      <div class="grow" style="min-width:0">
+        <div class="tx-name">${esc(p.name)}</div>
+        ${p.en && p.en !== p.name ? `<div class="tx-en">${esc(p.en)}</div>` : ''}
+        <div class="tx-meta">${posTag(p)}<span>${p.age}세</span>${t ? `<span class="row" style="gap:4px;min-width:0">${logo(t, 16)}<span class="tx-club">${esc(t.name)}</span></span>` : '<span>무소속</span>'}</div>
+      </div>
+      <div class="tx-right">
+        <div class="tx-price ${affordable ? '' : 'over'}">${price}</div>
+        <div class="row" style="gap:6px;justify-content:flex-end">${ovrBadge(p.ovr)}<button class="tx-fav ${fav ? 'on' : ''}" data-act="short" data-v="${p.id}" aria-label="${fav ? '관심 해제' : '관심 등록'}">${fav ? '★' : '☆'}</button></div>
+      </div></div>`;
+  }
+
+  // 추천 영입: 선발 라인업에서 가장 약한 자리를 확실히 메워줄, 예산 안의 선수
+  function recommendHtml() {
+    const G = UI.G, ut = S.userTeam(G), fl = UI.filter;
+    if (fl.q || fl.pos !== 'ALL' || fl.age || fl.mlg >= 0) return '';
+    const slots = D.FORMATIONS[ut.tactics.formation];
+    let weak = null;
+    ut.lineup.forEach((id, i) => {
+      const p = G.players[id]; if (!p) return;
+      const v = W.roleOvr(p, slots[i][0]);
+      if (!weak || v < weak.v) weak = { role: slots[i][0], v, p };
+    });
+    if (!weak) return '';
+    const cands = Object.values(G.players).filter((p) => p.teamId != null && p.teamId !== ut.id && p.value <= ut.balance && S.willingToJoin(G, p, ut))
+      .map((p) => ({ p, v: W.roleOvr(p, weak.role) })).filter((x) => x.v >= weak.v + 2)
+      .sort((a, b) => b.v - a.v || a.p.value - b.p.value).slice(0, 10);
+    if (!cands.length) return '';
+    return `<section class="tx-rec">
+      <div class="row" style="padding:0 2px"><div class="grow"><div class="h2" style="margin:0">추천 영입</div>
+        <div class="muted" style="font-size:12px">가장 약한 자리 <b style="color:var(--ink)">${weak.role}</b> (현재 ${esc(weak.p.name)} ${weak.v}) · 예산 안에서 영입 가능</div></div></div>
+      <div class="tx-rail">${cands.map(({ p, v }) => { const t = teamOf(p); return `<button class="tx-card" data-act="player" data-v="${p.id}" style="--c1:${t.c1}">
+        <span class="tx-card-top">${logo(t, 18)}<span class="ovr ${ovrCls(v)}">${v}</span></span>
+        ${avatar(p, 74, t.c1)}
+        <b>${esc(shortPlayerName(p.name))}</b><span class="muted">${weak.role} · ${p.age}세</span><span class="tx-card-price">${money(p.value)}</span></button>`; }).join('')}</div>
+    </section>`;
+  }
+
+  function newsTxView() {
+    const G = UI.G;
+    return `<section class="card tx-list">${G.transfers.slice(0, 40).map((x) => {
       const p = G.players[x.pid];
       const from = x.from != null ? S.team(G, x.from) : null, to = x.to != null ? S.team(G, x.to) : null;
-      return `<div class="li">${p ? avatar(p, 36) : ''}<div class="grow"><div class="name">${p ? esc(p.name) : '은퇴 선수'}</div><div class="sub">${from ? esc(from.name) : '자유계약'} → ${to ? esc(to.name) : '방출'}</div></div><b class="num" style="font-size:15px">${x.fee ? money(x.fee) : '자유'}</b></div>`;
-    }).join('') || '<div class="empty">아직 이적이 없어요.</div>'}</div></section>`;
-    else {
-      const ut = S.userTeam(G);
-      let ps = Object.values(G.players).filter((p) => p.teamId != null && p.teamId !== ut.id);
-      if (UI.filter.mlg >= 0) ps = ps.filter((p) => G.teams[p.teamId].league === UI.filter.mlg);
-      body = `<div class="chips"><button class="chip ${UI.filter.mlg < 0 ? 'on' : ''}" data-act="fmlg" data-v="-1">전체 리그</button>${G.leagues.map((l, i) => `<button class="chip ${UI.filter.mlg === i ? 'on' : ''}" data-act="fmlg" data-v="${i}">${esc(l.name)}</button>`).join('')}</div>` + marketList(ps, 'market');
-    }
-    const open = S.windowOpen(G);
-    const banner = `<div class="card row" style="padding:10px 14px"><span class="tag ${open ? 'green' : ''}">${open ? '열림' : '닫힘'}</span><span class="grow" style="font-size:13px">${open ? '이적시장이 열려 있어요. 다른 구단 선수에게 제안할 수 있어요.' : '이적시장이 닫혀 있어요. 자유계약 선수는 언제든 영입할 수 있어요.'}</span></div>`;
-    return seg('transfer', [['market', '선수 찾기'], ['free', '자유계약'], ['offers', `제안${G.offers.length ? ' ' + G.offers.length : ''}`], ['short', '관심'], ['news', '소식']], sub) + banner + body;
+      return `<div class="tx-row ${p ? 'tap' : ''}" ${p ? `data-act="player" data-v="${p.id}"` : ''}>${p ? avatar(p, 44) : ''}
+        <div class="grow" style="min-width:0"><div class="tx-name">${p ? esc(p.name) : '은퇴 선수'}</div>
+          <div class="tx-route">${from ? logo(from, 16) + `<span>${esc(from.short)}</span>` : '<span>자유계약</span>'}<i>→</i>${to ? logo(to, 16) + `<span>${esc(to.short)}</span>` : '<span>방출</span>'}</div></div>
+        <div class="tx-right"><div class="tx-price">${x.fee ? money(x.fee) : '자유 이적'}</div><div class="muted" style="font-size:11px">${x.s}시즌 ${x.w + 1}주</div></div></div>`;
+    }).join('') || '<div class="empty">아직 이적이 없어요.</div>'}</section>`;
   }
-  function marketList(ps, mode) {
-    const G = UI.G, ut = S.userTeam(G), fl = UI.filter;
-    if (fl.pos !== 'ALL') ps = ps.filter((p) => p.pos === fl.pos);
-    if (fl.budget && mode === 'market') ps = ps.filter((p) => p.value <= ut.balance);
-    const sort = fl.sort === 'pos' || fl.sort === 'cond' ? 'ovr' : fl.sort;
-    sortPlayers(ps, sort);
-    const total = ps.length;
-    ps = ps.slice(0, 60);
-    return `<div class="row wrap" style="gap:8px"><div class="grow" style="min-width:0">${posChips()}</div>
-      ${mode === 'market' ? `<button class="chip ${fl.budget ? 'on' : ''}" data-act="fbudget">예산 안에서</button>` : ''}
-      <select class="sel" data-act="fsort" aria-label="정렬">${[['ovr', '능력순'], ['pot', '잠재력순'], ['value', '가치순'], ['age', '나이순']].map(([k, l]) => `<option value="${k}" ${sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-      <section class="card" style="padding-block:4px"><div class="list">
-      ${ps.map((p) => { const t = teamOf(p); return `<div class="li tap" data-act="player" data-v="${p.id}">${avatar(p, 42, t ? t.c1 : null)}
-        <div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${posTag(p)} ${p.age}세 · ${t ? esc(t.name) : '무소속'}</div></div>
-        <div style="text-align:right"><div class="num" style="font-weight:700;font-size:15px">${mode === 'free' ? money(S.wageDemand(G, p, ut)) + '/주' : money(p.value)}</div><div class="stars" style="font-size:10px">${stars(p)}</div></div>${ovrBadge(p.ovr)}</div>`; }).join('') || `<div class="empty">${mode === 'short' ? '관심 선수가 없어요. 선수 정보에서 ☆를 눌러 추가하세요.' : '조건에 맞는 선수가 없어요.'}</div>`}
-      </div></section>${total > 60 ? `<p class="muted" style="font-size:12px;text-align:center;margin:0">상위 60명 표시 (조건에 맞는 선수 ${total}명)</p>` : ''}`;
-  }
+
   function offersView() {
     const G = UI.G;
-    if (!G.offers.length) return '<section class="card"><div class="empty">받은 제안이 없어요. 선수를 이적 리스트에 올리면 제안이 늘어나요.</div></section>';
-    return `<section class="card"><h2>받은 제안</h2><div class="list">${G.offers.map((o) => {
+    if (!G.offers.length) return '<section class="card"><div class="empty">받은 제안이 없어요. 선수를 이적 리스트에 올리면 이적시장 기간에 제안이 들어와요.</div></section>';
+    return G.offers.map((o) => {
       const p = G.players[o.pid], t = S.team(G, o.from);
-      return `<div class="li" style="flex-wrap:wrap">${avatar(p, 40)}<div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${esc(t.name)} · 제시 <b style="color:var(--ink)">${money(o.amount)}</b> (가치 ${money(p.value)}) · ${o.exp - G.week}주 내 응답</div></div>
-        <div class="row" style="gap:6px"><button class="btn sm ghost" data-act="reject" data-v="${o.id}">거절</button><button class="btn sm primary" data-act="accept" data-v="${o.id}">수락</button></div></div>`;
-    }).join('')}</div></section>`;
+      const ratio = o.amount / Math.max(1, p.value);
+      return `<section class="card tx-offer">
+        <div class="row">${avatar(p, 50)}<div class="grow" style="min-width:0"><div class="tx-name">${esc(p.name)}</div><div class="tx-meta">${posTag(p)}<span>${p.age}세</span><span>OVR ${p.ovr}</span></div></div>
+          <span class="tag ${o.exp - G.week <= 1 ? 'red' : ''}">${o.exp - G.week}주 내 응답</span></div>
+        <div class="tx-offer-body">${logo(t, 36)}<div class="grow"><div class="muted" style="font-size:12px">${esc(t.name)}의 제안</div><b class="num" style="font-size:24px">${money(o.amount)}</b></div>
+          <div style="text-align:right"><div class="muted" style="font-size:12px">시장 가치 대비</div><b class="num" style="font-size:18px;color:${ratio >= 1 ? 'var(--win)' : 'var(--loss)'}">${Math.round(ratio * 100)}%</b></div></div>
+        <div class="grid2"><button class="btn ghost" data-act="reject" data-v="${o.id}">거절</button><button class="btn primary" data-act="accept" data-v="${o.id}">수락</button></div>
+      </section>`;
+    }).join('');
   }
 
   // ── 구단 ───────────────────────────────────────────────────
@@ -1044,9 +1160,13 @@
     tab(el) { UI.tab = el.dataset.v; UI.selSlot = null; UI.filter.pos = 'ALL'; render(); window.scrollTo(0, 0); },
     sub(el) { UI.sub[el.dataset.k] = el.dataset.v; UI.selSlot = null; rerenderView(); },
     goto(el) { UI.tab = el.dataset.tab; UI.sub[el.dataset.tab] = el.dataset.sub; render(); window.scrollTo(0, 0); },
-    fpos(el) { UI.filter.pos = el.dataset.v; rerenderView(); },
+    fpos(el) { UI.filter.pos = el.dataset.v; UI.filter.limit = 40; rerenderView(); },
     flg(el) { UI.filter.league = +el.dataset.v; UI.filter.round = null; rerenderView(); },
     fmlg(el) { UI.filter.mlg = +el.dataset.v; rerenderView(); },
+    fmlg2(el) { UI.filter.mlg = +el.value; UI.filter.limit = 40; rerenderView(); },
+    fage(el) { UI.filter.age = el.value; UI.filter.limit = 40; rerenderView(); },
+    txclear() { UI.filter.q = ''; UI.filter.limit = 40; rerenderView(); const i = $('#tx-q'); if (i) i.focus(); },
+    txmore() { UI.filter.limit = (UI.filter.limit || 40) + 40; refreshTxResults(); },
     fbudget() { UI.filter.budget = !UI.filter.budget; rerenderView(); },
     player(el) { openPlayer(+el.dataset.v, { pid: +el.dataset.v }); },
     teamsheet(el) { openTeam(+el.dataset.v); },
@@ -1125,7 +1245,8 @@
       const G = UI.G; G.short = G.short || [];
       const id = +el.dataset.v;
       G.short = G.short.includes(id) ? G.short.filter((x) => x !== id) : G.short.concat(id);
-      openPlayer(id, UI.draft); if (UI.tab === 'transfer') rerenderView();
+      if ($('.sheet-bg')) openPlayer(id, UI.draft);
+      if (UI.tab === 'transfer') { const y = window.scrollY; rerenderView(); window.scrollTo(0, y); }
     },
     amt(el) {
       const d = UI.draft, p = UI.G.players[d.pid];
@@ -1187,6 +1308,23 @@
     else rerenderView();
   }
 
+  function refreshTxResults() {
+    const box = $('#tx-results');
+    if (box) box.innerHTML = txResults(UI.sub.transfer === 'free' ? 'free' : UI.sub.transfer === 'short' ? 'short' : 'market');
+  }
+  function onKey(e) {
+    if (e.target.id === 'tx-q' && e.key === 'Enter') e.target.blur();
+  }
+  function onInput(e) {
+    if (e.target.id !== 'tx-q') return;
+    UI.filter.q = e.target.value;
+    UI.filter.limit = 40;
+    clearTimeout(UI._qt);
+    UI._qt = setTimeout(() => {
+      refreshTxResults();
+      const rec = $('.tx-rec'); if (rec) rec.hidden = !!UI.filter.q;
+    }, 120);
+  }
   function onClick(e) {
     const el = e.target.closest('[data-act]');
     if (!el || el.tagName === 'SELECT' || el.disabled) return;
@@ -1203,6 +1341,8 @@
   function init() {
     document.addEventListener('click', onClick);
     document.addEventListener('change', onChange);
+    document.addEventListener('input', onInput);
+    document.addEventListener('keydown', onKey);
     document.addEventListener('error', onImgError, true);
     window.addEventListener('resize', () => { if (UI.live) UI.live.view.resize(); });
     document.addEventListener('visibilitychange', () => { if (document.hidden && UI.G && !UI.live) save(true); });
