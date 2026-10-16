@@ -1115,7 +1115,7 @@
     el.innerHTML = `<div class="pre-head">
       <div class="row"><button class="btn sm ghost" data-act="closepre">← 닫기</button><span class="grow"></span><span class="eyebrow">${esc(fx.label)}</span></div>
       <div class="pre-tabs" role="tablist">${PRE_TABS.map(([, l], i) => `<button role="tab" data-act="pretab" data-v="${i}" class="${i === page ? 'on' : ''}" aria-selected="${i === page}">${l}</button>`).join('')}<i class="ink" style="--i:${page}"></i></div></div>
-      <div class="pre-pages" id="pre-pages">
+      <div class="pre-pages" id="pre-pages"><div class="pre-track" style="transform:translateX(${-page * 100}%)">
       <div class="pre-page"><section class="card stack"><div class="row">${logo(opp, 56)}<div class="grow"><div class="eyebrow">${home ? '홈 경기' : '원정 경기'} 상대</div><h2 style="font-family:var(--f-display);font-size:22px">${esc(opp.name)}</h2>
         <div class="muted" style="font-size:12.5px">${opp.tactics.formation} · 전력 ${W.teamRating(G, opp)} · ${formHtml(opp.form)}</div></div></div>
         <div class="row" style="gap:6px;overflow-x:auto">${oppXI.map((p) => `<div style="text-align:center;width:62px;flex:none">${avatar(p, 44, opp.c1)}<div style="font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(shortPlayerName(p.name))}</div><div class="num" style="font-weight:700;color:var(--accent)">${p.ovr}</div></div>`).join('')}</div></section>
@@ -1125,18 +1125,62 @@
       <div class="pre-page">${lineupEditor(t, 'roles')}</div>
       <div class="pre-page">${lineupEditor(t, 'bench')}</div>
       <div class="pre-page">${tacticsPanel(t.tactics, 'team')}</div>
-      </div>
+      </div></div>
       <div class="pre-foot"><button class="btn" data-act="quickmatch">결과만 보기</button><button class="btn accent big" data-act="kickoff">킥오프</button></div>`;
     const box = $('#pre-pages');
-    box.scrollLeft = page * box.clientWidth;
     box.querySelectorAll('.pre-page').forEach((x, i) => { x.scrollTop = keepY[i] || 0; });
-    box.addEventListener('scroll', () => {
-      const i = Math.round(box.scrollLeft / Math.max(1, box.clientWidth));
-      if (i === UI.prePage) return;
-      UI.prePage = i;
-      el.querySelectorAll('.pre-tabs button').forEach((b, j) => { b.classList.toggle('on', j === i); b.setAttribute('aria-selected', j === i); });
-      const ink = el.querySelector('.pre-tabs .ink'); if (ink) ink.style.setProperty('--i', i);
-    }, { passive: true });
+    bindSwipe(el, box);
+  }
+  // 손가락으로 좌우로 끌어 페이지 넘기기 (브라우저 가로 스크롤에 기대지 않고 직접 처리)
+  function goPrePage(el, i, animate) {
+    const n = PRE_TABS.length;
+    i = clamp(i, 0, n - 1);
+    UI.prePage = i;
+    const track = el.querySelector('.pre-track');
+    if (track) { track.style.transition = animate === false ? 'none' : ''; track.style.transform = `translateX(${-i * 100}%)`; }
+    el.querySelectorAll('.pre-tabs button').forEach((b, j) => { b.classList.toggle('on', j === i); b.setAttribute('aria-selected', j === i); });
+    const ink = el.querySelector('.pre-tabs .ink'); if (ink) ink.style.setProperty('--i', i);
+  }
+  function bindSwipe(el, box) {
+    const track = box.querySelector('.pre-track');
+    let st = null;
+    const reset = () => { st = null; };
+    box.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (e.target.closest('select, input, textarea')) return;
+      st = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), dx: 0, lock: null, w: box.clientWidth };
+    });
+    box.addEventListener('pointermove', (e) => {
+      if (!st || e.pointerId !== st.id) return;
+      const dx = e.clientX - st.x, dy = e.clientY - st.y;
+      if (!st.lock) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        st.lock = Math.abs(dx) > Math.abs(dy) * 1.1 ? 'x' : 'y';
+        if (st.lock === 'x') { try { box.setPointerCapture(e.pointerId); } catch (err) { /* 무시 */ } track.style.transition = 'none'; }
+      }
+      if (st.lock !== 'x') return;
+      e.preventDefault();
+      const i = UI.prePage || 0, n = PRE_TABS.length;
+      let d = dx;
+      if ((i === 0 && d > 0) || (i === n - 1 && d < 0)) d *= 0.3; // 끝에서는 살짝만 끌린다
+      st.dx = d;
+      track.style.transform = `translateX(calc(${-i * 100}% + ${d}px))`;
+    });
+    const end = (e) => {
+      if (!st || e.pointerId !== st.id) return;
+      const s0 = st; reset();
+      if (s0.lock !== 'x') return;
+      const v = s0.dx / Math.max(1, performance.now() - s0.t);
+      let i = UI.prePage || 0;
+      if (s0.dx < -s0.w * 0.22 || v < -0.45) i++;
+      else if (s0.dx > s0.w * 0.22 || v > 0.45) i--;
+      UI.swipedAt = performance.now();
+      goPrePage(el, i, true);
+    };
+    box.addEventListener('pointerup', end);
+    box.addEventListener('pointercancel', end);
+    // 끌다가 손을 뗀 직후의 클릭(선수 선택 등)은 무시
+    box.addEventListener('click', (e) => { if (UI.swipedAt && performance.now() - UI.swipedAt < 250) { e.stopPropagation(); e.preventDefault(); } }, true);
   }
   const PRE_TABS = [['opp', '상대'], ['xi', '라인업'], ['roles', '역할'], ['bench', '교체 명단'], ['tac', '전술']];
 
@@ -1654,7 +1698,7 @@
     save() { save().then((ok) => { if (ok) toast('저장했어요.'); }); },
     defspeed(el) { UI.G.settings.speed = +el.dataset.v; save(true); rerenderView(); },
 
-    pretab(el) { const box = $('#pre-pages'); if (box) box.scrollTo({ left: +el.dataset.v * box.clientWidth, behavior: 'smooth' }); },
+    pretab(el) { const ms = $('.match-screen'); if (ms) goPrePage(ms, +el.dataset.v, true); },
     closepre() { UI.prematch = false; const el = $('.match-screen'); if (el) el.remove(); lockScroll(); save(true); render(); },
     kickoff() { startLive(false); },
     quickmatch() { startLive(true); },
