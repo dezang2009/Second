@@ -19,7 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/** 홈 화면 위젯: 오늘 지출, 이번 달 지출·수입. 거래가 바뀔 때마다, 그리고 30분마다 갱신된다. */
+/** 홈 화면 위젯(2×1): 오늘 쓴 돈, 이번 달 지출. 거래가 바뀔 때마다, 그리고 30분마다 갱신된다. */
 class MoneyWidget : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -50,9 +50,8 @@ class MoneyWidget : AppWidgetProvider() {
             )
             val views = RemoteViews(context.packageName, R.layout.widget_money).apply {
                 setTextViewText(R.id.widget_today, todayTotals.expense.won())
-                setTextViewText(R.id.widget_month_label, "${month.monthValue}월 지출")
+                setTextViewText(R.id.widget_month_label, "${month.monthValue}월")
                 setTextViewText(R.id.widget_month_expense, monthTotals.expense.won())
-                setTextViewText(R.id.widget_month_income, "수입 ${monthTotals.income.won()}")
                 setOnClickPendingIntent(R.id.widget_root, open)
             }
             manager.updateAppWidget(ids, views)

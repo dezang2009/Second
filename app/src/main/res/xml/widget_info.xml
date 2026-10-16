@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 가로 2칸 × 세로 1칸. minWidth/minHeight는 Android 11 이하, targetCell은 Android 12 이상용 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_description"
     android:initialLayout="@layout/widget_money"
-    android:minWidth="180dp"
-    android:minHeight="110dp"
-    android:resizeMode="horizontal|vertical"
-    android:targetCellWidth="3"
-    android:targetCellHeight="2"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:maxResizeHeight="110dp"
+    android:resizeMode="horizontal"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
     android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen" />

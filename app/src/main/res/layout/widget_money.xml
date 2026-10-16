@@ -1,67 +1,74 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 가로 2칸 × 세로 1칸 위젯: 오늘 쓴 돈을 크게, 이번 달 지출을 작게 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_background"
+    android:gravity="center_vertical"
     android:orientation="vertical"
-    android:padding="16dp">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="오늘 쓴 돈"
-        android:textColor="@color/widget_muted"
-        android:textSize="12sp" />
-
-    <TextView
-        android:id="@+id/widget_today"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:maxLines="1"
-        android:text="0원"
-        android:textColor="@color/widget_text"
-        android:textSize="22sp"
-        android:textStyle="bold" />
-
-    <!-- 위젯(RemoteViews)은 일반 View를 못 쓰므로 FrameLayout으로 구분선을 그린다 -->
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="8dp"
-        android:background="@color/widget_divider" />
+    android:paddingStart="10dp"
+    android:paddingTop="3dp"
+    android:paddingEnd="10dp"
+    android:paddingBottom="3dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:baselineAligned="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:text="@string/widget_today"
+            android:textColor="@color/widget_muted"
+            android:textSize="11sp" />
+
+        <!-- 금액이 길어지면 칸에 맞게 글자를 줄인다 -->
+        <TextView
+            android:id="@+id/widget_today"
+            android:layout_width="0dp"
+            android:layout_height="24dp"
+            android:layout_weight="1"
+            android:autoSizeMaxTextSize="20sp"
+            android:autoSizeMinTextSize="10sp"
+            android:autoSizeTextType="uniform"
+            android:gravity="end|center_vertical"
+            android:maxLines="1"
+            android:text="0원"
+            android:textColor="@color/widget_text"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <TextView
             android:id="@+id/widget_month_label"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="이번 달 지출"
+            android:layout_marginEnd="4dp"
+            android:text="이번 달"
             android:textColor="@color/widget_muted"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
         <TextView
             android:id="@+id/widget_month_expense"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:gravity="end"
+            android:maxLines="1"
             android:text="0원"
             android:textColor="@color/widget_expense"
-            android:textSize="14sp"
+            android:textSize="11sp"
             android:textStyle="bold" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/widget_month_income"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="end"
-        android:text="수입 0원"
-        android:textColor="@color/widget_income"
-        android:textSize="12sp" />
 </LinearLayout>
