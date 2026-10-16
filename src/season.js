@@ -116,7 +116,9 @@
       G.calendar.push({ k: 'L', r });
       while (c < cupAfter.length && cupAfter[c] === r) { G.calendar.push({ k: 'C', r: c }); c++; }
     }
+    assignDays(G);
     G.week = 0;
+    G.day = 0;
     for (const t of G.teams) {
       t.form = []; W.validateLineup(G, t);
       t.wage0 = W.wageBill(G, t);
@@ -128,6 +130,38 @@
     const len = G.calendar.length;
     G.window = { mid0: Math.round(len * 0.5), mid1: Math.round(len * 0.5) + 3 };
     saveRng(G, rng);
+  }
+
+  // 경기 날짜: 시즌은 8월 첫째 주 월요일(0일)에 시작. 리그는 토요일, 컵은 그다음 수요일
+  function assignDays(G) {
+    let lastL = 0;
+    for (const ev of G.calendar) {
+      if (ev.k === 'L') { ev.day = ev.r * 7 + 5; lastL = ev.day; }
+      else ev.day = lastL + 4;
+    }
+  }
+  function seasonStart(G) {
+    const d = new Date(G.year, 7, 1);
+    while (d.getDay() !== 1) d.setDate(d.getDate() + 1); // 8월 첫 월요일
+    return d;
+  }
+  function dateOf(G, day) {
+    const d = seasonStart(G);
+    d.setDate(d.getDate() + day);
+    return d;
+  }
+  function dateText(G, day, withWeekday) {
+    const d = dateOf(G, day);
+    return `${d.getMonth() + 1}월 ${d.getDate()}일${withWeekday === false ? '' : ` (${'일월화수목금토'[d.getDay()]})`}`;
+  }
+  // 예전 세이브: 날짜가 없으면 만든다
+  function ensureDays(G) {
+    if (!G.calendar || !G.calendar.length) return;
+    if (G.calendar[0].day == null) assignDays(G);
+    if (G.day == null) {
+      const ev = G.calendar[Math.min(G.week, G.calendar.length - 1)];
+      G.day = G.week >= G.calendar.length ? ev.day + 1 : ev.day;
+    }
   }
 
   function pairUp(ids) {
@@ -200,6 +234,7 @@
 
   // ── 엔진용 팀 구성 ─────────────────────────────────────────
   function buildSide(G, t) {
+    D.normTactics(t.tactics);
     W.validateLineup(G, t);
     const slots = D.FORMATIONS[t.tactics.formation];
     return {
@@ -221,12 +256,21 @@
     return new KM.Engine.Match(buildSide(G, h), buildSide(G, a), { seed, user });
   }
 
+  // AI 구단: 상대와의 전력 차에 따라 전술 프리셋을 고른다
   function aiPrepare(G, t, opp) {
+    D.normTactics(t.tactics);
     if (t.id === G.user.teamId) return;
     W.autoLineup(G, t);
     const diff = W.teamRating(G, t) - W.teamRating(G, opp);
-    t.tactics.mentality = diff > 5 ? 3 : diff < -5 ? 1 : 2;
-    t.tactics.press = diff > 3 ? 2 : diff < -6 ? 0 : 1;
+    let key;
+    if (diff > 6) key = t.rep >= 85 ? (t.id % 2 ? 'gegen' : 'tiki') : 'vtiki';
+    else if (diff > 2) key = t.id % 3 === 0 ? 'wing' : t.id % 3 === 1 ? 'gegen' : 'balance';
+    else if (diff > -3) key = t.id % 2 ? 'balance' : 'direct';
+    else if (diff > -8) key = 'counter';
+    else key = 'bus';
+    const preset = D.TACTIC_PRESETS.find((x) => x[0] === key);
+    Object.assign(t.tactics, preset[3]);
+    D.normTactics(t.tactics);
   }
 
   // ── 빠른 시뮬레이션 (AI 대 AI) ─────────────────────────────
@@ -390,7 +434,6 @@
     }
     if (ev.k === 'C') advanceCup(G, ev.r);
     if (summary.user) afterUserMatch(G, summary.user, ev);
-    weekly(G, rng);
     G.week++;
     saveRng(G, rng);
     if (G.week >= G.calendar.length) summary.seasonOver = true;
@@ -455,21 +498,62 @@
     G.fin.cat[cat] = (G.fin.cat[cat] || 0) + amount;
   }
 
-  function weekly(G, rng) {
+  // ── 하루 진행 ───────────────────────────────────────────────
+  // 오늘 일정이 남아 있으면(사용자 경기) 진행하지 않는다. 사용자 경기가 없는 일정은 자동으로 치른다.
+  function nextEventDay(G) { const ev = currentEvent(G); return ev ? ev.day : null; }
+  function canAdvance(G) {
+    const ev = currentEvent(G);
+    if (!ev) return false;
+    return !(ev.day <= G.day && userFixture(G));
+  }
+  function advanceDay(G) {
+    ensureDays(G);
+    const out = { auto: [], log: [] };
+    // 오늘 사용자 경기가 없는 일정(다른 구단 경기)이 남아 있으면 먼저 치른다
+    let ev = currentEvent(G);
+    while (ev && ev.day <= G.day && !userFixture(G)) { out.auto.push(playWeek(G, null)); ev = currentEvent(G); }
+    if (!canAdvance(G)) return out;
+    const rng = rngOf(G);
+    G.day++;
+    dailyTick(G, rng, out.log);
+    if (G.day % 7 === 6) weeklyTick(G, rng);
+    saveRng(G, rng);
+    ev = currentEvent(G);
+    while (ev && ev.day <= G.day && !userFixture(G)) { out.auto.push(playWeek(G, null)); ev = currentEvent(G); }
+    return out;
+  }
+
+  function dailyTick(G, rng, log) {
     const uid = G.user.teamId;
+    const dow = dateOf(G, G.day).getDay();
+    const matchTomorrow = currentEvent(G) && currentEvent(G).day === G.day + 1;
     for (const t of G.teams) {
       const isUser = t.id === uid;
-      const intensity = isUser ? G.training.intensity : 1;
+      // 경기 전날은 가벼운 회복 훈련
+      const intensity = matchTomorrow ? 0 : isUser ? G.training.intensity : 1;
       const focus = isUser ? G.training.focus : 'bal';
       for (const id of t.squad) {
         const p = G.players[id];
-        if (p.inj > 0) p.inj--;
-        const rec = [26, 19, 13][intensity] + p.attr.phy / 20;
-        p.cond = Math.round(clamp(p.cond + rec, 0, 100));
-        if (intensity === 2 && rng.chance(0.004)) { p.inj = rng.int(1, 3); if (isUser) news(G, 'injury', `${p.name} 훈련 중 부상`, `강도 높은 훈련 도중 부상을 입어 ${p.inj}주 결장합니다.`); }
-        develop(G, p, t, rng, intensity, focus);
-        p.morale = clamp(p.morale + (70 - p.morale) * 0.04, 5, 100);
+        const before = isUser ? Object.assign({}, p.attr) : null;
+        p.cond = Math.round(clamp(p.cond + [7, 5.5, 4][intensity] + p.attr.phy / 70, 0, 100));
+        if (intensity === 2 && rng.chance(0.0007)) {
+          p.inj = Math.max(p.inj, rng.int(1, 3));
+          if (isUser) { news(G, 'injury', `${p.name} 훈련 중 부상`, `강도 높은 훈련 도중 부상을 입어 ${p.inj}주 결장합니다.`); log.push(`${p.name} 훈련 중 부상`); }
+        }
+        develop(G, p, t, rng, intensity, focus, 1 / 7);
+        p.morale = clamp(p.morale + (70 - p.morale) * 0.006, 5, 100);
+        if (before) for (const k in p.attr) if (p.attr[k] > before[k]) log.push(`${p.name} ${KM.World.ATTR_KO[k]} +${p.attr[k] - before[k]}`);
       }
+    }
+    // 이적시장: 화·목에 AI 이적과 영입 제안
+    if (windowOpen(G) && (dow === 2 || dow === 4)) { aiTransfers(G, rng); incomingOffers(G, rng); }
+  }
+
+  function weeklyTick(G, rng) {
+    const uid = G.user.teamId;
+    for (const t of G.teams) {
+      const isUser = t.id === uid;
+      for (const id of t.squad) { const p = G.players[id]; if (p.inj > 0) { p.inj--; if (p.inj === 0 && isUser) news(G, 'injury', `${p.name} 부상 복귀`, '훈련에 정상 합류했습니다.'); } }
       // 재정: 중계권은 리그 규모, 스폰서는 구단 규모(시즌 시작 시 주급 총액)에 비례
       const wages = Math.round(W.wageBill(G, t));
       const tv = Math.round(econ(t).tv * (400 + 10 * t.rep));
@@ -487,12 +571,12 @@
         ut.build = null;
       }
     }
-    if (windowOpen(G)) { aiTransfers(G, rng); incomingOffers(G, rng); }
     G.offers = G.offers.filter((o) => o.exp > G.week);
     if (G.board.conf < 10 && G.week > 10 && position(G, uid) > G.board.goal.pos + 2) G.user.sacked = true;
   }
 
-  function develop(G, p, t, rng, intensity, focus) {
+  function develop(G, p, t, rng, intensity, focus, scale) {
+    scale = scale || 1;
     const fac = 1 + (t.facilities.train - 1) * 0.12;
     const intF = [0.6, 1, 1.4][intensity];
     const playF = 0.75 + Math.min(1, p.season.apps / Math.max(1, G.week * 0.7)) * 0.5;
@@ -503,7 +587,7 @@
       pts = gap * 0.018 * ageF * fac * intF * playF;
     }
     if (p.age >= 31) pts -= (p.age - 29) * 0.012 * (intensity === 2 ? 1.2 : 1);
-    p._dev = (p._dev || 0) + pts * 3.2;
+    p._dev = (p._dev || 0) + pts * 3.2 * scale;
     while (p._dev >= 1 || p._dev <= -1) {
       const sign = p._dev > 0 ? 1 : -1;
       p._dev -= sign;
@@ -582,7 +666,9 @@
       if (!buyers.length) continue;
       const b = rng.pick(buyers);
       const amount = Math.round(p.value * (p.listed ? rng.range(0.75, 1.05) : rng.range(0.95, 1.35)) / 25) * 25;
-      G.offers.push({ id: G.season * 100000 + G.week * 100 + G.offers.length, pid: id, from: b.id, amount, exp: G.week + 2 });
+      // max: 상대가 속으로 정해 둔 최고액 (역제안 협상에 쓰임)
+      const max = Math.min(Math.round(b.balance * 0.9 / 25) * 25, Math.round(amount * rng.range(1.05, 1.4) / 25) * 25);
+      G.offers.push({ id: G.season * 100000 + G.week * 100 + G.day * 7 + G.offers.length, pid: id, from: b.id, amount, max: Math.max(amount, max), exp: G.week + 2, rounds: 0 });
       news(G, 'offer', `${b.name}, ${p.name} 영입 제안`, `${josa(b.name, '이/가')} ${p.name}에게 ${money(amount)}를 제시했습니다. 이적 탭에서 응답하세요.`);
     }
   }
@@ -601,6 +687,27 @@
     return { ok: true, msg: `${josa(p.name, '을/를')} ${money(o.amount)}에 판매했습니다.` };
   }
   function rejectOffer(G, offerId) { G.offers = G.offers.filter((x) => x.id !== offerId); }
+
+  // 우리가 더 높은 금액을 요구: 상대 최고액 안이면 수용, 조금 넘으면 최종 제안, 너무 높거나 세 번째면 결렬
+  function counterOffer(G, offerId, ask) {
+    const o = G.offers.find((x) => x.id === offerId);
+    if (!o) return { status: 'gone', msg: '제안이 만료되었습니다.' };
+    const p = G.players[o.pid], b = team(G, o.from);
+    if (o.max == null) o.max = Math.round(Math.max(o.amount, p.value * 1.15) / 25) * 25;
+    o.rounds = (o.rounds || 0) + 1;
+    if (ask <= o.amount) return { status: 'same', msg: '현재 제시액보다 높은 금액을 요구하세요.' };
+    if (ask <= o.max) {
+      o.amount = ask; o.agreed = true;
+      return { status: 'agreed', msg: `${josa(b.name, '이/가')} ${money(ask)}에 동의했어요. 수락하면 이적이 확정돼요.` };
+    }
+    if (o.final || o.rounds >= 3 || ask > o.max * 1.25) {
+      G.offers = G.offers.filter((x) => x.id !== offerId);
+      news(G, 'offer', `${p.name} 협상 결렬`, `${josa(b.name, '이/가')} 요구액이 너무 높다며 협상에서 물러났습니다.`);
+      return { status: 'walk', msg: `${josa(b.name, '이/가')} 협상을 포기했어요.` };
+    }
+    o.amount = o.max; o.final = true;
+    return { status: 'final', msg: `${josa(b.name, '이/가')} 최종 제안으로 ${money(o.max)}를 내놨어요. 더 올리면 협상이 깨질 수 있어요.` };
+  }
 
   function askingPrice(G, p) {
     if (p.teamId == null) return 0;
@@ -893,8 +1000,8 @@
 
   KM.Season = {
     createWorld, startCareer, setupSeason, userTeam, team, leagueOf, table, position, currentEvent, userFixture, windowOpen,
-    createMatch, playWeek, endSeason, quickSim, buildSide, cupRoundName,
-    makeBid, completeSigning, askingPrice, wageDemand, willingToJoin, acceptOffer, rejectOffer, releasePlayer, releaseCost,
+    createMatch, playWeek, endSeason, advanceDay, canAdvance, nextEventDay, dateText, dateOf, ensureDays, quickSim, buildSide, cupRoundName,
+    makeBid, completeSigning, askingPrice, wageDemand, willingToJoin, acceptOffer, rejectOffer, counterOffer, releasePlayer, releaseCost,
     renew, renewDemand, upgradeFacility, facCost, FAC, jobOffers, takeJob, strengthRank,
     pressQuestions, answerPress, unlock, ACH, news,
   };

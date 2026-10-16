@@ -68,6 +68,8 @@
       const p = G.players[id], r = names[id];
       if (r) { p.name = r.name; p.en = r.en; }
     }
+    S.ensureDays(G);
+    for (const t of G.teams) D.normTactics(t.tactics);
     return G;
   }
   function slotInfo(n) {
@@ -110,7 +112,7 @@
       const i = SP.l[t.tm];
       return `<span class="logo" style="width:${size}px;height:${size}px;${spriteCss('assets/logos.webp', i % 12, Math.floor(i / 12), SP.lw, SP.lw, size, 12)}" role="img" aria-label="${esc(t.name)}"></span>`;
     }
-    if (!SP && t.tm) return `<img class="logo" style="width:${size}px;height:${size}px" src="${IMG}/wappen/head/${t.tm}.png" alt="" loading="lazy" referrerpolicy="no-referrer" data-ini="${esc(t.short)}" data-c="${t.c1}">`;
+    if (!SP && t.tm) return `<img class="logo" style="width:${size}px;height:${size}px" src="${IMG}/wappen/head/${t.tm}.png" alt="" referrerpolicy="no-referrer" data-ini="${esc(t.short)}" data-c="${t.c1}">`;
     return `<span class="logo fb" style="width:${size}px;height:${size}px;--fb-bg:${t.c1};--fb-ink:${KM.Render.contrast(t.c1)}">${esc(t.short)}</span>`;
   }
   // 이미지를 못 불러오면 이니셜로 대체
@@ -160,17 +162,32 @@
     UI._tt = setTimeout(() => el.remove(), 2600);
   }
 
-  function sheet(html, onClose) {
+  // opts.update: 이미 열린 시트의 내용만 바꾼다 (깜빡임·스크롤 초기화 없이)
+  function sheet(html, onClose, opts) {
+    const cur = $('.sheet-bg');
+    if (cur && opts && opts.update) {
+      const sh = cur.firstChild, y = sh.scrollTop;
+      sh.innerHTML = `<div class="grab"></div>${html}`;
+      sh.scrollTop = y;
+      UI._sheetClose = onClose || null;
+      return sh;
+    }
     closeSheet();
     const bg = document.createElement('div');
     bg.className = 'sheet-bg';
     bg.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
     bg.addEventListener('click', (e) => { if (e.target === bg) { closeSheet(); if (onClose) onClose(); } });
     document.body.appendChild(bg);
+    lockScroll();
     UI._sheetClose = onClose || null;
     return bg.firstChild;
   }
-  function closeSheet() { const s = $('.sheet-bg'); if (s) s.remove(); }
+  // 팝업·경기 화면이 열려 있으면 뒤 화면이 스크롤되지 않도록 고정
+  function lockScroll() {
+    const locked = !!($('.sheet-bg') || $('.match-screen'));
+    document.documentElement.classList.toggle('locked', locked);
+  }
+  function closeSheet() { const s = $('.sheet-bg'); if (s) s.remove(); lockScroll(); }
 
   const ICON = {
     home: '<svg viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15V15H9v5.5H5.5A1.5 1.5 0 0 1 4 19z"/></svg>',
@@ -206,7 +223,9 @@
   function rerenderView() {
     const v = $('#view');
     if (!v) return render();
+    const y = window.scrollY;
     v.innerHTML = viewHtml();
+    window.scrollTo(0, y);
   }
   function viewHtml() {
     switch (UI.tab) {
@@ -309,6 +328,7 @@
     if (!ev) {
       parts.push(`<section class="card stack"><span class="eyebrow">시즌 종료</span><h2 style="margin:0">${seasonLabel(G.year)} 시즌이 끝났습니다</h2><p class="muted" style="margin:0">최종 순위 ${S.position(G, t.id)}위. 결산을 확인하고 다음 시즌을 시작하세요.</p><button class="btn primary big" data-act="endseason">시즌 결산 보기</button></section>`);
     } else {
+      parts.push(dayStrip(G));
       const fx = S.userFixture(G);
       if (fx) {
         const home = fx.m.h === t.id;
@@ -328,12 +348,12 @@
             ${compare('전력', W.teamRating(G, hT), W.teamRating(G, aT))}
             ${fx.ev.k === 'L' && G.week > 0 ? compare('리그 순위', S.position(G, hT.id), S.position(G, aT.id), (v) => v + '위') : ''}
             ${os ? `<div class="row" style="font-size:12.5px">${avatar(os, 36, opp.c1)}<span class="grow muted">경계 대상 <b style="color:var(--ink)">${esc(os.name)}</b> · ${os.role} · 시즌 ${os.season.goals}골 ${os.season.assists}도움</span>${ovrBadge(os.ovr)}</div>` : ''}
-            <button class="btn primary big" data-act="prematch">경기 준비</button>
+            ${ev.day <= G.day ? '<button class="btn primary big" data-act="prematch">경기 준비</button>' : `<div class="grid2"><button class="btn" data-act="nextday">다음 날로</button><button class="btn primary" data-act="tomatch">경기일까지 진행</button></div>`}
           </div>
         </section>`);
       } else {
         const label = ev.k === 'C' ? `${G.cup.name} ${S.cupRoundName(G, ev.r)}` : '리그';
-        parts.push(`<section class="card stack"><span class="eyebrow">이번 주 · ${esc(label)}</span><p style="margin:0">이번 주는 우리 경기가 없습니다. 다른 구단의 결과를 확인하세요.</p><button class="btn primary big" data-act="simweek">다음 주로</button></section>`);
+        parts.push(`<section class="card stack"><span class="eyebrow">${esc(S.dateText(G, ev.day))} · ${esc(label)}</span><p style="margin:0">이번 일정에는 우리 경기가 없어요. 다른 구단 경기는 그날 자동으로 치러져요.</p><div class="grid2"><button class="btn" data-act="nextday">다음 날로</button><button class="btn primary" data-act="tomatch">다음 경기까지</button></div></section>`);
       }
     }
     const lm = G.lastMatch;
@@ -370,6 +390,29 @@
     parts.push(`<section class="card news"><h2>구단 소식</h2><div class="list">${G.news.slice(0, 8).map(newsItem).join('') || '<div class="empty">아직 소식이 없습니다.</div>'}</div></section>`);
     return parts.join('');
   }
+  // 오늘부터 7일 일정: 경기일·훈련일을 한눈에
+  function dayStrip(G) {
+    const uid = G.user.teamId;
+    const ev = S.currentEvent(G);
+    const left = ev ? ev.day - G.day : 0;
+    const days = [];
+    for (let d = G.day; d < G.day + 7; d++) {
+      const e = G.calendar.find((x) => x.day === d);
+      let kind = 'train', label = '훈련';
+      if (e) {
+        const ul = S.leagueOf(G, S.userTeam(G));
+        const mine = e.k === 'L' ? ul.fixtures[e.r].some((m) => m.h === uid || m.a === uid)
+          : G.cup.rounds[e.r] ? G.cup.rounds[e.r].some((m) => (m.h === uid || m.a === uid) && m.h != null && m.a != null) : e.r < (G.cup.rounds.length + 1) && !G.cup.winner;
+        kind = mine ? 'match' : 'other'; label = e.k === 'C' ? '컵' : '리그';
+      } else if (G.calendar.some((x) => x.day === d + 1)) { kind = 'rest'; label = '회복'; }
+      const dt = S.dateOf(G, d);
+      days.push(`<div class="day ${kind} ${d === G.day ? 'today' : ''}"><small>${'일월화수목금토'[dt.getDay()]}</small><b class="num">${dt.getDate()}</b><span>${kind === 'match' ? '⚽' : kind === 'other' ? '·' : ''}${label}</span></div>`);
+    }
+    return `<section class="card day-card"><div class="row"><div class="grow"><div class="eyebrow">오늘</div><div class="h2" style="margin:0">${esc(S.dateText(G, G.day))}</div></div>
+      ${ev ? `<span class="dday ${left <= 0 ? 'now' : ''}">${left <= 0 ? '경기일' : `다음 경기 D-${left}`}</span>` : ''}</div>
+      <div class="days">${days.join('')}</div></section>`;
+  }
+
   function newsItem(n) {
     return `<div class="li"><span class="ic" aria-hidden="true">${NEWS_IC[n.tag] || '•'}</span><div class="grow"><div class="t">${esc(n.title)}</div><div class="b">${esc(n.body)}</div></div></div>`;
   }
@@ -471,34 +514,53 @@
         <span class="ln" style="left:50%;top:50%;width:26%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%"></span>
         <span class="ln" style="left:24%;right:24%;bottom:3%;height:16%;border-bottom:0"></span><span class="ln" style="left:24%;right:24%;top:3%;height:16%;border-top:0"></span>
         ${discs}</div>
-      <div class="list">
-        ${others.map((p) => {
-          const out = p.inj > 0 || p.sus > 0;
-          const fitO = role ? W.roleOvr(p, role) : null;
-          return `<div class="li ${out ? '' : 'tap'}" ${out ? '' : `data-act="pickp" data-v="${p.id}"`} style="${out ? 'opacity:.5' : ''}">
-          ${avatar(p, 36)}<div class="grow"><div class="name">${esc(p.name)} ${benchSet.has(p.id) ? '<span class="tag">교체 명단</span>' : ''}</div><div class="sub">${posTag(p)} 컨디션 ${p.cond}% ${statusTags(p)}</div></div>
-          ${fitO != null ? `<span class="muted num" style="font-size:14px;font-weight:700">${role} ${fitO}</span>` : ''}${ovrBadge(p.ovr)}</div>`;
-        }).join('')}
-      </div>
+    </section>
+    <section class="card stack">
+      <div class="row"><h2 class="grow h2" style="margin:0">교체 명단 <small style="margin-left:6px">${t.bench.length}/9</small></h2>
+        <button class="btn sm ghost" data-act="benchauto">자동 구성</button></div>
+      <p class="muted" style="margin:0;font-size:12.5px">${sel != null ? '아래 선수를 누르면 선택한 자리에 들어가요.' : '경기 중 교체로 투입할 수 있는 선수는 이 명단의 9명뿐이에요. 오른쪽 버튼으로 넣고 빼세요.'}${t.bench.some((id) => G.players[id] && G.players[id].pos === 'GK') ? '' : ' <b style="color:var(--loss)">교체 골키퍼가 없어요.</b>'}</p>
+      <div class="list">${others.filter((p) => benchSet.has(p.id)).sort((a, b) => t.bench.indexOf(a.id) - t.bench.indexOf(b.id)).map((p) => benchRow(p, role, true)).join('') || '<div class="empty">교체 명단이 비어 있어요.</div>'}</div>
+      <div class="eyebrow" style="margin-top:4px">명단 외 ${others.filter((p) => !benchSet.has(p.id)).length}명</div>
+      <div class="list">${others.filter((p) => !benchSet.has(p.id)).map((p) => benchRow(p, role, false)).join('') || '<div class="empty">모든 선수가 명단에 있어요.</div>'}</div>
     </section>`;
   }
+  function benchRow(p, role, onBench) {
+    const out = p.inj > 0 || p.sus > 0;
+    const fitO = role ? W.roleOvr(p, role) : null;
+    return `<div class="li ${out ? '' : 'tap'}" ${out ? '' : `data-act="pickp" data-v="${p.id}"`} style="${out ? 'opacity:.55' : ''}">
+      ${avatar(p, 36)}<div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${posTag(p)} 컨디션 ${p.cond}% ${statusTags(p)}</div></div>
+      ${fitO != null ? `<span class="muted num" style="font-size:14px;font-weight:700">${role} ${fitO}</span>` : ''}${ovrBadge(p.ovr)}
+      ${out ? '' : `<button class="bench-btn ${onBench ? 'on' : ''}" data-act="benchtoggle" data-v="${p.id}" aria-label="${onBench ? '교체 명단에서 빼기' : '교체 명단에 넣기'}">${onBench ? '−' : '+'}</button>`}</div>`;
+  }
 
+  // 풋볼 매니저식 전술 화면: 프리셋 + 공격 시 / 수비 시 / 전환 팀 지시
   function tacticsPanel(tac, scope) {
-    const L = D.TACTIC_LABELS;
-    const row = (k, title) => `<div class="stack" style="gap:6px"><span class="eyebrow">${title}</span><div class="seg">${L[k].map((l, i) => `<button data-act="tac" data-scope="${scope}" data-k="${k}" data-v="${i}" class="${tac[k] === i ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
-    return `<section class="card stack"><h2 style="margin:0">전술</h2>
-      ${row('mentality', '공격 성향')}${row('style', '패스 스타일')}${row('press', '압박 강도')}${row('line', '수비 라인')}${row('width', '공격 폭')}
+    D.normTactics(tac);
+    const cur = D.TACTIC_PRESETS.find((p) => Object.keys(p[3]).every((k) => p[3][k] === tac[k]));
+    const open = UI.tacOpen || 'ip';
+    return `<section class="card stack tac-panel">
+      <div class="row"><h2 class="grow h2" style="margin:0">전술</h2><button class="btn sm ghost" data-act="engineguide">엔진 설명</button></div>
+      <div class="eyebrow">전술 스타일</div>
+      <div class="tac-presets">${D.TACTIC_PRESETS.map(([k, n, d]) => `<button class="tac-preset ${cur && cur[0] === k ? 'on' : ''}" data-act="tacpreset" data-scope="${scope}" data-v="${k}"><b>${n}</b><span>${d}</span></button>`).join('')}</div>
+      ${cur ? '' : '<div class="muted" style="font-size:12px">팀 지시를 직접 바꾼 사용자 전술이에요.</div>'}
+      ${D.TACTIC_GROUPS.map((g) => `<div class="tac-group ${open === g.key ? 'open' : ''}">
+        <button class="tac-head" data-act="tacgroup" data-v="${g.key}"><b>${g.title}</b><span class="muted">${g.items.map(([k, , labels]) => labels[tac[k]]).slice(0, 3).join(' · ')}…</span><i>${open === g.key ? '−' : '+'}</i></button>
+        ${open === g.key ? `<div class="stack" style="gap:12px;padding-top:8px">${g.items.map(([k, title, labels, desc]) => `<div class="stack" style="gap:5px">
+          <div class="row"><span class="eyebrow grow">${title}</span><span class="muted" style="font-size:11px">${desc}</span></div>
+          <div class="seg">${labels.map((l, i) => `<button data-act="tac" data-scope="${scope}" data-k="${k}" data-v="${i}" class="${tac[k] === i ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}</div>` : ''}
+      </div>`).join('')}
       <p class="muted" style="font-size:12px;margin:0">${tacticHint(tac)}</p></section>`;
   }
   function tacticHint(t) {
     const out = [];
-    if (t.press === 2) out.push('전방 압박은 공을 빨리 되찾지만 체력 소모가 커요.');
-    if (t.line === 2 && t.press < 2) out.push('높은 수비 라인은 압박과 함께 써야 뒷공간이 덜 노출돼요.');
-    if (t.style === 0) out.push('짧은 패스는 점유율을 높이고 실수를 줄여요.');
-    if (t.style === 2) out.push('직선적인 패스는 빠르게 전진하지만 공을 자주 잃어요.');
-    if (t.mentality >= 3) out.push('공격적인 성향은 슈팅이 늘지만 역습에 약해요.');
-    if (t.mentality <= 1) out.push('수비적인 성향은 실점을 줄이지만 득점 기회도 줄어요.');
-    return out.join(' ') || '균형 잡힌 기본 전술이에요.';
+    if (t.press === 2 || t.onLoss === 2) out.push('강한 압박과 카운터 프레스는 공을 빨리 되찾지만 후반에 체력이 크게 떨어져요.');
+    if (t.line === 2 && t.block < 2) out.push('높은 수비 라인은 뒷공간을 노리는 침투 패스에 약해요. 높은 블록과 함께 쓰는 편이 좋아요.');
+    if (t.block === 0) out.push('낮은 블록은 박스 앞을 촘촘하게 막지만 상대에게 공을 내줘요.');
+    if (t.passing <= 1) out.push('짧은 패스는 공을 덜 잃지만 전진이 느려요.');
+    if (t.passing >= 3) out.push('직선적인 패스는 빠르게 전진하지만 공을 자주 잃어요.');
+    if (t.onWin === 2) out.push('공을 뺏은 직후 몇 초 동안 앞으로 빠르게 찌르고 드리블로 치고 나가요.');
+    if (t.finalThird === 3) out.push('크로스 위주일 때는 측면 선수가 넓게 서고 스트라이커가 박스로 쇄도해요.');
+    return out.slice(0, 2).join(' ') || '균형 잡힌 기본 전술이에요.';
   }
 
   function trainingView() {
@@ -569,7 +631,9 @@
       <div class="kv"><div><small>시즌 출전</small><b>${st.apps}</b></div><div><small>골 / 도움</small><b>${st.goals} / ${st.assists}</b></div><div><small>평균 평점</small><b>${avg}</b></div></div>
       <div class="muted" style="font-size:12px">통산 ${p.career.apps}경기 ${p.career.goals}골 ${p.career.assists}도움${p.gen ? ' · 가상 선수(유스/자유계약)' : ''}</div>
       ${actions}`;
-    sheet(html, () => { UI.draft = null; });
+    const same = $('.sheet-bg') && $('.sheet-bg').dataset.pid === String(pid);
+    sheet(html, () => { UI.draft = null; }, { update: same });
+    $('.sheet-bg').dataset.pid = String(pid);
   }
 
   function bidPanel(p, d) {
@@ -828,7 +892,12 @@
           <span class="tag ${o.exp - G.week <= 1 ? 'red' : ''}">${o.exp - G.week}주 내 응답</span></div>
         <div class="tx-offer-body">${logo(t, 36)}<div class="grow"><div class="muted" style="font-size:12px">${esc(t.name)}의 제안</div><b class="num" style="font-size:24px">${money(o.amount)}</b></div>
           <div style="text-align:right"><div class="muted" style="font-size:12px">시장 가치 대비</div><b class="num" style="font-size:18px;color:${ratio >= 1 ? 'var(--win)' : 'var(--loss)'}">${Math.round(ratio * 100)}%</b></div></div>
-        <div class="grid2"><button class="btn ghost" data-act="reject" data-v="${o.id}">거절</button><button class="btn primary" data-act="accept" data-v="${o.id}">수락</button></div>
+        ${o.agreed ? '<div class="tag green" style="align-self:flex-start">우리 요구액에 합의</div>' : o.final ? '<div class="tag amber" style="align-self:flex-start">상대의 최종 제안 · 더 올리면 결렬될 수 있어요</div>' : ''}
+        ${UI.counter && UI.counter.id === o.id ? `<div class="tx-counter">
+          <div class="muted" style="font-size:12px">요구할 금액</div>
+          <div class="row"><button class="btn sm" data-act="oamt" data-v="-1" aria-label="낮추기">−</button><b class="grow num" style="text-align:center;font-size:24px">${money(UI.counter.amount)}</b><button class="btn sm" data-act="oamt" data-v="1" aria-label="올리기">+</button></div>
+          <div class="grid2"><button class="btn ghost" data-act="ocancel">취소</button><button class="btn accent" data-act="osend">이 금액 요구</button></div></div>`
+        : `<div class="grid3"><button class="btn ghost" data-act="reject" data-v="${o.id}">거절</button>${o.agreed ? '' : `<button class="btn" data-act="ocounter" data-v="${o.id}">더 요구하기</button>`}<button class="btn primary" data-act="accept" data-v="${o.id}">수락</button></div>`}
       </section>`;
     }).join('');
   }
@@ -937,7 +1006,9 @@
     W.autoLineup(G, opp);
     const oppXI = opp.lineup.map((id) => G.players[id]).filter(Boolean).sort((a, b) => b.ovr - a.ovr).slice(0, 5);
     let el = $('.match-screen');
-    if (!el) { el = document.createElement('div'); el.className = 'match-screen'; document.body.appendChild(el); }
+    if (!el) { el = document.createElement('div'); el.className = 'match-screen'; document.body.appendChild(el); lockScroll(); }
+    const keepY = el.scrollTop;
+    requestAnimationFrame(() => { el.scrollTop = keepY; });
     el.innerHTML = `<div class="in">
       <div class="row"><button class="btn sm ghost" data-act="closepre">← 닫기</button><span class="grow"></span><span class="eyebrow">${esc(fx.label)}</span></div>
       <section class="card stack"><div class="row">${logo(opp, 56)}<div class="grow"><div class="eyebrow">${home ? '홈 경기' : '원정 경기'} 상대</div><h2 style="font-family:var(--f-display);font-size:22px">${esc(opp.name)}</h2>
@@ -959,13 +1030,13 @@
     if (quick) { m.runToEnd(); return finishMatch(m); }
     UI.live = { m, fx, userSide, speed: G.settings.speed || 1, paused: false, acc: 0, evShown: 0, tab: 'feed', selOut: null, last: 0, owner: null };
     let el = $('.match-screen');
-    if (!el) { el = document.createElement('div'); el.className = 'match-screen'; document.body.appendChild(el); }
+    if (!el) { el = document.createElement('div'); el.className = 'match-screen'; document.body.appendChild(el); lockScroll(); }
     const h = m.sides[0].team, a = m.sides[1].team;
     const kit = KM.Render.kits(h, a);
     el.innerHTML = `<div class="in">
       <div class="scoreboard"><div class="tm">${logo(h, 34)}<b>${esc(h.short)}</b></div><div class="mid"><div class="score" id="lv-score">0 - 0</div><div class="clock" id="lv-clock">00:00</div></div><div class="tm away">${logo(a, 34)}<b>${esc(a.short)}</b></div></div>
       <div class="possbar" aria-hidden="true"><i id="lv-ph" style="background:${kit[0].fill};width:50%"></i><i style="background:${kit[1].fill};flex:1"></i></div>
-      <div class="pitch-wrap"><canvas class="pitch" id="lv-canvas" aria-label="경기 화면"></canvas><div class="owner" id="lv-owner"></div><div id="lv-flash"></div></div>
+      <div class="pitch-wrap"><canvas class="pitch" id="lv-canvas" aria-label="경기 화면"></canvas><div class="owner" id="lv-owner"></div><div id="lv-flash"></div><div id="lv-ht" class="ht-wrap" hidden></div></div>
       <div class="ctrl"><button class="btn" data-act="lvpause" id="lv-pause">일시정지</button><button class="btn" data-act="lvspeed" id="lv-speed">${UI.live.speed}배속</button><button class="btn" data-act="lvskip">결과로</button></div>
       <div class="seg" id="lv-tabs">${[['feed', '중계'], ['stats', '기록'], ['tac', '전술'], ['subs', '교체']].map(([k, l]) => `<button data-act="lvtab" data-v="${k}" class="${k === 'feed' ? 'on' : ''}">${l}</button>`).join('')}</div>
       <section class="card" id="lv-panel"></section>
@@ -995,6 +1066,7 @@
         L.acc -= 1; n++;
         if (m.flash) showFlash(m.flash);
         if (m.finished) break;
+        if (m.half === 2 && !L.htShown) { L.htShown = true; L.acc = 0; showHalftime(); break; }
       }
     }
     L.view.draw(m.finished ? 1 : clamp(L.acc, 0, 1));
@@ -1006,6 +1078,23 @@
       renderLivePanel(true);
     }
     requestAnimationFrame(liveLoop);
+  }
+
+  // 하프타임: 경기를 멈추고 전반 요약 + 진영 교체 안내
+  function showHalftime() {
+    const L = UI.live, m = L.m;
+    L.paused = true;
+    const pb = $('#lv-pause'); if (pb) pb.textContent = '재개';
+    const box = $('#lv-ht'); if (!box) return;
+    const s0 = m.stats[0], s1 = m.stats[1], pp = m.possPct();
+    const h = m.sides[0].team, a = m.sides[1].team;
+    box.innerHTML = `<div class="ht-card">
+      <div class="eyebrow" style="color:#ffd23a">HALF TIME</div>
+      <div class="ht-score">${logo(h, 30)}<b class="num">${m.score[0]} - ${m.score[1]}</b>${logo(a, 30)}</div>
+      <div class="ht-stats"><span>점유율 <b>${pp} : ${100 - pp}</b></span><span>슈팅 <b>${s0.shots} : ${s1.shots}</b></span><span>xG <b>${s0.xg.toFixed(1)} : ${s1.xg.toFixed(1)}</b></span></div>
+      <p>후반에는 진영을 바꿔요. 우리 팀은 이제 <b>아래쪽</b>으로 공격합니다.</p>
+      <div class="grid2"><button class="btn" data-act="httac">전술·교체</button><button class="btn accent" data-act="htgo">후반 시작</button></div></div>`;
+    box.hidden = false;
   }
 
   function showFlash(f) {
@@ -1033,7 +1122,7 @@
       const box = $('#lv-owner');
       if (box) box.innerHTML = ow ? `${avatar(ow.p, 30, m.sides[ow.side].team.c1)}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(ow.p.name)}</span>` : '';
     }
-    if (m.events.length !== L.evShown || (performance.now() - (L.panelT || 0) > 1000)) {
+    if (m.events.length !== L.evShown || (L.tab === 'stats' && performance.now() - (L.panelT || 0) > 1000)) {
       L.evShown = m.events.length;
       L.panelT = performance.now();
       renderLivePanel(false);
@@ -1044,6 +1133,10 @@
     const L = UI.live; if (!L) return;
     const m = L.m, panel = $('#lv-panel'); if (!panel) return;
     if ((L.tab === 'tac' || L.tab === 'subs') && !force) return;
+    // 중계 목록을 내려 보던 위치와 화면 스크롤을 유지한다
+    const feedEl = panel.querySelector('.feed');
+    const feedY = feedEl ? feedEl.scrollTop : 0, feedH = feedEl ? feedEl.scrollHeight : 0;
+    const scr = $('.match-screen'), scrY = scr ? scr.scrollTop : 0;
     let html = '';
     if (L.tab === 'feed') {
       const evs = m.events.slice().reverse();
@@ -1057,8 +1150,7 @@
     } else if (L.tab === 'tac') {
       const tac = m.sides[L.userSide].tactics;
       html = `<div class="stack"><div class="row"><span class="eyebrow grow">포메이션</span><select class="sel" data-act="lvform">${Object.keys(D.FORMATIONS).map((f) => `<option ${f === tac.formation ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
-        ${['mentality', 'press', 'style', 'line', 'width'].map((k) => `<div class="stack" style="gap:6px"><span class="eyebrow">${{ mentality: '공격 성향', press: '압박 강도', style: '패스 스타일', line: '수비 라인', width: '공격 폭' }[k]}</span><div class="seg">${D.TACTIC_LABELS[k].map((l, i) => `<button data-act="tac" data-scope="live" data-k="${k}" data-v="${i}" class="${tac[k] === i ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}
-        <p class="muted" style="margin:0;font-size:12px">변경 사항은 바로 경기에 반영돼요.</p></div>`;
+        <p class="muted" style="margin:0;font-size:12px">변경 사항은 바로 경기에 반영돼요.</p></div>` + tacticsPanel(tac, 'live');
     } else {
       const s = L.userSide;
       const on = m.onPitch(s).slice().sort((a, b) => a.bx - b.bx);
@@ -1070,6 +1162,9 @@
         <div class="list">${bench.map((p) => `<div class="li ${L.selOut && m.subsLeft[s] > 0 ? 'tap' : ''}" ${L.selOut && m.subsLeft[s] > 0 ? `data-act="lvin" data-v="${p.id}"` : ''} style="${L.selOut ? '' : 'opacity:.7'}">${avatar(p, 36)}<div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${posTag(p)} 컨디션 ${p.cond}%</div></div>${ovrBadge(p.ovr)}</div>`).join('') || '<div class="empty">벤치 선수가 없어요.</div>'}</div>`;
     }
     panel.innerHTML = html;
+    const nf = panel.querySelector('.feed');
+    if (nf && feedY > 0) nf.scrollTop = feedY + (nf.scrollHeight - feedH); // 새 소식이 위에 추가돼도 보던 줄 유지
+    if (scr) scr.scrollTop = scrY;
     if (L.tab === 'stats') { const c = $('#momchart'); if (c) drawMomentum(c, m.momentum, KM.Render.kits(m.sides[0].team, m.sides[1].team)); }
   }
   function evIcon(e) {
@@ -1114,7 +1209,7 @@
     const summary = S.playWeek(G, m);
     UI.live = null;
     if (UI.wake) { try { UI.wake.release(); } catch (e) { /* 무시 */ } UI.wake = null; }
-    const el = $('.match-screen'); if (el) el.remove();
+    const el = $('.match-screen'); if (el) el.remove(); lockScroll();
     save(true);
     render();
     showPostMatch(m, summary);
@@ -1148,6 +1243,81 @@
     if (G.newAch && G.newAch.length) { toast(`업적 달성: ${S.ACH[G.newAch[0]][0]}`); G.newAch = []; }
     if (G.user.sacked) { save(true); render(); return; }
     if (summary && summary.seasonOver) render();
+  }
+
+  // 하루씩 진행 (n=60이면 다음 우리 경기일까지)
+  function dayAdvance(n) {
+    const G = UI.G;
+    const startDay = G.day;
+    const logs = [], autos = [];
+    for (let i = 0; i < n; i++) {
+      const ev = S.currentEvent(G);
+      if (!ev || G.user.sacked) break;
+      if (S.userFixture(G) && ev.day <= G.day) break; // 우리 경기일
+      const r = S.advanceDay(G);
+      logs.push(...r.log); autos.push(...r.auto.filter(Boolean));
+      if (n === 1) break;
+    }
+    save(true);
+    render();
+    window.scrollTo(0, 0);
+    const passed = G.day - startDay;
+    const cupAuto = autos.filter((a) => a.ev.k === 'C');
+    const gains = logs.filter((l) => /\+\d/.test(l));
+    const other = logs.filter((l) => !/\+\d/.test(l));
+    if (cupAuto.length || (passed > 1 && (gains.length || other.length))) {
+      const li = S.userTeam(G).league;
+      sheet(`<span class="eyebrow">${passed}일 진행 · ${esc(S.dateText(G, G.day))}</span><h2>그동안의 소식</h2>
+        ${gains.length ? `<div><div class="eyebrow" style="margin-bottom:4px">훈련 성과</div><div class="muted" style="font-size:13px;line-height:1.7">${gains.slice(0, 12).map(esc).join('<br>')}${gains.length > 12 ? `<br>외 ${gains.length - 12}건` : ''}</div></div>` : ''}
+        ${other.length ? `<div class="muted" style="font-size:13px">${other.map(esc).join('<br>')}</div>` : ''}
+        ${cupAuto.map((a) => `<div><div class="eyebrow" style="margin-bottom:4px">${esc(G.cup.name)} ${S.cupRoundName(G, a.ev.r)}</div><div class="list">${a.results.slice(0, 16).map((x) => matchLine(G, x.m)).join('')}</div></div>`).join('')}
+        <button class="btn primary" data-act="closesheet">확인</button>`, () => afterWeek(null));
+    } else {
+      toast(`${S.dateText(G, G.day)}${gains.length ? ` · 훈련 성과 ${gains.length}건` : ' · 훈련을 마쳤어요'}`);
+    }
+    if (!S.currentEvent(G)) render();
+  }
+
+  // 매치 엔진 설명 (표)
+  function showEngineGuide() {
+    const rows = (arr) => arr.map((r) => `<tr>${r.map((c, i) => `<${i ? 'td' : 'th'}>${c}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('');
+    sheet(`<span class="eyebrow">MATCH ENGINE</span><h2>매치 엔진은 이렇게 움직여요</h2>
+      <div class="guide"><h3>1. 경기 한 판의 흐름</h3><table>${rows([
+        ['시간', '엔진 1틱 = 0.1초. 90분을 약 1,200초 분량으로 압축해 22명을 매 틱 움직여요.'],
+        ['위치 선정', '포메이션 자리를 기준으로 공 위치·공격/수비 여부·전술(라인 높이, 폭, 블록)에 따라 선수마다 목표 위치를 계산해요.'],
+        ['공 가진 선수', '패스(팀원 전원 후보)·드리블·슈팅의 기대 가치를 계산해 확률적으로 하나를 고릅니다.'],
+        ['패스', '거리·패스 능력에 따른 오차, 경로 위 수비수의 가로채기, 받는 선수의 볼 컨트롤을 차례로 판정해요.'],
+        ['슈팅', '거리·각도로 기대 득점(xG)을 정하고 슈팅·헤더 능력과 골키퍼 능력으로 골/선방/빗나감/블록을 판정해요.'],
+        ['수비', '가까운 선수가 압박하고 1.8m 안에서 태클을 시도해요. 수비와 드리블 능력 차이로 성공, 실패 시 파울·카드 가능.'],
+        ['체력', '뛸수록 체력이 줄어 속도·태클에 영향을 줘요. 압박이 강할수록 더 빨리 지쳐요.'],
+        ['후반', '하프타임에 진영을 바꾸고 체력을 조금 회복해요.'],
+      ])}</table>
+      <h3>2. 능력치가 쓰이는 곳</h3><table>${rows([
+        ['스피드', '최고 속도, 패스 가로채기 범위'],
+        ['슈팅', '슈팅 정확도와 결정력, 중거리 슈팅 선호'],
+        ['패스', '패스 오차, 위험한 패스 판단, 판단의 일관성'],
+        ['드리블', '태클 회피, 볼 컨트롤, 드리블 속도'],
+        ['수비', '태클 성공률, 가로채기, 패스 경로 차단'],
+        ['피지컬', '몸싸움(루즈볼), 헤더, 체력 소모'],
+        ['골키핑', '선방률, 크로스·스루패스 차단'],
+      ])}</table>
+      <h3>3. 팀 지시가 바꾸는 값</h3><table>${rows([
+        ['공격 성향', '라인 높이, 슈팅 선호, 패스 모험도'],
+        ['패스 길이', '짧게: 위험 패스 회피·짧은 패스 선호 / 직선적: 전진 패스 가산'],
+        ['템포', '공을 잡고 판단하기까지 시간 (빠르게 ≈ 0.45초, 느리게 ≈ 0.9초)'],
+        ['빌드업 방식', '후방 빌드업: 수비 진영 롱볼 금지·센터백 벌리기 / 공간 침투: 공격수 침투 강화 / 오버랩: 풀백 전진'],
+        ['파이널 서드', '보이면 슈팅: 중거리 가산 / 박스까지: 박스 밖 슈팅 감점 / 크로스: 측면 대기·박스 쇄도'],
+        ['수비 블록', '압박 시작선 (낮음 48m · 중간 70m · 높음 전역), 낮을수록 대형이 좁고 촘촘'],
+        ['압박·태클', '압박 인원(1~3명)과 반경, 태클 시도율·성공률·파울 확률'],
+        ['압박 함정', '압박 각도로 상대를 중앙/측면으로 몰고 그쪽 패스를 더 위험하게 만듦'],
+        ['전환', '카운터 프레스: 잃은 직후 4초간 압박 +2명 / 즉시 역습: 뺏은 직후 5초간 빠른 판단·전진 가산'],
+        ['골키퍼 배급', '짧게: 32m 이상 패스 금지 / 롱킥: 공격수 겨냥 가산'],
+      ])}</table>
+      <h3>4. 다른 경기는?</h3><table>${rows([
+        ['우리 경기', '위의 2D 엔진으로 실시간 계산'],
+        ['다른 구단 경기', '양 팀 선발 전력·컨디션·사기·공격 성향으로 득점 기대값을 계산한 빠른 확률 모델 (엔진 결과에 맞춰 보정)'],
+      ])}</table></div>
+      <button class="btn primary" data-act="closesheet">확인</button>`);
   }
 
   function simWeek() {
@@ -1235,14 +1405,40 @@
     },
     formation(el) { const t = S.userTeam(UI.G); t.tactics.formation = el.value; W.autoLineup(UI.G, t); UI.selSlot = null; refreshLineupHost(); },
     autolineup() { W.autoLineup(UI.G, S.userTeam(UI.G)); UI.selSlot = null; refreshLineupHost(); toast('가장 강한 라인업으로 채웠어요.'); },
+    nextday() { dayAdvance(1); },
+    tomatch() { dayAdvance(60); },
+    benchtoggle(el) {
+      const t = S.userTeam(UI.G), id = +el.dataset.v;
+      t.benchManual = true;
+      if (t.bench.includes(id)) t.bench = t.bench.filter((x) => x !== id);
+      else if (t.bench.length >= 9) return toast('교체 명단은 9명까지예요. 먼저 한 명을 빼세요.');
+      else t.bench.push(id);
+      refreshLineupHost();
+    },
+    benchauto() { const t = S.userTeam(UI.G); t.benchManual = false; t.bench = []; W.validateLineup(UI.G, t); refreshLineupHost(); toast('능력순으로 교체 명단을 채웠어요.'); },
+    tacpreset(el) {
+      const pr = D.TACTIC_PRESETS.find((x) => x[0] === el.dataset.v);
+      if (el.dataset.scope === 'live') {
+        const L = UI.live; const sd = L.m.sides[L.userSide];
+        Object.assign(sd.tactics, pr[3]); D.normTactics(sd.tactics); sd.baseMent = sd.tactics.mentality;
+        renderLivePanel(true); toast(`${pr[1]} 전술로 바꿨어요.`); return;
+      }
+      const t = S.userTeam(UI.G); Object.assign(t.tactics, pr[3]); D.normTactics(t.tactics); refreshLineupHost(); toast(`${pr[1]} 전술을 적용했어요.`);
+    },
+    tacgroup(el) { UI.tacOpen = UI.tacOpen === el.dataset.v ? '' : el.dataset.v; if (UI.live) renderLivePanel(true); else refreshLineupHost(); },
+    engineguide() { showEngineGuide(); },
+    ocounter(el) { const o = UI.G.offers.find((x) => x.id === +el.dataset.v); if (!o) return; UI.counter = { id: o.id, amount: Math.round(o.amount * 1.1 / 25) * 25 }; rerenderView(); },
+    oamt(el) { const c = UI.counter; const o = UI.G.offers.find((x) => x.id === c.id); const step = Math.max(25, Math.round(o.amount * 0.05 / 25) * 25); c.amount = Math.max(o.amount + step, c.amount + step * +el.dataset.v); rerenderView(); },
+    ocancel() { UI.counter = null; rerenderView(); },
+    osend() { const r = S.counterOffer(UI.G, UI.counter.id, UI.counter.amount); UI.counter = null; toast(r.msg); save(true); render(); },
     tac(el) {
       const k = el.dataset.k, v = +el.dataset.v;
       if (el.dataset.scope === 'live') {
         const L = UI.live; const sd = L.m.sides[L.userSide];
-        sd.tactics[k] = v; sd.baseMent = sd.tactics.mentality;
+        sd.tactics[k] = v; D.normTactics(sd.tactics); sd.baseMent = sd.tactics.mentality;
         renderLivePanel(true); return;
       }
-      S.userTeam(UI.G).tactics[k] = v; refreshLineupHost();
+      const tt = S.userTeam(UI.G).tactics; tt[k] = v; D.normTactics(tt); refreshLineupHost();
     },
     tfocus(el) { UI.G.training.focus = el.dataset.v; rerenderView(); },
     tint(el) { UI.G.training.intensity = +el.dataset.v; rerenderView(); },
@@ -1294,12 +1490,14 @@
     save() { save().then((ok) => { if (ok) toast('저장했어요.'); }); },
     defspeed(el) { UI.G.settings.speed = +el.dataset.v; save(true); rerenderView(); },
 
-    closepre() { UI.prematch = false; const el = $('.match-screen'); if (el) el.remove(); save(true); render(); },
+    closepre() { UI.prematch = false; const el = $('.match-screen'); if (el) el.remove(); lockScroll(); save(true); render(); },
     kickoff() { startLive(false); },
     quickmatch() { startLive(true); },
-    lvpause(el) { const L = UI.live; L.paused = !L.paused; el.textContent = L.paused ? '재개' : '일시정지'; },
+    lvpause(el) { const L = UI.live; L.paused = !L.paused; el.textContent = L.paused ? '재개' : '일시정지'; if (!L.paused) { const h = $('#lv-ht'); if (h) h.hidden = true; } },
     lvspeed(el) { const L = UI.live; const sp = [1, 2, 4, 8]; L.speed = sp[(sp.indexOf(L.speed) + 1) % sp.length]; el.textContent = L.speed + '배속'; },
-    lvskip() { const L = UI.live; L.view.snapshot(); L.m.runToEnd(); },
+    lvskip() { const L = UI.live; L.htShown = true; const h = $('#lv-ht'); if (h) h.hidden = true; L.view.snapshot(); L.m.runToEnd(); },
+    htgo() { const L = UI.live; $('#lv-ht').hidden = true; L.paused = false; L.last = performance.now(); const pb = $('#lv-pause'); if (pb) pb.textContent = '일시정지'; },
+    httac() { const L = UI.live; $('#lv-ht').hidden = true; L.tab = 'subs'; document.querySelectorAll('#lv-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.v === 'subs')); renderLivePanel(true); const p = $('#lv-panel'); if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' }); toast('준비가 끝나면 재개를 누르세요.'); },
     lvtab(el) { const L = UI.live; L.tab = el.dataset.v; L.selOut = null; document.querySelectorAll('#lv-tabs button').forEach((b) => b.classList.toggle('on', b === el)); renderLivePanel(true); },
     lvform(el) { const L = UI.live; L.m.setFormation(L.userSide, el.value); renderLivePanel(true); toast(`${el.value}로 바꿨어요.`); },
     lvout(el) { const L = UI.live; L.selOut = L.selOut === +el.dataset.v ? null : +el.dataset.v; renderLivePanel(true); },

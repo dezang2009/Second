@@ -404,3 +404,60 @@ select.sel { background: var(--surface); border: 1px solid var(--line); border-r
 .tx-route i { font-style: normal; color: var(--brand); }
 .tx-offer { display: flex; flex-direction: column; gap: 12px; }
 .tx-offer-body { display: flex; align-items: center; gap: 12px; background: var(--surface-2); border-radius: 12px; padding: 10px 12px; }
+html.locked, html.locked body { overflow: hidden; }
+.sheet, .match-screen, .feed { overscroll-behavior: contain; }
+
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.grid3 .btn { padding-inline: 6px; }
+
+/* 교체 명단 */
+.bench-btn { flex: none; width: 34px; height: 34px; border-radius: 10px; border: 0; font-size: 20px; font-weight: 700; line-height: 1; background: var(--surface-2); color: var(--brand); }
+.bench-btn.on { background: color-mix(in srgb, var(--loss) 14%, var(--surface)); color: var(--loss); }
+
+/* 전술 */
+.tac-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tac-preset { text-align: left; border: 0; border-radius: 12px; padding: 10px 11px; background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tac-preset b { font-size: 14px; }
+.tac-preset span { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.tac-preset.on { background: var(--ink); color: var(--surface); }
+.tac-preset.on span { color: color-mix(in srgb, var(--surface) 75%, transparent); }
+.tac-group { border-top: 1px solid var(--line); padding-top: 10px; }
+.tac-head { width: 100%; border: 0; background: none; padding: 2px 0; display: flex; align-items: center; gap: 10px; text-align: left; }
+.tac-head b { font-size: 14.5px; flex: none; }
+.tac-head span { font-size: 12px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tac-head i { font-style: normal; font-size: 18px; font-weight: 700; color: var(--muted); width: 20px; text-align: center; }
+.tac-panel .seg button { padding-inline: 6px; font-size: 12.5px; }
+
+/* 일정 */
+.day-card { display: flex; flex-direction: column; gap: 12px; }
+.dday { font-family: var(--f-num); font-weight: 700; font-size: 15px; padding: 5px 11px; border-radius: 999px; background: var(--surface-2); white-space: nowrap; }
+.dday.now { background: var(--accent); color: var(--accent-ink); }
+.days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.day { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 7px 0 6px; border-radius: 11px; background: var(--surface-2); min-width: 0; }
+.day small { font-size: 10.5px; color: var(--muted); font-weight: 700; }
+.day b { font-size: 18px; line-height: 1.1; }
+.day span { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.day.match { background: color-mix(in srgb, var(--brand) 16%, var(--surface)); }
+.day.match span { color: var(--brand); font-weight: 800; }
+.day.today { box-shadow: inset 0 0 0 2px var(--ink); }
+
+/* 하프타임 */
+.ht-wrap { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(4, 8, 14, .55); border-radius: 12px; padding: 16px; }
+.ht-card { width: 100%; max-width: 330px; background: #0d1420; color: #f3f6fa; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 10px; text-align: center; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+.ht-score { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.ht-score b { font-size: 40px; font-weight: 700; letter-spacing: .05em; }
+.ht-score .logo { background: #fff; border-radius: 50%; padding: 4px; box-sizing: border-box; }
+.ht-stats { display: flex; justify-content: center; gap: 12px; font-size: 12px; color: #9fb0c6; flex-wrap: wrap; }
+.ht-stats b { color: #f3f6fa; font-family: var(--f-num); font-size: 14px; }
+.ht-card p { margin: 0; font-size: 13px; color: #c3ccd8; }
+
+/* 역제안 */
+.tx-counter { background: var(--surface-2); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+
+/* 엔진 설명 */
+.guide h3 { font-family: var(--f-display); font-size: 16px; margin: 14px 0 6px; }
+.guide h3:first-child { margin-top: 0; }
+.guide table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
+.guide th, .guide td { padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); line-height: 1.5; }
+.guide tr:last-child th, .guide tr:last-child td { border-bottom: 0; }
+.guide th { width: 30%; background: var(--surface-2); font-weight: 800; white-space: nowrap; }

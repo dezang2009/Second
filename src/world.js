@@ -274,7 +274,8 @@
     }
     if (!ok) { autoLineup(G, team); return; }
     team.bench = team.bench.filter((id) => { const p = G.players[id]; return p && p.teamId === team.id && available(p) && !seen.has(id); });
-    if (team.bench.length < 9) {
+    // 사용자가 교체 명단을 직접 정했다면 빈자리를 멋대로 채우지 않는다 (빠진 선수만 제외)
+    if (team.bench.length < 9 && !team.benchManual) {
       const extra = team.squad.map((id) => G.players[id]).filter((p) => available(p) && !seen.has(p.id) && !team.bench.includes(p.id)).sort((a, b) => b.ovr - a.ovr);
       for (const p of extra) { if (team.bench.length >= 9) break; team.bench.push(p.id); }
     }

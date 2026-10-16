@@ -20,8 +20,12 @@
   }
 
   // 공격 방향 기준 좌표 (side 0은 +x 방향으로 공격)
-  const fx = (side, x) => (side === 0 ? x : LEN - x);
-  const fy = (side, y) => (side === 0 ? y : WID - y);
+  // 후반에는 진영을 바꾼다: SWAP=1이면 홈팀(0)이 -x 방향으로 공격.
+  // step()마다 현재 경기의 값으로 맞춘다 (엔진은 동기적으로 한 경기씩 진행)
+  let SWAP = 0;
+  const UP = (side) => (side ^ SWAP) === 0; // 이 팀이 +x 방향으로 공격하는가
+  const fx = (side, x) => (UP(side) ? x : LEN - x);
+  const fy = (side, y) => (UP(side) ? y : WID - y);
 
   // 위치 위협도: 이 지점에서 공을 가지면 결국 득점으로 이어질 확률의 근사치
   function threat(px, py) {
@@ -68,6 +72,9 @@
     this.mp = [[], []];
     this.subsLeft = [5, 5];
     this.used = new Set();
+    for (const sd of this.sides) D.normTactics(sd.tactics);
+    this.wonT = [-99, -99]; this.lostT = [-99, -99];
+    this.P = [null, null];
     // 경기 수준 기준점: 두 팀 선발의 평균 OVR. 리그 수준과 상관없이 두 팀의 '차이'가 경기를 좌우한다
     let sum = 0, cnt = 0;
     for (const sd of this.sides) for (const st of sd.starters) { sum += st.p.ovr; cnt++; }
@@ -84,6 +91,7 @@
     this.state = 'kickoff';
     this.timer = 1.2;
     this.kickSide = 0;
+    this.swap = 0;
     this.poss = 0;
     this.lastTouch = 0;
     this.events = [];
@@ -102,6 +110,7 @@
     this.nextAiCheck = 0;
     this.tick = 0;
     this.goalsList = [];
+    SWAP = 0;
     this.placeKickoff();
   }
 
@@ -156,8 +165,8 @@
         if (!m.on) continue;
         const ofx = m.grp === 'GK' ? 3 : 8 + m.bx * 40;
         const ofy = m.by * WID * 0.8 + WID * 0.1;
-        m.x = s === 0 ? ofx : LEN - ofx;
-        m.y = s === 0 ? ofy : WID - ofy;
+        m.x = UP(s) ? ofx : LEN - ofx;
+        m.y = UP(s) ? ofy : WID - ofy;
         m.vx = m.vy = 0;
       }
     }
@@ -168,29 +177,62 @@
     const ks = this.kickSide;
     const cands = this.onPitch(ks).filter((m) => m.grp === 'FW' || m.role === 'AM' || m.grp === 'MF');
     const k = cands.sort((a, b) => b.bx - a.bx)[0] || this.onPitch(ks)[0];
-    k.x = 52.5 - (ks === 0 ? 0.6 : -0.6); k.y = 34;
+    k.x = 52.5 - (UP(ks) ? 0.6 : -0.6); k.y = 34;
     this.giveBall(k, 0.6);
   };
 
   M.giveBall = function (m, hold) {
     const b = this.ball;
     b.owner = m; b.mode = 'held'; b.vx = b.vy = 0; b.z = 0;
+    if (this.poss !== m.side && this.state === 'play') { this.wonT[m.side] = this.t; this.lostT[1 - m.side] = this.t; }
     this.poss = m.side; this.lastTouch = m.side;
     m.hold = hold != null ? hold : this.holdTime(m);
     m.protect = 0.35;
     this.pass = null;
   };
 
+  // 전술 지시 → 엔진이 쓰는 수치. 매 판단마다 계산(경기 중 전술 변경이 즉시 반영됨)
+  M.params = function (s) { return this.P[s] || this.calcParams(s); };
+  M.calcParams = function (s) {
+    const t = this.tac(s);
+    const since = (x) => this.t - x;
+    return {
+      men: t.mentality - 2,
+      passLen: t.passing - 2,
+      tempo: t.tempo - 1,
+      width: t.width - 1,
+      line: t.line - 1,
+      press: t.press,
+      approach: t.approach, finalThird: t.finalThird, block: t.block,
+      dribble: [-0.3, 0, 0.25][t.dribble],
+      temp: [0.8, 1, 1.25][t.creative], riskF: [1.1, 1, 0.92][t.creative],
+      engage: [48, 70, 106][t.block], blockShift: [-8, 0, 4][t.block],
+      tackleRate: [0.75, 1, 1.3][t.tackle], foulF: [0.7, 1, 1.45][t.tackle], tackleSkill: [-0.12, 0, 0.08][t.tackle],
+      tight: t.marking === 1,
+      trap: t.trap,
+      counterPress: t.onLoss === 2 && since(this.lostT[s]) < 4,
+      regroup: t.onLoss === 0 && since(this.lostT[s]) < 4,
+      counter: t.onWin === 2 && since(this.wonT[s]) < 5,
+      holdShape: t.onWin === 0 && since(this.wonT[s]) < 5,
+      gk: t.gk,
+    };
+  };
+
   M.holdTime = function (m) {
-    const st = this.tac(m.side).style;
-    const base = st === 0 ? 0.9 : st === 1 ? 0.65 : 0.4;
-    return base + this.rng.next() * 0.6;
+    const P = this.params(m.side);
+    let h = 0.68 - P.tempo * 0.22 - P.passLen * 0.05 + this.rng.next() * 0.6;
+    if (P.counter) h *= 0.4;
+    if (P.holdShape) h *= 1.4;
+    if (m.grp === 'GK') h += P.gk === 0 ? 0.6 : 0.2;
+    return Math.max(0.15, h);
   };
 
   // ── 메인 스텝 ───────────────────────────────────────────────
   M.step = function () {
     if (this.finished) return;
+    SWAP = this.swap;
     this.flash = null;
+    this.P[0] = this.calcParams(0); this.P[1] = this.calcParams(1);
     if (this.state === 'kickoff') {
       this.timer -= DT;
       this.movePlayers(true);
@@ -232,6 +274,7 @@
       this.t = endHalf1;
       this.log('half', -1, `전반 종료. ${this.sides[0].team.short} ${this.score[0]} - ${this.score[1]} ${this.sides[1].team.short}`);
       this.kickSide = 1;
+      this.swap = 1; SWAP = 1; // 후반: 진영 교체
       this.state = 'kickoff'; this.timer = 1.5;
       for (const m of this.all()) m.st = Math.min(1, m.st + 0.06);
       this.placeKickoff();
@@ -263,8 +306,8 @@
     const owner = b.owner;
     const possSide = owner ? owner.side : (this.pass ? this.pass.from.side : this.poss);
     for (let s = 0; s < 2; s++) {
-      const tac = this.tac(s);
-      const men = tac.mentality - 2, line = tac.line - 1, width = tac.width - 1, press = tac.press;
+      const P = this.params(s);
+      const men = P.men, line = P.line, width = P.width, press = P.press;
       const players = this.onPitch(s);
       const bF = fx(s, b.x), bY = fy(s, b.y);
       const inPoss = possSide === s;
@@ -277,10 +320,10 @@
         backLine = clamp(bF - 38 + men * 4 + line * 4, 14, 60);
         span = 50 + men * 3;
       } else {
-        backLine = clamp(bF - 30 + line * 7 + men * 2, 9, 52);
-        span = 33 - press * 1.5;
+        backLine = clamp(bF - 30 + line * 7 + men * 2 + P.blockShift + (P.regroup ? -6 : 0), 9, 52);
+        span = 33 - press * 1.5 - (P.block === 0 ? 9 : 0);
       }
-      const wf = inPoss ? 0.92 + 0.07 * width : 0.62 + 0.04 * width;
+      const wf = inPoss ? 0.92 + 0.07 * width : (P.block === 0 ? 0.5 : 0.62) + 0.04 * width;
       const shift = inPoss ? 0.22 : 0.38;
       for (const m of players) {
         if (m === owner) continue;
@@ -296,9 +339,18 @@
           if (inPoss) {
             // 침투 움직임
             if ((m.grp === 'FW' || m.role === 'AM' || m.role === 'LM' || m.role === 'RM') && bF > 45) {
-              tf += 4 + 5 * Math.sin(this.t * 0.35 + m.phase);
-              if (bF > 75 && m.grp === 'FW') ty = lerp(ty, 34, 0.35);
+              const amp = P.approach === 2 || P.counter ? 9 : 5;
+              tf += 4 + amp * Math.sin(this.t * 0.35 + m.phase);
+              if (bF > 75 && m.grp === 'FW' && P.finalThird !== 3) ty = lerp(ty, 34, 0.35);
             }
+            // 측면 오버랩: 풀백이 높이 올라가 넓게 선다
+            if (P.approach === 3 && (m.role === 'LB' || m.role === 'RB') && bF > 35) { tf += 14; ty = lerp(ty, m.by < 0.5 ? 4 : WID - 4, 0.6); }
+            // 후방 빌드업: 센터백이 넓게 벌려 골키퍼·풀백과 삼각형
+            if (P.approach === 1 && m.role === 'CB' && bF < 40) ty = 34 + (m.by - 0.5) * WID * 1.15;
+            // 크로스 위주: 측면 선수는 터치라인 쪽에 머문다
+            if (P.finalThird === 3 && (m.role === 'LW' || m.role === 'RW' || m.role === 'LM' || m.role === 'RM')) ty = lerp(ty, m.by < 0.5 ? 5 : WID - 5, 0.5);
+            // 크로스 위주: 공이 측면 깊숙이 오면 스트라이커와 공격형 미드필더가 박스로 쇄도
+            if (P.finalThird === 3 && bF > 68 && (m.role === 'ST' || m.role === 'AM')) { tf = 95 + (m.phase % 1) * 5; ty = 28 + ((m.phase * 7) % 12); }
             if (m.grp !== 'GK') tf = Math.min(tf, offLine);
             // 세트피스: 공격수와 장신 수비수가 박스로
             if (this.setPiece && this.setPiece.side === s && (m.grp === 'FW' || m.role === 'CB' || m.role === 'AM')) {
@@ -313,17 +365,17 @@
           }
         }
         tf = clamp(tf, 1, LEN - 1); ty = clamp(ty, 1, WID - 1);
-        m.tx = s === 0 ? tf : LEN - tf;
-        m.ty = s === 0 ? ty : WID - ty;
+        m.tx = UP(s) ? tf : LEN - tf;
+        m.ty = UP(s) ? ty : WID - ty;
         m.chase = false;
       }
       // 대인 마크: 자기 진영 깊숙이 공이 들어오면 수비수가 위험 지역의 공격수를 붙잡는다
-      if (!inPoss && bF < 52) {
-        const threats = this.onPitch(1 - s).filter((o) => o !== owner && o.grp !== 'GK' && fx(s, o.x) < 40);
+      if (!inPoss && bF < (P.tight ? 62 : 52)) {
+        const threats = this.onPitch(1 - s).filter((o) => o !== owner && o.grp !== 'GK' && fx(s, o.x) < (P.tight ? 48 : 40));
         const markers = players.filter((m) => m.grp === 'DF' || m.role === 'DM');
         const usedT = new Set();
         for (const m of markers) {
-          let best = null, bd = 16;
+          let best = null, bd = P.tight ? 21 : 16;
           for (const o of threats) {
             if (usedT.has(o)) continue;
             const d = dist(m.tx, m.ty, o.x, o.y);
@@ -331,9 +383,10 @@
           }
           if (best) {
             usedT.add(best);
-            const gx = s === 0 ? 0 : LEN;
+            const gx = UP(s) ? 0 : LEN;
             const ang = Math.atan2(34 - best.y, gx - best.x);
-            m.tx = best.x + Math.cos(ang) * 1.6; m.ty = best.y + Math.sin(ang) * 1.6;
+            const off = P.tight ? 0.9 : 1.6;
+            m.tx = best.x + Math.cos(ang) * off; m.ty = best.y + Math.sin(ang) * off;
           }
         }
       }
@@ -344,15 +397,25 @@
         const outfield = players.filter((m) => m.grp !== 'GK' && m.stun <= 0);
         outfield.sort((a, c) => dist(a.x, a.y, px, py) - dist(c.x, c.y, px, py));
         let k = owner ? 1 + (press >= 1 ? 1 : 0) + (press >= 2 ? 1 : 0) : 2;
-        const radius = owner ? 12 + press * 7 : 30;
+        let radius = owner ? 12 + press * 7 : 30;
+        // 수비 블록: 공이 압박 시작선보다 멀리 있으면 1명만 길을 막고 나머지는 대형 유지
+        if (owner && bF > P.engage) { k = 1; radius = 0; }
+        else if (owner && P.block === 0) { k = Math.max(k, 2); radius = Math.max(radius, 14); } // 블록 안에 들어오면 둘이 협력 수비
+        if (P.counterPress && owner) { k += 2; radius += 12; }
+        if (P.regroup && owner) { k = 1; }
         for (let i = 0; i < outfield.length && i < k; i++) {
           const m = outfield[i];
           const d = dist(m.x, m.y, px, py);
           if (i > 0 && d > radius) break;
           // 첫 번째 압박수는 골문 쪽에서 접근
-          const gx = s === 0 ? 0 : LEN;
-          const off = owner ? 1.0 : 0;
-          const ang = Math.atan2(34 - py, gx - px);
+          const gx = UP(s) ? 0 : LEN;
+          const off = owner ? (bF > P.engage ? 6 : 1.0) : 0;
+          let ang = Math.atan2(34 - py, gx - px);
+          // 압박 함정: 중앙으로 몰기 = 바깥쪽에서, 측면으로 몰기 = 안쪽에서 접근
+          if (owner && i === 0 && P.trap) {
+            const toCenter = Math.sign(34 - py) || 1;
+            ang += (P.trap === 1 ? -toCenter : toCenter) * 0.6 * (UP(s) ? -1 : 1);
+          }
           m.tx = px + Math.cos(ang) * off; m.ty = py + Math.sin(ang) * off;
           m.chase = true;
         }
@@ -378,7 +441,7 @@
       if (m === b.owner) { tx = m.dx != null ? m.dx : m.x; ty = m.dy != null ? m.dy : m.y; }
       const dx = tx - m.x, dy = ty - m.y;
       const d = Math.hypot(dx, dy);
-      let spd = m.maxSpd * (0.68 + 0.32 * m.st);
+      let spd = m.maxSpd * (0.55 + 0.45 * m.st);
       if (m === b.owner) {
         spd *= 0.74 + 0.12 * (m.a.dri / 100);
         if (m.blocked) spd *= 0.45;
@@ -391,13 +454,13 @@
       m.x = clamp(m.x + m.vx * DT, -1, LEN + 1);
       m.y = clamp(m.y + m.vy * DT, -1, WID + 1);
       const r = Math.hypot(m.vx, m.vy) / m.maxSpd;
-      const press = this.tac(m.side).press;
-      const drain = (0.00011 + 0.00042 * r * r * (m.chase ? 1 + press * 0.15 : 1)) * (1.25 - (m.a.phy / 100) * 0.5);
+      const press = this.tac(m.side).press + (this.params(m.side).counterPress ? 1 : 0);
+      const drain = (0.00011 + 0.00042 * r * r * (m.chase ? 1 + press * 0.8 : 1)) * (1.25 - (m.a.phy / 100) * 0.5) * (1 + this.tac(m.side).press * 0.12);
       m.st = Math.max(0.05, m.st - drain * DT);
     }
     if (b.owner) {
       const o = b.owner;
-      const dir = o.side === 0 ? 1 : -1;
+      const dir = UP(o.side) ? 1 : -1;
       b.x = o.x + dir * 0.6; b.y = o.y + Math.sin(this.t * 6) * 0.15;
     }
   };
@@ -412,7 +475,7 @@
     for (const o of opps) { const d = dist(o.x, o.y, m.x, m.y); if (d < nearest) nearest = d; }
     // 진행 방향 앞을 막는 수비수
     m.blocked = false;
-    const dir = s === 0 ? 1 : -1;
+    const dir = UP(s) ? 1 : -1;
     for (const o of opps) {
       const ahead = (o.x - m.x) * dir;
       if (ahead > 0 && ahead < 3 && Math.abs(o.y - m.y) < 1.8) { m.blocked = true; break; }
@@ -436,12 +499,15 @@
     if (near && nd < 6) ty += (fy(s, m.y) - fy(s, near.y) >= 0 ? 1 : -1) * 4;
     const tf = clamp(f + (m.grp === 'GK' ? 0 : 7), 1, LEN - 1);
     ty = clamp(ty, 2, WID - 2);
-    m.dx = s === 0 ? tf : LEN - tf; m.dy = s === 0 ? ty : WID - ty;
+    m.dx = UP(s) ? tf : LEN - tf; m.dy = UP(s) ? ty : WID - ty;
   };
 
   M.decide = function (m, opps) {
     const s = m.side, tac = this.tac(s);
-    const men = tac.mentality - 2;
+    const P = this.params(s), OP = this.params(1 - s);
+    const men = P.men;
+    let oppLine = 0;
+    for (const o of opps) { if (o.grp !== 'GK') { const v = fx(s, o.x); if (v > oppLine) oppLine = v; } }
     const f = fx(s, m.x), y = fy(s, m.y);
     const options = [];
     const eps = 0.0015;
@@ -462,12 +528,13 @@
       }
       xg *= Math.pow(0.7, blockers);
       const d = Math.hypot(LEN - f, 34 - y);
-      const longBonus = d > 16 && d < 28 ? 0.45 + (m.a.sho - 60) / 60 : 0;
+      let longBonus = d > 16 && d < 28 ? 0.45 + (m.a.sho - 60) / 60 : 0;
+      if (P.finalThird === 2) longBonus += d > 16 ? 0.35 : 0.15; // 보이면 슈팅
+      if (P.finalThird === 1) longBonus += d > 16 ? -0.35 : 0.1; // 박스까지 파고들기
       const u = Math.log(xg * (1 + men * 0.12) * (0.75 + m.a.sho / 200) + eps) - 0.25 + longBonus;
       options.push({ k: 'shoot', u, xg });
     }
     // 패스
-    const style = tac.style;
     for (const t of this.onPitch(s)) {
       if (t === m || t.injured) continue;
       const lead = 0.35;
@@ -476,7 +543,9 @@
       if (L < 4 || L > 55) continue;
       const tf = fx(s, tX), ty = fy(s, tY);
       if (t.grp === 'GK' && f > 40) continue;
+      if (m.grp === 'GK' && ((P.gk === 0 && L > 32) || (P.gk === 2 && L < 28))) continue;
       const lofted = L > 26;
+      if (P.approach === 1 && lofted && f < 35 && m.grp !== 'GK') continue; // 후방 빌드업: 뒤에서는 롱볼 금지
       let risk = 0;
       for (const o of opps) {
         const of = fx(s, o.x), oy = fy(s, o.y);
@@ -490,14 +559,21 @@
       if (rp < 1.5) risk += 0.35; else if (rp < 3.5) risk += 0.12;
       risk += (L / 55) * 0.18 * (1.2 - m.a.pas / 100);
       if (lofted) risk += 0.08;
-      risk = clamp(risk * (style === 0 ? 1.3 : style === 2 ? 0.85 : 1) * (1 - men * 0.06), 0, 0.95);
+      // 상대의 압박 함정이 노리는 쪽으로 가는 패스는 더 위험
+      if (OP.trap === 1 && Math.abs(ty - 34) < 12) risk += 0.07;
+      if (OP.trap === 2 && Math.abs(ty - 34) > 20) risk += 0.07;
+      risk = clamp(risk * (1 - P.passLen * 0.1) * (1 - men * 0.06) * P.riskF * (P.holdShape ? 1.2 : 1), 0, 0.95);
       const danger = 0.6 * Math.max(0, 1 - f / 60);
       let u = Math.log(threat(tf, ty) * (1 - risk) + eps) + Math.log(1 - risk * danger + 1e-6);
-      if (style === 0) u -= L * 0.006;
-      if (style === 2) u += Math.max(0, tf - f) * 0.006;
+      if (P.passLen < 0) u += L * 0.004 * P.passLen;
+      if (P.passLen > 0) u += Math.max(0, tf - f) * 0.004 * P.passLen;
+      if (P.counter) u += Math.max(0, tf - f) * 0.02;
+      if (P.approach === 2 && t.grp === 'FW' && tf - f > 15) u += 0.15; // 공간 침투 패스
+      if (OP.line === 1 && tf > oppLine - 2 && tf - f > 10 && (t.grp === 'FW' || t.role === 'AM')) u += 0.45; // 높은 라인 뒷공간
+      if (m.grp === 'GK' && P.gk === 2 && t.grp === 'FW') u += 0.3;
       if (tf < f - 5) u -= 0.05;
-      // 측면 크로스 보너스
-      if (f > 85 && Math.abs(y - 34) > 14 && tf > 88 && Math.abs(ty - 34) < 10) u += 0.25;
+      // 측면 크로스
+      if (f > 85 && Math.abs(y - 34) > 14 && tf > 88 && Math.abs(ty - 34) < 10) u += P.finalThird === 3 ? 0.6 : 0.25;
       options.push({ k: 'pass', u, t, tX, tY, L, lofted });
     }
     // 드리블
@@ -509,11 +585,11 @@
         if (of > f - 1 && dist(of, oy, df, dy) < 6) pr += 0.22 * (0.6 + o.a.def / 150);
       }
       pr = clamp(pr * (1.25 - m.a.dri / 100), 0, 0.9);
-      const u = Math.log(threat(df, dy) * (1 - pr) + eps) + Math.log(1 - pr * 0.6 * Math.max(0, 1 - f / 60) + 1e-6) - 0.08;
+      const u = Math.log(threat(df, dy) * (1 - pr) + eps) + Math.log(1 - pr * 0.6 * Math.max(0, 1 - f / 60) + 1e-6) - 0.08 + P.dribble + (P.counter ? 0.2 : 0);
       options.push({ k: 'dribble', u });
     }
     // 소프트맥스 선택
-    const T = 0.22 + (1 - m.a.pas / 100) * 0.25;
+    const T = (0.22 + (1 - m.a.pas / 100) * 0.25) * P.temp;
     let mx = -1e9;
     for (const o of options) if (o.u > mx) mx = o.u;
     let sum = 0;
@@ -579,8 +655,8 @@
     if (outcome === 'goal') gy = rng.range(GOAL_Y0 + 0.3, GOAL_Y1 - 0.3);
     else if (outcome === 'save') gy = rng.range(GOAL_Y0 + 1, GOAL_Y1 - 1);
     else gy = rng.chance(0.5) ? rng.range(GOAL_Y0 - 6, GOAL_Y0 - 0.5) : rng.range(GOAL_Y1 + 0.5, GOAL_Y1 + 6);
-    const gx = s === 0 ? LEN + 0.5 : -0.5;
-    const ty = s === 0 ? gy : WID - gy;
+    const gx = UP(s) ? LEN + 0.5 : -0.5;
+    const ty = UP(s) ? gy : WID - gy;
     this.shot = { by: m, sx: m.x, sy: m.y, tx: blocked ? blocked.x : gx, ty: blocked ? blocked.y : ty, outcome, xg, gk, blocked, prog: 0, L: 1 };
     this.shot.L = Math.max(1, dist(m.x, m.y, this.shot.tx, this.shot.ty));
     const b = this.ball; b.owner = null; b.mode = 'shot';
@@ -618,9 +694,9 @@
           const reach = o.grp === 'GK' ? 2.4 : 1.6;
           if (d < reach) {
             p.tried.add(o);
-            let pi = 0.22 + o.a.def / 260 + (p.speed < 15 ? 0.1 : 0);
+            let pi = 0.22 + o.a.def / 260 + (p.speed < 15 ? 0.1 : 0) + (this.params(o.side).tight ? 0.05 : 0) + (this.params(o.side).block === 0 && fx(o.side, o.x) < 35 ? 0.08 : 0);
             if (o.grp === 'GK') pi = 0.35 + o.a.gk / 200;
-            if (p.cross && o.grp === 'DF') pi += 0.12;
+            if (p.cross && o.grp === 'DF') pi += 0.04;
             if (rng.chance(pi)) {
               o.s.int++;
               this.pass = null;
@@ -688,7 +764,7 @@
       this.setRestart('throw', side, clamp(b.x, 1, LEN - 1), b.y < 0 ? 0.2 : WID - 0.2);
     } else {
       // 골라인
-      const atkSide = b.x > LEN ? 0 : 1; // 이 골라인을 공격하는 쪽
+      const atkSide = (b.x > LEN) === UP(0) ? 0 : 1; // 이 골라인을 공격하는 쪽
       if (last === atkSide) this.setRestart('goalkick', 1 - atkSide);
       else this.setRestart('corner', atkSide, b.x > LEN ? LEN - 0.3 : 0.3, b.y < 34 ? 0.3 : WID - 0.3);
     }
@@ -702,11 +778,11 @@
     let taker;
     if (kind === 'goalkick' || kind === 'gkhold') {
       taker = this.onPitch(side).find((m) => m.grp === 'GK') || this.onPitch(side)[0];
-      x = side === 0 ? 5.5 : LEN - 5.5; y = 34;
+      x = UP(side) ? 5.5 : LEN - 5.5; y = 34;
     } else if (kind === 'pen') {
       const cands = this.onPitch(side).filter((m) => m.grp !== 'GK').sort((a, c) => c.a.sho - a.a.sho);
       taker = cands[0];
-      x = side === 0 ? LEN - 11 : 11; y = 34;
+      x = UP(side) ? LEN - 11 : 11; y = 34;
     } else {
       const cands = this.onPitch(side).filter((m) => m.grp !== 'GK');
       cands.sort((a, c) => dist(a.x, a.y, x, y) - dist(c.x, c.y, x, y));
@@ -763,13 +839,13 @@
       if (big) this.log('save', 1 - s, `${name}의 결정적인 슈팅! ${gk ? gk.p.name : '골키퍼'}의 선방!`, { pid: m.id });
       const r = rng.next();
       if (gk && r < 0.55) { b.x = gk.x; b.y = gk.y; this.setRestart('gkhold', 1 - s); this.timer = 1.6; }
-      else if (r < 0.8) this.setRestart('corner', s, s === 0 ? LEN - 0.3 : 0.3, rng.chance(0.5) ? 0.3 : WID - 0.3);
-      else { this.looseBall(sh.tx + (s === 0 ? -3 : 3), sh.ty, 7); this.lastTouch = 1 - s; }
+      else if (r < 0.8) this.setRestart('corner', s, UP(s) ? LEN - 0.3 : 0.3, rng.chance(0.5) ? 0.3 : WID - 0.3);
+      else { this.looseBall(sh.tx + (UP(s) ? -3 : 3), sh.ty, 7); this.lastTouch = 1 - s; }
       return;
     }
     if (sh.outcome === 'block') {
       if (sh.blocked) sh.blocked.s.tkl++;
-      if (rng.chance(0.4)) this.setRestart('corner', s, s === 0 ? LEN - 0.3 : 0.3, rng.chance(0.5) ? 0.3 : WID - 0.3);
+      if (rng.chance(0.4)) this.setRestart('corner', s, UP(s) ? LEN - 0.3 : 0.3, rng.chance(0.5) ? 0.3 : WID - 0.3);
       else { this.looseBall(b.x, b.y, 7); this.lastTouch = 1 - s; }
       return;
     }
@@ -787,10 +863,11 @@
       if (o.stun > 0 || o.grp === 'GK') continue;
       const d = dist(o.x, o.y, m.x, m.y);
       if (d > 1.8) continue;
-      const press = this.tac(o.side).press;
-      const rate = 0.7 + press * 0.2;
+      const OP = this.params(o.side);
+      const press = OP.press;
+      const rate = (0.75 + press * 0.1) * OP.tackleRate;
       if (!rng.chance(rate * DT)) continue;
-      const pw = sigmoid((o.a.def - m.a.dri) / 22 + (o.a.phy - m.a.phy) / 60 - 0.1 + (m.st - o.st) * -0.8);
+      const pw = sigmoid((o.a.def - m.a.dri) / 22 + (o.a.phy - m.a.phy) / 60 - 0.1 + OP.tackleSkill + (m.st - o.st) * -0.8);
       if (rng.chance(pw)) {
         o.s.tkl++; this.stats[o.side].tkl++;
         m.s.lost++;
@@ -802,9 +879,9 @@
       }
       // 실패 → 파울 가능
       const mf = fx(m.side, m.x), inBox = mf > LEN - 16.5 && Math.abs(fy(m.side, m.y) - 34) < 20;
-      const foulP = (0.16 + (press === 2 ? 0.04 : 0) + (o.a.def < 50 ? 0.05 : 0)) * (inBox ? 0.05 : 1);
+      const foulP = (0.16 + (press === 2 ? 0.04 : 0) + (o.a.def < 50 ? 0.05 : 0)) * OP.foulF * (inBox ? 0.05 : 1);
       if (rng.chance(foulP)) { this.foul(o, m); return; }
-      o.stun = 0.9;
+      o.stun = 0.9 + press * 0.25; // 무리한 압박이 실패하면 더 오래 제쳐진다
       m.s.drb++;
       return;
     }

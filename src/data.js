@@ -130,5 +130,50 @@
     width: ['좁게', '보통', '넓게'],
   };
 
-  KM.DATA = { SURNAMES, GIVEN_A, GIVEN_B, FORMATIONS, ROLE_FIT, POS_KO, TACTIC_LABELS, ROLE_KO, ROLE_NAME, ROLE_GROUP, fit, LEAGUE_ECON, CLUB_KO };
+  // ── 전술 지시 (풋볼 매니저식 팀 지시) ─────────────────────────
+  // 각 항목은 경기 엔진의 실제 판단 값에 연결된다 (src/engine.js의 M.params 참고)
+  const TACTIC_GROUPS = [
+    { key: 'ip', title: '공격 시 (볼 소유)', items: [
+      ['mentality', '공격 성향', ['매우 수비적', '수비적', '균형', '공격적', '매우 공격적'], '라인 높이, 슈팅 욕심, 패스 모험 정도'],
+      ['passing', '패스 길이', ['훨씬 짧게', '짧게', '보통', '직선적', '훨씬 직선적'], '짧을수록 안전한 패스, 길수록 전진 패스·롱볼'],
+      ['tempo', '템포', ['느리게', '보통', '빠르게'], '공을 잡고 판단하는 시간'],
+      ['width', '공격 폭', ['좁게', '보통', '넓게'], '공격 시 선수들이 벌어지는 폭'],
+      ['approach', '빌드업 방식', ['균형', '후방 빌드업', '공간 침투 패스', '측면 오버랩'], '뒤에서부터 짧게, 수비 뒷공간, 풀백 오버랩'],
+      ['finalThird', '파이널 서드', ['균형', '박스까지 파고들기', '보이면 슈팅', '크로스 위주'], '마무리 단계에서의 선택'],
+      ['dribble', '드리블', ['자제', '보통', '적극 돌파'], '공을 몰고 전진하는 빈도'],
+      ['creative', '창의성', ['규율 중시', '보통', '자유롭게'], '정해진 선택 vs 의외의 선택'],
+    ] },
+    { key: 'op', title: '수비 시 (볼 미소유)', items: [
+      ['block', '수비 블록', ['낮은 블록', '중간 블록', '높은 블록'], '어디서부터 압박을 시작할지'],
+      ['line', '수비 라인', ['깊게', '보통', '높게'], '최종 수비 라인의 높이'],
+      ['press', '압박 강도', ['자제', '보통', '강하게'], '공 가진 선수에게 붙는 인원과 거리'],
+      ['tackle', '태클', ['서서 막기', '보통', '적극 태클'], '태클 빈도·성공률과 파울 위험'],
+      ['marking', '마크', ['지역 방어', '타이트 마크'], '위험 지역 공격수를 바짝 붙는지'],
+      ['trap', '압박 함정', ['없음', '중앙으로 몰기', '측면으로 몰기'], '상대 패스를 원하는 쪽으로 유도'],
+    ] },
+    { key: 'tr', title: '전환', items: [
+      ['onLoss', '공을 잃었을 때', ['재정비', '균형', '카운터 프레스'], '즉시 되찾기 vs 대형 복귀'],
+      ['onWin', '공을 뺏었을 때', ['대형 유지', '균형', '즉시 역습'], '빠른 전진 vs 안정적 소유'],
+      ['gk', '골키퍼 배급', ['짧게 빌드업', '균형', '롱킥'], '골키퍼가 공을 잡았을 때'],
+    ] },
+  ];
+  const TACTIC_DEFAULT = { mentality: 2, passing: 2, tempo: 1, width: 1, approach: 0, finalThird: 0, dribble: 1, creative: 1, block: 1, line: 1, press: 1, tackle: 1, marking: 0, trap: 0, onLoss: 1, onWin: 1, gk: 1 };
+  const TACTIC_PRESETS = [
+    ['gegen', '게겐프레스', '높은 블록과 카운터 프레스로 공을 빨리 되찾아 곧장 찌른다', { mentality: 3, passing: 3, tempo: 2, width: 1, approach: 0, finalThird: 0, dribble: 1, creative: 1, block: 2, line: 2, press: 2, tackle: 2, marking: 0, trap: 1, onLoss: 2, onWin: 2, gk: 1 }],
+    ['tiki', '티키타카', '짧은 패스로 점유하고 박스까지 파고든다', { mentality: 2, passing: 0, tempo: 0, width: 0, approach: 1, finalThird: 1, dribble: 0, creative: 2, block: 2, line: 2, press: 2, tackle: 1, marking: 0, trap: 0, onLoss: 2, onWin: 0, gk: 0 }],
+    ['vtiki', '수직 티키타카', '짧게 풀어 나오다가 빠르게 수직으로 찌른다', { mentality: 3, passing: 1, tempo: 2, width: 0, approach: 2, finalThird: 1, dribble: 1, creative: 1, block: 1, line: 2, press: 2, tackle: 1, marking: 0, trap: 1, onLoss: 2, onWin: 2, gk: 0 }],
+    ['wing', '측면 공격', '넓게 벌리고 풀백 오버랩과 크로스로 공격', { mentality: 3, passing: 2, tempo: 1, width: 2, approach: 3, finalThird: 3, dribble: 1, creative: 1, block: 1, line: 1, press: 1, tackle: 1, marking: 0, trap: 2, onLoss: 1, onWin: 1, gk: 1 }],
+    ['direct', '롱볼 다이렉트', '최전방으로 길게, 세컨드 볼 싸움', { mentality: 3, passing: 4, tempo: 2, width: 1, approach: 2, finalThird: 2, dribble: 1, creative: 0, block: 1, line: 1, press: 1, tackle: 2, marking: 0, trap: 0, onLoss: 0, onWin: 2, gk: 2 }],
+    ['counter', '유동적 역습', '내려앉아 있다가 공을 뺏으면 빠르게 역습', { mentality: 1, passing: 3, tempo: 2, width: 1, approach: 2, finalThird: 0, dribble: 2, creative: 2, block: 0, line: 0, press: 0, tackle: 1, marking: 0, trap: 0, onLoss: 0, onWin: 2, gk: 2 }],
+    ['bus', '텐백 수비', '낮은 블록과 타이트 마크로 실점을 막는다', { mentality: 0, passing: 3, tempo: 1, width: 0, approach: 0, finalThird: 2, dribble: 0, creative: 0, block: 0, line: 0, press: 0, tackle: 2, marking: 1, trap: 0, onLoss: 0, onWin: 0, gk: 2 }],
+    ['balance', '균형', '기본 설정', Object.assign({}, TACTIC_DEFAULT)],
+  ];
+  // 예전 세이브의 전술 값(style 등)을 새 형식으로 맞춘다
+  function normTactics(t) {
+    for (const k in TACTIC_DEFAULT) if (t[k] == null) t[k] = k === 'passing' && t.style != null ? [0, 2, 4][t.style] : TACTIC_DEFAULT[k];
+    t.style = t.passing <= 1 ? 0 : t.passing >= 3 ? 2 : 1;
+    return t;
+  }
+
+  KM.DATA = { TACTIC_GROUPS, TACTIC_DEFAULT, TACTIC_PRESETS, normTactics, SURNAMES, GIVEN_A, GIVEN_B, FORMATIONS, ROLE_FIT, POS_KO, TACTIC_LABELS, ROLE_KO, ROLE_NAME, ROLE_GROUP, fit, LEAGUE_ECON, CLUB_KO };
 })(globalThis.KM || (globalThis.KM = {}));

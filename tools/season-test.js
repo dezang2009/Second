@@ -16,12 +16,16 @@ console.log('최고 선수', top.map((p) => `${p.name}(${p.role} ${p.ovr}/${p.po
 for (let s = 0; s < seasons; s++) {
   const bal0 = G.teams.map((t) => t.balance);
   let eng = 0;
-  while (G.week < G.calendar.length) {
+  let guard = 0;
+  while (G.week < G.calendar.length && guard++ < 2000) {
     const fx = S.userFixture(G);
-    let m = null;
-    if (fx && eng < 2) { m = S.createMatch(G, fx); m.runToEnd(); eng++; }
-    S.playWeek(G, m);
+    if (fx && S.currentEvent(G).day <= G.day) {
+      let m = null;
+      if (eng < 2) { m = S.createMatch(G, fx); m.runToEnd(); eng++; }
+      S.playWeek(G, m);
+    } else S.advanceDay(G);
   }
+  console.log('  진행 일수', G.day, '이벤트', G.week + '/' + G.calendar.length);
   for (const li of [0, 5]) {
     const tb = S.table(G, li);
     console.log(G.year, G.leagues[li].name, '우승', S.team(G, tb[0].id).name, tb[0].pts + '점', '꼴찌', tb[tb.length - 1].pts, '경기수', tb[0].p, '골/경기', (tb.reduce((a, r) => a + r.gf, 0) / (tb.reduce((a, r) => a + r.p, 0) / 2)).toFixed(2));
