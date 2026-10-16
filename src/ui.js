@@ -520,7 +520,8 @@
 
   const DUTY_S = ['수', '지', '공'];
   function roleTag(r) { return `${D.ROLE_AB[r[0]]}<i class="duty d${r[1]}">${DUTY_S[r[1]]}</i>`; }
-  function lineupEditor(t) {
+  // part: 'pitch' | 'roles' | 'bench' (경기 준비 화면의 스와이프 페이지용), 없으면 전부
+  function lineupEditor(t, part) {
     const G = UI.G;
     W.validateLineup(G, t);
     const slots = D.FORMATIONS[t.tactics.formation];
@@ -540,7 +541,10 @@
     const others = sortPlayers(t.squad.map((id) => G.players[id]).filter((p) => !inXI.has(p.id)), 'pos');
     const benchSet = new Set(t.bench);
     const role = sel != null ? slots[sel][0] : null;
-    return `<section class="card stack">
+    // 스와이프 페이지에서는 자리를 고르면 바로 아래에 후보 목록을 보여준다
+    const cands = part === 'pitch' && sel != null ? `<section class="card stack"><div class="row"><h2 class="grow h2" style="margin:0">${slots[sel][0]} 자리 후보</h2><button class="btn sm ghost" data-act="slot" data-v="${sel}">취소</button></div>
+      <div class="list">${others.slice().sort((a, b) => W.roleOvr(b, role) - W.roleOvr(a, role)).map((p) => benchRow(p, role, benchSet.has(p.id))).join('')}</div></section>` : '';
+    const pitchHtml = `<section class="card stack">
       <div class="row"><h2 class="grow h2" style="margin:0">선발 라인업</h2><button class="btn sm" data-act="autolineup">자동</button></div>
       <div class="grid2 form-pick">
         <label><span class="eyebrow">공격 시 포메이션</span><select class="sel" data-act="formation" aria-label="공격 시 포메이션">${Object.keys(D.FORMATIONS).map((f) => `<option ${f === t.tactics.formation ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
@@ -554,9 +558,9 @@
         <span class="ln" style="left:24%;right:24%;bottom:3%;height:16%;border-bottom:0"></span><span class="ln" style="left:24%;right:24%;top:3%;height:16%;border-top:0"></span>
         ${discs}</div>
       <p class="muted" style="margin:0;font-size:11.5px">${fam < 70 ? '아직 익숙하지 않은 포메이션이라 선수들의 움직임이 조금 둔해요. 경기와 훈련(전술 초점)으로 숙련도가 올라가요.' : '선수들이 이 포메이션에 익숙해요.'}${t.tactics.formationOP ? ` 공을 잃으면 ${t.tactics.formationOP} 대형으로 바꿔 수비해요.` : ''}</p>
-    </section>
-    ${rolesCard(slots.map((sl, i) => ({ i, pos: sl[0], p: G.players[t.lineup[i]], r: roles[i] })), 'team')}
-    <section class="card stack">
+    </section>`;
+    const rolesHtml = rolesCard(slots.map((sl, i) => ({ i, pos: sl[0], p: G.players[t.lineup[i]], r: roles[i] })), 'team');
+    const benchHtml = `<section class="card stack">
       <div class="row"><h2 class="grow h2" style="margin:0">교체 명단 <small style="margin-left:6px">${t.bench.length}/9</small></h2>
         <button class="btn sm ghost" data-act="benchauto">자동 구성</button></div>
       <p class="muted" style="margin:0;font-size:12.5px">${sel != null ? '아래 선수를 누르면 선택한 자리에 들어가요.' : '경기 중 교체로 투입할 수 있는 선수는 이 명단의 9명뿐이에요. 오른쪽 버튼으로 넣고 빼세요.'}${t.bench.some((id) => G.players[id] && G.players[id].pos === 'GK') ? '' : ' <b style="color:var(--loss)">교체 골키퍼가 없어요.</b>'}</p>
@@ -564,6 +568,10 @@
       <div class="eyebrow" style="margin-top:4px">명단 외 ${others.filter((p) => !benchSet.has(p.id)).length}명</div>
       <div class="list">${others.filter((p) => !benchSet.has(p.id)).map((p) => benchRow(p, role, false)).join('') || '<div class="empty">모든 선수가 명단에 있어요.</div>'}</div>
     </section>`;
+    if (part === 'pitch') return pitchHtml + cands;
+    if (part === 'roles') return rolesHtml;
+    if (part === 'bench') return benchHtml;
+    return pitchHtml + rolesHtml + benchHtml;
   }
   function benchRow(p, role, onBench) {
     const out = p.inj > 0 || p.sus > 0;
@@ -1088,6 +1096,7 @@
   function openPrematch() {
     if (!S.userFixture(UI.G)) return;
     UI.prematch = true;
+    UI.prePage = 0;
     UI.selSlot = null;
     renderPrematch();
   }
@@ -1098,20 +1107,38 @@
     W.autoLineup(G, opp);
     const oppXI = opp.lineup.map((id) => G.players[id]).filter(Boolean).sort((a, b) => b.ovr - a.ovr).slice(0, 5);
     let el = $('.match-screen');
-    if (!el) { el = document.createElement('div'); el.className = 'match-screen'; document.body.appendChild(el); lockScroll(); }
-    const keepY = el.scrollTop;
-    requestAnimationFrame(() => { el.scrollTop = keepY; });
-    el.innerHTML = `<div class="in">
+    if (!el) { el = document.createElement('div'); el.className = 'match-screen pre'; document.body.appendChild(el); lockScroll(); }
+    // 다시 그려도 보던 페이지와 각 페이지의 스크롤 위치를 유지
+    const oldPages = el.querySelectorAll('.pre-page');
+    const keepY = Array.from(oldPages).map((x) => x.scrollTop);
+    const page = UI.prePage || 0;
+    el.innerHTML = `<div class="pre-head">
       <div class="row"><button class="btn sm ghost" data-act="closepre">← 닫기</button><span class="grow"></span><span class="eyebrow">${esc(fx.label)}</span></div>
-      <section class="card stack"><div class="row">${logo(opp, 56)}<div class="grow"><div class="eyebrow">${home ? '홈 경기' : '원정 경기'} 상대</div><h2 style="font-family:var(--f-display);font-size:22px">${esc(opp.name)}</h2>
+      <div class="pre-tabs" role="tablist">${PRE_TABS.map(([, l], i) => `<button role="tab" data-act="pretab" data-v="${i}" class="${i === page ? 'on' : ''}" aria-selected="${i === page}">${l}</button>`).join('')}<i class="ink" style="--i:${page}"></i></div></div>
+      <div class="pre-pages" id="pre-pages">
+      <div class="pre-page"><section class="card stack"><div class="row">${logo(opp, 56)}<div class="grow"><div class="eyebrow">${home ? '홈 경기' : '원정 경기'} 상대</div><h2 style="font-family:var(--f-display);font-size:22px">${esc(opp.name)}</h2>
         <div class="muted" style="font-size:12.5px">${opp.tactics.formation} · 전력 ${W.teamRating(G, opp)} · ${formHtml(opp.form)}</div></div></div>
         <div class="row" style="gap:6px;overflow-x:auto">${oppXI.map((p) => `<div style="text-align:center;width:62px;flex:none">${avatar(p, 44, opp.c1)}<div style="font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(shortPlayerName(p.name))}</div><div class="num" style="font-weight:700;color:var(--accent)">${p.ovr}</div></div>`).join('')}</div></section>
       ${reportCard()}
-      ${lineupEditor(t)}
-      ${tacticsPanel(t.tactics, 'team')}
-      <div class="grid2"><button class="btn" data-act="quickmatch">결과만 보기</button><button class="btn accent big" data-act="kickoff" style="padding:12px">킥오프</button></div>
-    </div>`;
+      <p class="swipe-hint">← 옆으로 넘겨 라인업·역할·교체 명단·전술을 확인하세요 →</p></div>
+      <div class="pre-page">${lineupEditor(t, 'pitch')}</div>
+      <div class="pre-page">${lineupEditor(t, 'roles')}</div>
+      <div class="pre-page">${lineupEditor(t, 'bench')}</div>
+      <div class="pre-page">${tacticsPanel(t.tactics, 'team')}</div>
+      </div>
+      <div class="pre-foot"><button class="btn" data-act="quickmatch">결과만 보기</button><button class="btn accent big" data-act="kickoff">킥오프</button></div>`;
+    const box = $('#pre-pages');
+    box.scrollLeft = page * box.clientWidth;
+    box.querySelectorAll('.pre-page').forEach((x, i) => { x.scrollTop = keepY[i] || 0; });
+    box.addEventListener('scroll', () => {
+      const i = Math.round(box.scrollLeft / Math.max(1, box.clientWidth));
+      if (i === UI.prePage) return;
+      UI.prePage = i;
+      el.querySelectorAll('.pre-tabs button').forEach((b, j) => { b.classList.toggle('on', j === i); b.setAttribute('aria-selected', j === i); });
+      const ink = el.querySelector('.pre-tabs .ink'); if (ink) ink.style.setProperty('--i', i);
+    }, { passive: true });
   }
+  const PRE_TABS = [['opp', '상대'], ['xi', '라인업'], ['roles', '역할'], ['bench', '교체 명단'], ['tac', '전술']];
 
   // 어시스턴트 매니저의 상대 분석
   function reportCard() {
@@ -1132,7 +1159,8 @@
     if (quick) { m.runToEnd(); return finishMatch(m); }
     UI.live = { m, fx, userSide, speed: G.settings.speed || 1, talk: null, paused: false, acc: 0, evShown: 0, tab: 'feed', selOut: null, last: 0, owner: null };
     let el = $('.match-screen');
-    if (!el) { el = document.createElement('div'); el.className = 'match-screen'; document.body.appendChild(el); lockScroll(); }
+    if (!el) { el = document.createElement('div'); document.body.appendChild(el); lockScroll(); }
+    el.className = 'match-screen';
     const h = m.sides[0].team, a = m.sides[1].team;
     const kit = KM.Render.kits(h, a);
     el.innerHTML = `<div class="in">
@@ -1626,6 +1654,7 @@
     save() { save().then((ok) => { if (ok) toast('저장했어요.'); }); },
     defspeed(el) { UI.G.settings.speed = +el.dataset.v; save(true); rerenderView(); },
 
+    pretab(el) { const box = $('#pre-pages'); if (box) box.scrollTo({ left: +el.dataset.v * box.clientWidth, behavior: 'smooth' }); },
     closepre() { UI.prematch = false; const el = $('.match-screen'); if (el) el.remove(); lockScroll(); save(true); render(); },
     kickoff() { startLive(false); },
     quickmatch() { startLive(true); },
