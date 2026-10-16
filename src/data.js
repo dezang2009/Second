@@ -2,59 +2,78 @@
 (function (KM) {
   'use strict';
 
-  // [이름, 약칭, 주색, 보조색, 경기장, 수용인원, 전력(1부 기준)]
-  const CLUBS = [
-    // 1부 리그 16팀
-    ['서울 유나이티드', 'SEU', '#c8102e', '#ffffff', '한강 아레나', 52000, 80],
-    ['부산 마린스', 'BSM', '#0b3d91', '#f5c400', '해운대 스타디움', 41000, 77],
-    ['인천 하버 FC', 'ICH', '#1d1d1b', '#38b6ff', '하버 파크', 30000, 72],
-    ['대구 블레이즈', 'DGB', '#e2541b', '#1b1b1b', '달구벌 필드', 34000, 74],
-    ['광주 피닉스', 'GJP', '#f4c20d', '#2b2b6a', '무등 스타디움', 26000, 69],
-    ['대전 시티즌스', 'DJC', '#5b2d8e', '#ffffff', '한밭 그라운드', 28000, 70],
-    ['울산 스틸러스', 'ULS', '#1b4fa3', '#f0f0f0', '태화강 돔', 38000, 79],
-    ['수원 로열스', 'SWR', '#002f6c', '#d7282f', '화성 로열 파크', 43000, 75],
-    ['전주 그린웨이브', 'JJG', '#1f7a3a', '#ffffff', '완산 필드', 36000, 78],
-    ['포항 아이언', 'PHI', '#222222', '#d11f2f', '형산강 스틸야드', 24000, 73],
-    ['제주 오렌지스', 'JJO', '#f58220', '#1e2a44', '한라 아레나', 22000, 68],
-    ['창원 웨이브', 'CWW', '#0a8f9e', '#ffffff', '마산만 파크', 21000, 66],
-    ['강릉 타이드', 'GRT', '#2c5f8a', '#a3d5ff', '경포 스타디움', 18000, 65],
-    ['성남 나이츠', 'SNK', '#111111', '#c0c0c0', '탄천 캐슬', 25000, 67],
-    ['안양 레드윙스', 'AYR', '#7a0019', '#f2c75c', '관악 필드', 17000, 64],
-    ['청주 스카이', 'CJS', '#3a8dde', '#ffffff', '무심천 파크', 19000, 63],
-    // 2부 리그 16팀
-    ['춘천 레이크스', 'CCL', '#0f5c8c', '#e8f4ff', '의암호 그라운드', 14000, 63],
-    ['천안 썬더', 'CAT', '#ffd400', '#1a1a1a', '천안 볼트파크', 15000, 62],
-    ['김포 그리폰스', 'GPG', '#6b3fa0', '#f0c000', '한강하구 필드', 11000, 60],
-    ['목포 씨호크스', 'MPS', '#006d77', '#ffddd2', '유달 스타디움', 12000, 58],
-    ['여수 나이트', 'YSN', '#13294b', '#ffb703', '오동도 아레나', 13000, 59],
-    ['원주 마운틴', 'WJM', '#2d6a4f', '#d8f3dc', '치악 필드', 10000, 57],
-    ['평택 포트', 'PTP', '#9a031e', '#fb8b24', '포승 파크', 12000, 60],
-    ['경주 헤리티지', 'GJH', '#7f5539', '#ede0d4', '첨성 필드', 9000, 56],
-    ['안산 그리너스', 'ASG', '#38b000', '#004b23', '와스타디움', 13000, 61],
-    ['부천 1995', 'BCF', '#a4133c', '#ffffff', '부천 아레나', 12000, 61],
-    ['김해 블루', 'GHB', '#023e8a', '#90e0ef', '가야 그라운드', 9000, 55],
-    ['순천 리버', 'SCR', '#52b788', '#081c15', '순천만 파크', 8000, 54],
-    ['군산 하버스', 'GSH', '#3d405b', '#f2cc8f', '새만금 필드', 8000, 55],
-    ['익산 스톤즈', 'ISS', '#495057', '#f8f9fa', '미륵 스타디움', 7000, 53],
-    ['양산 이글스', 'YSE', '#bc6c25', '#fefae0', '통도 파크', 8000, 54],
-    ['충주 블레이드', 'CJB', '#ef233c', '#2b2d42', '탄금대 아레나', 9000, 56],
-  ];
-
-  const SURNAMES = '김 이 박 최 정 강 조 윤 장 임 한 오 서 신 권 황 안 송 류 홍 전 고 문 양 손 배 백 허 남 심 노 하 곽 성 차 주 우 구 민 유 나 진 지 엄 채 원 천 방 공 현 함 변 염 여 추 도 소 석 선 설 마 길 연 위 표 명 기 반 왕 금 옥 육 인 맹 제 모 탁'.split(' ');
+  const SURNAMES = '김 이 박 최 정 강 조 윤 장 임 한 오 서 신 권 황 안 송 류 홍 전 고 문 양 손 배 백 허 남 심 노 하 곽 성 차 주 우 구 민 유 나 진 지'.split(' ');
   const GIVEN_A = '민 서 지 현 준 도 우 시 하 주 예 은 승 윤 태 재 동 성 영 정 상 진 경 수 용 기 호 석 종 대 건 한 원 유 규 희 혁 찬 범 형'.split(' ');
   const GIVEN_B = '준 우 호 민 현 진 혁 수 훈 빈 성 원 석 영 재 환 철 규 태 열 기 찬 율 겸 결 후 서 윤 범 균 웅 용 인 일 형 욱 섭 한 완 오'.split(' ');
 
-  // 외국인 선수 이름 [국적, 이름 목록]
-  const FOREIGN = [
-    ['브라질', ['하파엘', '마테우스', '가브리엘', '루카스', '페드루', '티아구', '브루누', '이고르', '레안드루', '주니오르', '에베르톤', '카이우']],
-    ['일본', ['다카하시', '사토', '나카무라', '야마다', '모리', '이토', '마쓰다', '후지타', '오노', '하야시']],
-    ['호주', ['미첼', '스미스', '오코너', '해리스', '브라운', '콜린스', '레일리']],
-    ['세르비아', ['요비치', '밀로셰비치', '페트로비치', '니콜리치', '스타노예비치']],
-    ['콜롬비아', ['로드리게스', '쿠아드라도', '모레노', '발렌시아', '아리아스']],
-    ['나이지리아', ['오사이', '아데바요', '오콘쿼', '에제', '은디디']],
-    ['스페인', ['가르시아', '로페스', '마르티네스', '산체스', '페레스', '알론소']],
-    ['네덜란드', ['더용', '반다이크', '얀선', '페르베이', '바커르']],
-  ];
+  // 트랜스퍼마크트 세부 포지션 → 게임 역할
+  const ROLE_KO = {
+    '골키퍼': 'GK', '중앙 수비수': 'CB', '좌측 풀백': 'LB', '우측 풀백': 'RB',
+    '수비형 미드필더': 'DM', '중앙 미드필더': 'CM', '공격형 미드필더': 'AM',
+    '좌측 측면 미드필더': 'LM', '우측 측면 미드필더': 'RM', '좌측 윙 포워드': 'LW', '우측 윙 포워드': 'RW',
+    '세컨드 스트라이커': 'ST', '중앙 공격수': 'ST', '수비수': 'CB', '미드필더': 'CM', '공격수': 'ST',
+  };
+  const ROLE_NAME = {
+    GK: '골키퍼', CB: '센터백', LB: '레프트백', RB: '라이트백', DM: '수비형 미드필더', CM: '중앙 미드필더',
+    AM: '공격형 미드필더', LM: '레프트 미드필더', RM: '라이트 미드필더', LW: '레프트 윙어', RW: '라이트 윙어', ST: '스트라이커',
+  };
+  const ROLE_GROUP = { GK: 'GK', CB: 'DF', LB: 'DF', RB: 'DF', DM: 'MF', CM: 'MF', AM: 'MF', LM: 'MF', RM: 'MF', LW: 'FW', RW: 'FW', ST: 'FW' };
+  // 세부 포지션끼리의 적합도 (같으면 1, 비슷하면 높게)
+  const NEAR = {
+    CB: { DM: 0.88, LB: 0.84, RB: 0.84 },
+    LB: { RB: 0.86, LM: 0.88, CB: 0.84, LW: 0.78 },
+    RB: { LB: 0.86, RM: 0.88, CB: 0.84, RW: 0.78 },
+    DM: { CM: 0.94, CB: 0.86 },
+    CM: { DM: 0.93, AM: 0.92, LM: 0.84, RM: 0.84 },
+    AM: { CM: 0.9, ST: 0.86, LW: 0.86, RW: 0.86 },
+    LM: { LW: 0.95, LB: 0.84, RM: 0.86, CM: 0.85 },
+    RM: { RW: 0.95, RB: 0.84, LM: 0.86, CM: 0.85 },
+    LW: { LM: 0.94, RW: 0.9, ST: 0.84, AM: 0.86 },
+    RW: { RM: 0.94, LW: 0.9, ST: 0.84, AM: 0.86 },
+    ST: { AM: 0.84, LW: 0.82, RW: 0.82 },
+    GK: {},
+  };
+  function fit(slot, p) {
+    const r = p.role || p.pos;
+    if (slot === r) return 1;
+    if (NEAR[slot] && NEAR[slot][r]) return NEAR[slot][r];
+    return (ROLE_FIT[slot][p.pos] || 0.5) * 0.9;
+  }
+
+  // 리그별 경제 규모 (주간 중계권 기준 배수, 티켓 가격 천 유로)
+  const LEAGUE_ECON = {
+    GB1: { tv: 1.0, ticket: 0.07, cupName: 'FA컵' },
+    ES1: { tv: 0.55, ticket: 0.05, cupName: '코파 델 레이' },
+    L1: { tv: 0.5, ticket: 0.04, cupName: 'DFB 포칼' },
+    IT1: { tv: 0.5, ticket: 0.04, cupName: '코파 이탈리아' },
+    FR1: { tv: 0.35, ticket: 0.035, cupName: '쿠프 드 프랑스' },
+    RSK1: { tv: 0.03, ticket: 0.012, cupName: '코리아컵' },
+  };
+
+  // 영문 구단명 → 한국어 표기
+  const CLUB_KO = {
+    'Arsenal FC': '아스널', 'Liverpool FC': '리버풀', 'Newcastle United': '뉴캐슬 유나이티드', 'Brentford FC': '브렌트퍼드',
+    'AFC Bournemouth': '본머스', 'Crystal Palace': '크리스털 팰리스', 'Nottingham Forest': '노팅엄 포리스트', 'Sunderland AFC': '선덜랜드',
+    'Leeds United': '리즈 유나이티드', 'Everton FC': '에버턴', 'Fulham FC': '풀럼', 'Ipswich Town': '입스위치 타운',
+    'Coventry City': '코번트리 시티', 'Hull City': '헐 시티',
+    'Real Madrid': '레알 마드리드', 'FC Barcelona': '바르셀로나', 'Atlético de Madrid': '아틀레티코 마드리드', 'Villarreal CF': '비야레알',
+    'Real Sociedad': '레알 소시에다드', 'Real Betis Balompié': '레알 베티스', 'Athletic Bilbao': '아틀레틱 빌바오', 'Celta de Vigo': '셀타 비고',
+    'Sevilla FC': '세비야', 'Valencia CF': '발렌시아', 'RCD Espanyol Barcelona': '에스파뇰', 'Deportivo A Coruña': '데포르티보 라코루냐',
+    'Racing Santander': '라싱 산탄데르', 'Rayo Vallecano': '라요 바예카노', 'Getafe CF': '헤타페', 'Levante UD': '레반테',
+    'CA Osasuna': '오사수나', 'Elche CF': '엘체', 'Deportivo Alavés': '알라베스', 'Málaga CF': '말라가',
+    'Borussia Dortmund': '도르트문트', 'RB Leipzig': '라이프치히', 'VfB Stuttgart': '슈투트가르트', 'Eintracht Frankfurt': '프랑크푸르트',
+    'TSG 1899 Hoffenheim': '호펜하임', 'SC Freiburg': '프라이부르크', 'FC Augsburg': '아우크스부르크', '1.FSV Mainz 05': '마인츠',
+    '1.FC Köln': '쾰른', 'Hamburger SV': '함부르크', 'Borussia Mönchengladbach': '묀헨글라트바흐', 'SV Werder Bremen': '베르더 브레멘',
+    '1.FC Union Berlin': '우니온 베를린', 'FC Schalke 04': '샬케 04', 'SV 07 Elversberg': '엘버스베르크', 'SC Paderborn 07': '파더보른',
+    'Inter Milan': '인테르', 'Como 1907': '코모', 'AC Milan': 'AC 밀란', 'AS Roma': 'AS 로마', 'Atalanta BC': '아탈란타',
+    'SSC Napoli': '나폴리', 'ACF Fiorentina': '피오렌티나', 'SS Lazio': '라치오', 'Bologna FC 1909': '볼로냐', 'US Sassuolo': '사수올로',
+    'Torino FC': '토리노', 'Genoa CFC': '제노아', 'Udinese Calcio': '우디네세', 'Parma Calcio 1913': '파르마', 'Cagliari Calcio': '칼리아리',
+    'Venezia FC': '베네치아', 'Frosinone Calcio': '프로시노네', 'AC Monza': '몬차', 'US Lecce': '레체',
+    'AS Monaco': 'AS 모나코', 'RC Strasbourg Alsace': '스트라스부르', 'Stade Rennais FC': '스타드 렌', 'LOSC Lille': '릴',
+    'RC Lens': '랑스', 'Paris FC': '파리 FC', 'Olympique Marseille': '마르세유', 'OGC Nice': '니스', 'FC Toulouse': '툴루즈',
+    'FC Lorient': '로리앙', 'AJ Auxerre': '오세르', 'Stade Brestois 29': '브레스트', 'Angers SCO': '앙제', 'Le Havre AC': '르아브르',
+    'ESTAC Troyes': '트루아', 'Le Mans FC': '르망',
+  };
 
   // 포메이션 슬롯: x = 자기 진영에서의 깊이(0 골문 ~ 1 상대 골문 방향), y = 0 왼쪽 ~ 1 오른쪽 (공격 방향 기준)
   const FORMATIONS = {
@@ -111,5 +130,5 @@
     width: ['좁게', '보통', '넓게'],
   };
 
-  KM.DATA = { CLUBS, SURNAMES, GIVEN_A, GIVEN_B, FOREIGN, FORMATIONS, ROLE_FIT, POS_KO, TACTIC_LABELS };
+  KM.DATA = { SURNAMES, GIVEN_A, GIVEN_B, FORMATIONS, ROLE_FIT, POS_KO, TACTIC_LABELS, ROLE_KO, ROLE_NAME, ROLE_GROUP, fit, LEAGUE_ECON, CLUB_KO };
 })(globalThis.KM || (globalThis.KM = {}));

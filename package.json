@@ -2,7 +2,7 @@
   "name": "kickoff-manager",
   "version": "0.1.0",
   "private": true,
-  "description": "2D 실시간 경기 엔진을 갖춘 모바일 축구 감독 게임",
+  "description": "실제 선수단과 2D 실시간 경기 엔진을 갖춘 모바일 축구 감독 게임",
   "scripts": {
     "start": "python3 -m http.server 8080",
     "build": "node tools/build.js",

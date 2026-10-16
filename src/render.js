@@ -175,7 +175,7 @@
   // 정적 포메이션 미리보기 (라인업 편집용) — DOM 기반이므로 좌표 변환만 제공
   function slotPos(slot) {
     // 세로 경기장, 아래가 우리 골문: left%, top%
-    return [slot[2] * 84 + 8, 94 - slot[1] * 86];
+    return [slot[2] * 84 + 8, 90 - slot[1] * 82];
   }
 
   KM.Render = { PitchView, contrast, slotPos, kits };

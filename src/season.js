@@ -1,65 +1,93 @@
-// 커리어 진행: 일정, 결과 반영, 이적, 재정, 훈련, 시즌 종료
+// 커리어 진행: 6개 리그 일정, 결과 반영, 이적, 재정, 훈련, 시즌 종료
+// 금액 단위: 천 유로(k€)
 (function (KM) {
   'use strict';
   const { clamp, RNG, money, josa } = KM;
   const D = KM.DATA, W = KM.World;
 
-  const CUP_AFTER = [3, 8, 14, 21, 27];         // 리그 n라운드 뒤에 컵 라운드
-  const CUP_NAMES = ['32강', '16강', '8강', '준결승', '결승'];
-  const WINDOW_WEEKS = (w) => w < 4 || (w >= 17 && w <= 20);
+  const CUP_NAMES = ['1라운드', '32강', '16강', '8강', '준결승', '결승'];
 
-  function rngOf(G) {
-    const r = new RNG(1); r.s = G.rngS; return r;
-  }
+  function rngOf(G) { const r = new RNG(1); r.s = G.rngS; return r; }
   function saveRng(G, r) { G.rngS = r.s; }
 
   // ── 새 게임 ─────────────────────────────────────────────────
-  function newGame(opts) {
-    const seed = opts.seed || ((Date.now() ^ (Math.random() * 1e9)) >>> 0);
-    const rng = new RNG(seed);
+  // 실제 데이터(KM.REAL)로 리그와 구단을 만든다
+  function createWorld(seed) {
+    const R = KM.REAL;
     const G = {
-      v: 1, seed, rngS: 0, year: 2026, season: 1, week: 0,
-      players: {}, nextPid: 1, teams: [], divs: [[], []],
-      user: { teamId: opts.teamId, name: opts.name || '감독', rep: 40, sacked: false, history: [], trophies: [], seasons: 0, wins: 0, draws: 0, losses: 0 },
-      news: [], offers: [], nego: {}, freeAgents: [], records: { bigWin: null, recordFee: 0 },
+      v: 2, seed, rngS: seed >>> 0 || 1, year: R.season, season: 1, week: 0,
+      players: {}, nextPid: 900000000, teams: [], leagues: [],
+      user: { teamId: 0, name: '감독', rep: 45, sacked: false, history: [], trophies: [], seasons: 0, wins: 0, draws: 0, losses: 0 },
+      news: [], offers: [], nego: {}, freeAgents: [], records: { recordFee: 0 }, short: [],
       ach: {}, training: { focus: 'bal', intensity: 1 }, settings: { speed: 1 },
       board: { conf: 65, goal: null },
-      fin: { log: [], seasonIncome: 0, seasonSpend: 0, cat: {} },
-      unbeaten: 0, lastMatch: null, transfers: [],
+      fin: { log: [], cat: {} },
+      unbeaten: 0, lastMatch: null, transfers: [], dataDate: R.fetched,
     };
-    D.CLUBS.forEach((def, i) => {
-      const div = i < 16 ? 1 : 2;
-      const t = W.createTeam(G, rng, def, i, div);
-      G.teams.push(t);
-      G.divs[div - 1].push(i);
+    R.leagues.forEach((lg, li) => {
+      const league = { code: lg.code, name: lg.name, teams: [] };
+      for (const c of lg.clubs) {
+        const t = W.createRealTeam(G, c, li, lg.code, R.colors || {}, R.season);
+        G.teams.push(t);
+        league.teams.push(t.id);
+      }
+      G.leagues.push(league);
     });
-    for (let i = 0; i < 30; i++) {
-      const p = W.createPlayer(G, rng, rng.pick(['GK', 'DF', 'DF', 'MF', 'MF', 'FW']), rng.int(52, 68), rng.int(19, 33));
+    const rng = rngOf(G);
+    for (let i = 0; i < 40; i++) {
+      const lg = rng.int(0, G.leagues.length - 1);
+      const p = W.createPlayer(G, rng, rng.pick(['GK', 'CB', 'LB', 'RB', 'DM', 'CM', 'AM', 'LW', 'RW', 'ST']), rng.int(55, 70), rng.int(20, 32), namePool(G, lg));
+      p.contract = 0;
       G.freeAgents.push(p.id);
     }
-    G.rngS = rng.s;
-    // 사용자 팀은 OVR 기반 대신 실제 감독 판단 — 기본 전술 유지
-    setupSeason(G);
-    news(G, 'board', `${G.user.name} 감독 부임`, `${josa(userTeam(G).name, '이/가')} ${G.user.name} 감독을 새 사령탑으로 선임했습니다. 구단주는 이번 시즌 목표로 '${goalText(G.board.goal)}'를 제시했습니다.`);
+    saveRng(G, rng);
     return G;
+  }
+
+  function startCareer(G, teamId, name) {
+    G.user.teamId = teamId;
+    G.user.name = name || '감독';
+    G.news = [];
+    setupSeason(G);
+    const t = userTeam(G);
+    news(G, 'board', `${G.user.name} 감독 부임`, `${josa(t.name, '이/가')} ${G.user.name} 감독을 새 사령탑으로 선임했습니다. 구단주의 목표는 '${G.board.goal.text}'입니다.`);
+  }
+
+  // 같은 리그 선수들의 이름 조각으로 가상 선수 이름 풀을 만든다
+  function namePool(G, li) {
+    G._pools = G._pools || {};
+    if (G._pools[li]) return G._pools[li];
+    const lg = G.leagues[li];
+    if (lg.code === 'RSK1') return (G._pools[li] = { korean: true, nat: '대한민국' });
+    const first = [], last = [];
+    for (const tid of lg.teams) for (const id of G.teams[tid].squad) {
+      const p = G.players[id];
+      if (!p || p.gen) continue;
+      const parts = p.name.split(' ');
+      if (parts.length >= 2) { first.push(parts[0]); last.push(parts[parts.length - 1]); }
+    }
+    return (G._pools[li] = { first, last });
   }
 
   function userTeam(G) { return G.teams[G.user.teamId]; }
   function team(G, id) { return G.teams[id]; }
+  function leagueOf(G, t) { return G.leagues[t.league]; }
 
   // ── 시즌 설정 ───────────────────────────────────────────────
   function roundRobin(ids, rng) {
-    const n = ids.length;
-    const arr = rng.shuffle(ids.slice());
+    const list = rng.shuffle(ids.slice());
+    if (list.length % 2) list.push(null);
+    const n = list.length;
     const rounds = [];
     for (let r = 0; r < n - 1; r++) {
       const games = [];
       for (let i = 0; i < n / 2; i++) {
-        const a = arr[i], b = arr[n - 1 - i];
+        const a = list[i], b = list[n - 1 - i];
+        if (a == null || b == null) continue;
         games.push(r % 2 === 0 ? { h: a, a: b } : { h: b, a: a });
       }
       rounds.push(games);
-      arr.splice(1, 0, arr.pop());
+      list.splice(1, 0, list.pop());
     }
     const second = rounds.map((g) => g.map((m) => ({ h: m.a, a: m.h })));
     return rounds.concat(second).map((g) => g.map((m) => Object.assign(m, { hs: null, as: null })));
@@ -67,22 +95,38 @@
 
   function setupSeason(G) {
     const rng = rngOf(G);
-    G.fixtures = G.divs.map((ids) => roundRobin(ids, rng));
-    // 컵: 32팀 토너먼트
-    const all = rng.shuffle(G.teams.map((t) => t.id));
-    G.cup = { rounds: [pairUp(all)], winner: null };
+    for (const lg of G.leagues) { lg.fixtures = roundRobin(lg.teams, rng); lg.played = 0; }
+    const ut = userTeam(G);
+    const ul = leagueOf(G, ut);
+    // 컵: 사용자 리그 구단으로 토너먼트 (빈 자리는 부전승)
+    const ids = rng.shuffle(ul.teams.slice());
+    let size = 2; while (size < ids.length) size *= 2;
+    const slots = ids.concat(new Array(size - ids.length).fill(null));
+    const seeded = [];
+    for (let i = 0; i < size / 2; i++) seeded.push(slots[i], slots[size - 1 - i]);
+    G.cup = { name: D.LEAGUE_ECON[ul.code].cupName, rounds: [pairUp(seeded)], winner: null, first: CUP_NAMES.length - Math.log2(size) };
+    // 일정: 사용자 리그 라운드 사이에 컵 라운드를 고르게 배치
+    const R = ul.fixtures.length;
+    const cupRounds = Math.log2(size);
+    const cupAfter = [];
+    for (let c = 0; c < cupRounds; c++) cupAfter.push(Math.round(((c + 1) * R) / (cupRounds + 1)) - 1);
     G.calendar = [];
     let c = 0;
-    for (let r = 0; r < 30; r++) {
+    for (let r = 0; r < R; r++) {
       G.calendar.push({ k: 'L', r });
-      if (r === CUP_AFTER[c]) { G.calendar.push({ k: 'C', r: c }); c++; }
+      while (c < cupAfter.length && cupAfter[c] === r) { G.calendar.push({ k: 'C', r: c }); c++; }
     }
     G.week = 0;
-    for (const t of G.teams) { t.form = []; W.validateLineup(G, t); }
+    for (const t of G.teams) {
+      t.form = []; W.validateLineup(G, t);
+      t.wage0 = W.wageBill(G, t);
+    }
     for (const id in G.players) { const p = G.players[id]; p.season = W.blankStats(); p.ratings = []; p.yAcc = 0; }
     G.board.goal = boardGoal(G);
     G.board.conf = clamp(G.board.conf, 45, 80);
-    G.fin.seasonIncome = 0; G.fin.seasonSpend = 0; G.fin.cat = {};
+    G.fin.cat = {};
+    const len = G.calendar.length;
+    G.window = { mid0: Math.round(len * 0.5), mid1: Math.round(len * 0.5) + 3 };
     saveRng(G, rng);
   }
 
@@ -91,47 +135,44 @@
     for (let i = 0; i < ids.length; i += 2) out.push({ h: ids[i], a: ids[i + 1], hs: null, as: null, w: null, pens: null });
     return out;
   }
+  function cupRoundName(G, r) { return CUP_NAMES[G.cup.first + r] || `${r + 1}라운드`; }
 
   function strengthRank(G, teamId) {
     const t = team(G, teamId);
-    const ids = G.divs[t.div - 1].slice().sort((a, b) => W.squadOvr(G, team(G, b)) - W.squadOvr(G, team(G, a)));
+    const ids = leagueOf(G, t).teams.slice().sort((a, b) => W.squadOvr(G, team(G, b)) - W.squadOvr(G, team(G, a)) || team(G, b).rep - team(G, a).rep);
     return ids.indexOf(teamId) + 1;
   }
 
   function boardGoal(G) {
     const t = userTeam(G);
+    const n = leagueOf(G, t).teams.length;
     const rank = strengthRank(G, t.id);
-    if (t.div === 1) {
-      if (rank <= 2) return { code: 'title', pos: 1, text: '리그 우승' };
-      if (rank <= 5) return { code: 'top4', pos: 4, text: '4위 이내' };
-      if (rank <= 10) return { code: 'mid', pos: 9, text: '중위권(9위 이내)' };
-      return { code: 'survive', pos: 13, text: '1부 잔류(13위 이내)' };
-    }
-    if (rank <= 4) return { code: 'promote', pos: 3, text: '1부 승격(3위 이내)' };
-    if (rank <= 10) return { code: 'top8', pos: 8, text: '8위 이내' };
-    return { code: 'mid2', pos: 12, text: '12위 이내' };
+    if (rank <= 2) return { code: 'title', pos: 1, text: '리그 우승' };
+    if (rank <= 5) return { code: 'top4', pos: 4, text: '4위 이내' };
+    const half = Math.ceil(n / 2);
+    if (rank <= half + 1) return { code: 'half', pos: half, text: `상위권(${half}위 이내)` };
+    return { code: 'survive', pos: n - 3, text: `강등권 탈출(${n - 3}위 이내)` };
   }
-  function goalText(g) { return g ? g.text : ''; }
 
   // ── 순위표 ─────────────────────────────────────────────────
-  function table(G, div) {
+  function table(G, li) {
+    const lg = G.leagues[li];
     const rows = {};
-    for (const id of G.divs[div]) rows[id] = { id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0, form: [] };
-    for (const round of G.fixtures[div]) {
+    for (const id of lg.teams) rows[id] = { id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 };
+    for (const round of lg.fixtures) {
       for (const m of round) {
         if (m.hs == null) continue;
         const h = rows[m.h], a = rows[m.a];
         h.p++; a.p++; h.gf += m.hs; h.ga += m.as; a.gf += m.as; a.ga += m.hs;
-        if (m.hs > m.as) { h.w++; a.l++; h.pts += 3; h.form.push('W'); a.form.push('L'); }
-        else if (m.hs < m.as) { a.w++; h.l++; a.pts += 3; h.form.push('L'); a.form.push('W'); }
-        else { h.d++; a.d++; h.pts++; a.pts++; h.form.push('D'); a.form.push('D'); }
+        if (m.hs > m.as) { h.w++; a.l++; h.pts += 3; }
+        else if (m.hs < m.as) { a.w++; h.l++; a.pts += 3; }
+        else { h.d++; a.d++; h.pts++; a.pts++; }
       }
     }
     return Object.values(rows).sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || x.id - y.id);
   }
   function position(G, teamId) {
-    const t = team(G, teamId);
-    return table(G, t.div - 1).findIndex((r) => r.id === teamId) + 1;
+    return table(G, team(G, teamId).league).findIndex((r) => r.id === teamId) + 1;
   }
 
   // ── 이번 주 일정 ───────────────────────────────────────────
@@ -141,18 +182,21 @@
     const ev = currentEvent(G);
     if (!ev) return null;
     const uid = G.user.teamId;
+    const ul = leagueOf(G, userTeam(G));
     if (ev.k === 'L') {
-      const div = userTeam(G).div - 1;
-      const m = G.fixtures[div][ev.r].find((x) => x.h === uid || x.a === uid);
-      return m ? { ev, m, comp: '리그', label: `${userTeam(G).div}부 리그 ${ev.r + 1}라운드` } : null;
+      const m = ul.fixtures[ev.r].find((x) => x.h === uid || x.a === uid);
+      return m ? { ev, m, comp: '리그', label: `${ul.name} ${ev.r + 1}라운드` } : null;
     }
     const round = G.cup.rounds[ev.r];
     if (!round) return null;
-    const m = round.find((x) => x.h === uid || x.a === uid);
-    return m ? { ev, m, comp: '컵', label: `코리아 컵 ${CUP_NAMES[ev.r]}` } : null;
+    const m = round.find((x) => (x.h === uid || x.a === uid) && x.h != null && x.a != null);
+    return m ? { ev, m, comp: '컵', label: `${G.cup.name} ${cupRoundName(G, ev.r)}` } : null;
   }
 
-  function windowOpen(G) { return G.week < G.calendar.length && WINDOW_WEEKS(G.week); }
+  function windowOpen(G) {
+    const w = G.week;
+    return w < G.calendar.length && (w < 4 || (w >= G.window.mid0 && w <= G.window.mid1));
+  }
 
   // ── 엔진용 팀 구성 ─────────────────────────────────────────
   function buildSide(G, t) {
@@ -172,7 +216,6 @@
     const rng = rngOf(G);
     const seed = rng.int(1, 2e9);
     saveRng(G, rng);
-    // AI 팀은 상대에 따라 전술 조정
     aiPrepare(G, h, a); aiPrepare(G, a, h);
     const user = fx.m.h === G.user.teamId ? 0 : 1;
     return new KM.Engine.Match(buildSide(G, h), buildSide(G, a), { seed, user });
@@ -190,9 +233,9 @@
   function quickSim(G, h, a, rng, knockout) {
     aiPrepare(G, h, a); aiPrepare(G, a, h);
     const rH = effRating(G, h), rA = effRating(G, a);
-    const diff = rH - rA + 2.2; // 홈 어드밴티지
-    const lh = clamp(1.2 * Math.exp(0.044 * diff) * mentF(h) * (1.08 - (a.tactics.mentality - 2) * 0.04), 0.15, 5);
-    const la = clamp(1.2 * Math.exp(-0.044 * diff) * mentF(a) * (1.08 - (h.tactics.mentality - 2) * 0.04), 0.15, 5);
+    const diff = rH - rA + 2.2;
+    const lh = clamp(1.2 * Math.exp(0.056 * diff) * mentF(h) * (1.08 - (a.tactics.mentality - 2) * 0.04), 0.15, 5);
+    const la = clamp(1.2 * Math.exp(-0.056 * diff) * mentF(a) * (1.08 - (h.tactics.mentality - 2) * 0.04), 0.15, 5);
     const hs = poisson(rng, lh), as = poisson(rng, la);
     const res = { hs, as, pens: null, players: [] };
     for (const [t, goals, conceded] of [[h, hs, as], [a, as, hs]]) {
@@ -200,8 +243,7 @@
       const xi = t.lineup.map((id, i) => ({ p: G.players[id], role: slots[i][0] }));
       const subs = t.bench.slice(0, 3).map((id) => G.players[id]).filter(Boolean);
       const rec = new Map();
-      xi.forEach((x) => rec.set(x.p.id, { p: x.p, role: x.role, mins: 90, goals: 0, ast: 0, yel: 0, red: false, inj: 0, cond: 0 }));
-      // 교체 3명
+      xi.forEach((x) => rec.set(x.p.id, { p: x.p, role: x.role, mins: 90, goals: 0, ast: 0, yel: 0, red: false, inj: 0 }));
       const outs = rng.shuffle(xi.filter((x) => x.role !== 'GK').slice()).slice(0, subs.length);
       outs.forEach((o, i) => {
         const m = rng.int(55, 85);
@@ -222,7 +264,7 @@
         if (rng.chance(0.004)) r.red = true;
         if (rng.chance(0.006)) r.inj = rng.int(1, 6);
         let rt = 6.4 + rng.gauss(0, 0.55) + r.goals * 0.9 + r.ast * 0.55 + (goals > conceded ? 0.3 : goals < conceded ? -0.3 : 0);
-        if ((r.role === 'GK' || ['CB', 'LB', 'RB'].includes(r.role))) rt += conceded === 0 ? 0.5 : -conceded * 0.2;
+        if (r.role === 'GK' || ['CB', 'LB', 'RB'].includes(r.role)) rt += conceded === 0 ? 0.5 : -conceded * 0.2;
         r.rating = clamp(Math.round(rt * 10) / 10, 4, 10);
         r.endSt = clamp(r.p.cond / 100 - 0.28 * r.mins / 90, 0.3, 1);
         r.cs = conceded === 0 && (r.role === 'GK' || ['CB', 'LB', 'RB'].includes(r.role));
@@ -260,7 +302,6 @@
     return [h, a];
   }
 
-  // 엔진 결과 → 공통 결과 형식
   function engineResult(G, match) {
     const res = { hs: match.score[0], as: match.score[1], pens: null, players: [], engine: true };
     for (const m of match.ratings()) {
@@ -274,7 +315,7 @@
   }
 
   // ── 결과 반영 ───────────────────────────────────────────────
-  function applyResult(G, fxm, res, comp) {
+  function applyResult(G, fxm, res) {
     fxm.hs = res.hs; fxm.as = res.as;
     if (res.pens) fxm.pens = res.pens;
     const played = new Set();
@@ -295,56 +336,61 @@
     }
     for (const [tid, gf, ga] of [[fxm.h, res.hs, res.as], [fxm.a, res.as, res.hs]]) {
       const t = team(G, tid);
-      const won = gf > ga || (res.pens && (tid === fxm.h ? res.pens[0] > res.pens[1] : res.pens[1] > res.pens[0]));
       const r = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
       t.form.push(r); if (t.form.length > 6) t.form.shift();
-      for (const id of t.squad) {
-        const p = G.players[id];
-        if (!played.has(id)) {
-          if (p.ovr >= W.squadOvr(G, t) && p.inj <= 0) p.morale = clamp(p.morale - 1.5, 5, 100);
+      if (tid === G.user.teamId) {
+        const sq = W.squadOvr(G, t);
+        for (const id of t.squad) {
+          const p = G.players[id];
+          if (!played.has(id) && p.ovr >= sq && p.inj <= 0) p.morale = clamp(p.morale - 1.5, 5, 100);
+          p.morale = clamp(p.morale + (r === 'W' ? 2.5 : r === 'L' ? -2.5 : 0), 5, 100);
         }
-        p.morale = clamp(p.morale + (r === 'W' ? 2.5 : r === 'L' ? -2.5 : 0), 5, 100);
       }
       t.fans = clamp(t.fans + (r === 'W' ? 1.2 : r === 'L' ? -1.2 : 0), 10, 100);
     }
   }
 
   // ── 한 주 진행 ─────────────────────────────────────────────
-  // userMatch: 사용자 경기를 엔진으로 치렀을 때의 Match 객체 (없으면 빠른 시뮬)
   function playWeek(G, userMatch) {
     const ev = currentEvent(G);
     if (!ev) return null;
     const rng = rngOf(G);
     const uid = G.user.teamId;
+    const ut = userTeam(G);
     const summary = { ev, results: [], user: null };
-    // 출전 정지 소진은 이번 주 경기 전에 판정된 상태로 처리
-    const teamsPlaying = new Set();
-    let fixtures;
-    if (ev.k === 'L') fixtures = G.fixtures[0][ev.r].map((m) => ({ m, div: 0 })).concat(G.fixtures[1][ev.r].map((m) => ({ m, div: 1 })));
-    else fixtures = G.cup.rounds[ev.r].map((m) => ({ m, div: -1 }));
-    for (const { m, div } of fixtures) {
-      teamsPlaying.add(m.h); teamsPlaying.add(m.a);
+    const games = [];
+    if (ev.k === 'L') {
+      const R = leagueOf(G, ut).fixtures.length;
+      G.leagues.forEach((lg, li) => {
+        // 리그마다 라운드 수가 달라도 같은 주에 시즌이 끝나도록 진행 속도를 맞춘다
+        const target = li === ut.league ? ev.r + 1 : Math.round(((ev.r + 1) * lg.fixtures.length) / R);
+        while (lg.played < target) { for (const m of lg.fixtures[lg.played]) games.push({ m, li }); lg.played++; }
+      });
+    } else {
+      for (const m of G.cup.rounds[ev.r]) games.push({ m, li: ut.league, cup: true });
+    }
+    for (const g of games) {
+      const m = g.m;
+      if (g.cup && (m.h == null || m.a == null)) { m.w = m.h == null ? m.a : m.h; continue; }
       const isUser = m.h === uid || m.a === uid;
       let res;
       if (isUser && userMatch) {
         res = engineResult(G, userMatch);
-        if (ev.k === 'C' && res.hs === res.as) res.pens = shootout(rng);
+        if (g.cup && res.hs === res.as) res.pens = shootout(rng);
       } else {
-        res = quickSim(G, team(G, m.h), team(G, m.a), rng, ev.k === 'C');
+        res = quickSim(G, team(G, m.h), team(G, m.a), rng, !!g.cup);
       }
-      // 징계 소진: 경기에 나서지 못한 징계 선수
       for (const tid of [m.h, m.a]) for (const id of team(G, tid).squad) { const p = G.players[id]; if (p.sus > 0 && !res.players.some((r) => r.p === p)) p.sus--; }
-      applyResult(G, m, res, ev.k);
-      if (ev.k === 'C') m.w = res.hs > res.as ? m.h : res.hs < res.as ? m.a : (res.pens[0] > res.pens[1] ? m.h : m.a);
-      const item = { m, div, res };
+      applyResult(G, m, res);
+      if (g.cup) m.w = res.hs > res.as ? m.h : res.hs < res.as ? m.a : (res.pens[0] > res.pens[1] ? m.h : m.a);
+      const item = { m, li: g.li, res, cup: !!g.cup };
       summary.results.push(item);
       if (isUser) summary.user = item;
-      // 홈 경기 수입
-      gateIncome(G, team(G, m.h), ev.k === 'C', rng);
+      gateIncome(G, team(G, m.h), !!g.cup, rng);
     }
     if (ev.k === 'C') advanceCup(G, ev.r);
-    if (summary.user) afterUserMatch(G, summary.user, ev, rng);
-    weekly(G, rng, teamsPlaying);
+    if (summary.user) afterUserMatch(G, summary.user, ev);
+    weekly(G, rng);
     G.week++;
     saveRng(G, rng);
     if (G.week >= G.calendar.length) summary.seasonOver = true;
@@ -356,22 +402,21 @@
     if (winners.length === 1) {
       G.cup.winner = winners[0];
       const t = team(G, winners[0]);
-      news(G, 'cup', `${t.name}, 코리아 컵 우승!`, `${josa(t.name, '이/가')} 결승에서 승리하며 컵을 들어 올렸습니다.`);
-      if (t.id === G.user.teamId) { G.user.trophies.push({ year: G.year, name: '코리아 컵' }); unlock(G, 'cup'); G.board.conf = clamp(G.board.conf + 15, 0, 100); }
+      news(G, 'cup', `${t.name}, ${G.cup.name} 우승!`, `${josa(t.name, '이/가')} 결승에서 승리하며 트로피를 들어 올렸습니다.`);
+      if (t.id === G.user.teamId) { G.user.trophies.push({ year: G.year, name: G.cup.name }); unlock(G, 'cup'); G.board.conf = clamp(G.board.conf + 15, 0, 100); }
       return;
     }
     G.cup.rounds.push(pairUp(winners));
   }
 
-  function afterUserMatch(G, item, ev, rng) {
+  function afterUserMatch(G, item, ev) {
     const uid = G.user.teamId;
     const { m, res } = item;
     const home = m.h === uid;
     const gf = home ? res.hs : res.as, ga = home ? res.as : res.hs;
     const opp = team(G, home ? m.a : m.h);
-    let r = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
+    const r = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
     if (r === 'W') G.user.wins++; else if (r === 'L') G.user.losses++; else G.user.draws++;
-    // 구단주 신뢰도
     const exp = W.teamRating(G, userTeam(G)) - W.teamRating(G, opp);
     const delta = r === 'W' ? 2.5 - exp * 0.05 : r === 'L' ? -2.2 - exp * 0.07 : -0.2 - exp * 0.04;
     G.board.conf = clamp(G.board.conf + delta, 0, 100);
@@ -381,7 +426,7 @@
     if (gf - ga >= 4) unlock(G, 'thrash');
     if (r === 'W' && W.squadOvr(G, opp) - W.squadOvr(G, userTeam(G)) >= 5) unlock(G, 'giant');
     const scorers = res.players.filter((x) => x.goals > 0 && x.p.teamId === uid).map((x) => x.p.name + (x.goals > 1 ? ` ${x.goals}골` : '')).join(', ');
-    const label = ev.k === 'L' ? `리그 ${ev.r + 1}R` : `컵 ${CUP_NAMES[ev.r]}`;
+    const label = ev.k === 'L' ? `리그 ${ev.r + 1}R` : `${G.cup.name} ${cupRoundName(G, ev.r)}`;
     const word = r === 'W' ? '승리' : r === 'L' ? '패배' : '무승부';
     news(G, 'match', `[${label}] ${opp.name}전 ${gf}-${ga} ${word}`, scorers ? `득점: ${scorers}` : '득점 없이 경기를 마쳤습니다.');
     const best = res.players.slice().sort((a, b) => b.rating - a.rating)[0];
@@ -391,27 +436,26 @@
     }
   }
 
+  function econ(t) { return D.LEAGUE_ECON[t.code] || D.LEAGUE_ECON.GB1; }
+
   function gateIncome(G, t, cup, rng) {
-    const fill = clamp(0.45 + t.fans / 200 + (t.form.filter((f) => f === 'W').length - 2) * 0.03 + rng.gauss(0, 0.04), 0.3, 1);
+    const fill = clamp(0.5 + t.fans / 200 + (t.form.filter((f) => f === 'W').length - 2) * 0.03 + rng.gauss(0, 0.04), 0.3, 1);
     const cap = Math.round(t.cap * (1 + (t.facilities.stadium - 1) * 0.15));
     const att = Math.round(cap * fill);
-    const ticket = t.div === 1 ? 0.65 : 0.45; // 만 원 (구단 몫)
-    const inc = Math.round(att * ticket * (cup ? 1.2 : 1));
+    const inc = Math.round(att * econ(t).ticket * (cup ? 1.2 : 1));
     t.balance += inc;
     if (t.id === G.user.teamId) { addFin(G, '입장 수입', inc); G.lastAttendance = att; }
   }
 
-  const CAT = { '입장 수입': '입장 수입', '중계권·스폰서': '중계권·스폰서', '상품 판매': '상품 판매', '선수 주급': '선수 주급', '리그 상금': '상금' };
+  const CAT = { '입장 수입': '입장 수입', '중계권': '중계권', '스폰서·상품': '스폰서·상품', '선수 주급': '선수 주급', '상금': '상금' };
   function addFin(G, label, amount) {
     G.fin.log.unshift({ w: G.week, s: G.season, label, amount });
     if (G.fin.log.length > 60) G.fin.log.pop();
     const cat = CAT[label] || (amount >= 0 ? '이적 수입' : / 공사$/.test(label) ? '시설 투자' : / 영입$/.test(label) ? '이적 지출' : '기타 지출');
     G.fin.cat[cat] = (G.fin.cat[cat] || 0) + amount;
-    if (amount >= 0) G.fin.seasonIncome += amount; else G.fin.seasonSpend -= amount;
   }
 
-  // 주간 처리: 회복, 훈련, 재정, 이적
-  function weekly(G, rng, teamsPlaying) {
+  function weekly(G, rng) {
     const uid = G.user.teamId;
     for (const t of G.teams) {
       const isUser = t.id === uid;
@@ -422,20 +466,18 @@
         if (p.inj > 0) p.inj--;
         const rec = [26, 19, 13][intensity] + p.attr.phy / 20;
         p.cond = Math.round(clamp(p.cond + rec, 0, 100));
-        // 훈련 부상
         if (intensity === 2 && rng.chance(0.004)) { p.inj = rng.int(1, 3); if (isUser) news(G, 'injury', `${p.name} 훈련 중 부상`, `강도 높은 훈련 도중 부상을 입어 ${p.inj}주 결장합니다.`); }
         develop(G, p, t, rng, intensity, focus);
         p.morale = clamp(p.morale + (70 - p.morale) * 0.04, 5, 100);
       }
-      // 재정: 주급, 중계권/스폰서
-      const wages = W.wageBill(G, t);
-      const tv = t.div === 1 ? 3000 + t.rep * 30 : 1200 + t.rep * 12;
-      const merch = Math.round(t.fans * (t.div === 1 ? 20 : 8));
-      t.balance += tv + merch - wages;
-      if (isUser) { addFin(G, '중계권·스폰서', tv); addFin(G, '상품 판매', merch); addFin(G, '선수 주급', -wages); }
+      // 재정: 중계권은 리그 규모, 스폰서는 구단 규모(시즌 시작 시 주급 총액)에 비례
+      const wages = Math.round(W.wageBill(G, t));
+      const tv = Math.round(econ(t).tv * (400 + 10 * t.rep));
+      const spons = Math.round((t.wage0 || wages) * 0.3 + t.fans * econ(t).tv * 6);
+      t.balance += tv + spons - wages;
+      if (isUser) { addFin(G, '중계권', tv); addFin(G, '스폰서·상품', spons); addFin(G, '선수 주급', -wages); }
       if (!isUser) W.validateLineup(G, t);
     }
-    // 시설 공사 진행
     const ut = userTeam(G);
     if (ut.build) {
       ut.build.weeks--;
@@ -446,12 +488,10 @@
       }
     }
     if (windowOpen(G)) { aiTransfers(G, rng); incomingOffers(G, rng); }
-    // 만료된 제안 정리
     G.offers = G.offers.filter((o) => o.exp > G.week);
-    if (G.board.conf < 10 && G.week > 10 && position(G, G.user.teamId) > G.board.goal.pos + 2) G.user.sacked = true;
+    if (G.board.conf < 10 && G.week > 10 && position(G, uid) > G.board.goal.pos + 2) G.user.sacked = true;
   }
 
-  // 선수 성장/노화
   function develop(G, p, t, rng, intensity, focus) {
     const fac = 1 + (t.facilities.train - 1) * 0.12;
     const intF = [0.6, 1, 1.4][intensity];
@@ -472,13 +512,7 @@
     }
     W.refreshPlayer(p);
   }
-  const FOCUS = {
-    bal: null,
-    atk: ['sho', 'dri', 'pac'],
-    def: ['def', 'phy'],
-    tec: ['pas', 'dri'],
-    phy: ['pac', 'phy'],
-  };
+  const FOCUS = { bal: null, atk: ['sho', 'dri', 'pac'], def: ['def', 'phy'], tec: ['pas', 'dri'], phy: ['pac', 'phy'] };
   function pickAttr(p, focus, rng, decline) {
     if (decline) return rng.pick(['pac', 'pac', 'phy', 'dri', p.pos === 'GK' ? 'gk' : 'def']);
     if (p.pos === 'GK') return rng.chance(0.75) ? 'gk' : rng.pick(['pas', 'phy']);
@@ -490,19 +524,21 @@
 
   // ── 이적 ───────────────────────────────────────────────────
   function aiTransfers(G, rng) {
-    const n = rng.int(1, 3);
+    const n = rng.int(2, 5);
+    const all = Object.values(G.players).filter((p) => p.teamId != null && p.teamId !== G.user.teamId);
     for (let i = 0; i < n; i++) {
-      const buyer = rng.pick(G.teams.filter((t) => t.id !== G.user.teamId && t.squad.length < 28));
+      const buyer = rng.pick(G.teams.filter((t) => t.id !== G.user.teamId && t.squad.length < 30));
       if (!buyer) return;
       const pos = rng.pick(['GK', 'DF', 'MF', 'FW']);
       const mine = buyer.squad.map((id) => G.players[id]).filter((p) => p.pos === pos).sort((a, b) => b.ovr - a.ovr);
-      const need = mine[pos === 'GK' ? 0 : 2] ? mine[pos === 'GK' ? 0 : 2].ovr : 55;
-      const cands = Object.values(G.players).filter((p) => p.teamId != null && p.teamId !== buyer.id && p.teamId !== G.user.teamId && p.pos === pos && p.ovr > need + 1 && p.value < buyer.balance * 0.6);
+      const ref = mine[pos === 'GK' ? 0 : 2];
+      const need = ref ? ref.ovr : 55;
+      const cands = all.filter((p) => p.teamId != null && p.teamId !== buyer.id && p.pos === pos && p.ovr > need + 1 && p.ovr < need + 9 && p.value < buyer.balance * 0.6 && team(G, p.teamId).rep <= buyer.rep + 6);
       if (!cands.length) continue;
-      const p = rng.pick(cands.slice(0, 40));
+      const p = rng.pick(cands);
       const seller = team(G, p.teamId);
       if (seller.squad.length <= 20) continue;
-      const fee = Math.round(p.value * rng.range(0.95, 1.3) / 100) * 100;
+      const fee = Math.round(p.value * rng.range(0.95, 1.3) / 25) * 25;
       movePlayer(G, p, seller, buyer, fee);
       news(G, 'transfer', `${p.name}, ${buyer.name} 이적`, `${seller.name}에서 ${josa(buyer.name, '으로/로')} 이적 (이적료 ${money(fee)})`);
     }
@@ -535,19 +571,18 @@
     if (to) W.validateLineup(G, to);
   }
 
-  // 사용자 선수에 대한 영입 제의
   function incomingOffers(G, rng) {
     const ut = userTeam(G);
     for (const id of ut.squad) {
       const p = G.players[id];
-      const pr = p.listed ? 0.35 : 0.025 * (p.ovr > 72 ? 2 : 1);
+      const pr = p.listed ? 0.35 : 0.02 * (p.ovr > W.squadOvr(G, ut) + 3 ? 2 : 1);
       if (!rng.chance(pr)) continue;
       if (G.offers.some((o) => o.pid === id)) continue;
-      const buyers = G.teams.filter((t) => t.id !== ut.id && t.balance > p.value * 0.8);
+      const buyers = G.teams.filter((t) => t.id !== ut.id && t.balance > p.value * 0.8 && t.rep >= ut.rep - 12);
       if (!buyers.length) continue;
       const b = rng.pick(buyers);
-      const amount = Math.round(p.value * (p.listed ? rng.range(0.75, 1.05) : rng.range(0.95, 1.35)) / 100) * 100;
-      G.offers.push({ id: G.season * 1000 + G.week * 10 + G.offers.length, pid: id, from: b.id, amount, exp: G.week + 2 });
+      const amount = Math.round(p.value * (p.listed ? rng.range(0.75, 1.05) : rng.range(0.95, 1.35)) / 25) * 25;
+      G.offers.push({ id: G.season * 100000 + G.week * 100 + G.offers.length, pid: id, from: b.id, amount, exp: G.week + 2 });
       news(G, 'offer', `${b.name}, ${p.name} 영입 제안`, `${josa(b.name, '이/가')} ${p.name}에게 ${money(amount)}를 제시했습니다. 이적 탭에서 응답하세요.`);
     }
   }
@@ -567,25 +602,22 @@
   }
   function rejectOffer(G, offerId) { G.offers = G.offers.filter((x) => x.id !== offerId); }
 
-  // 영입 협상: 구단 간 이적료
   function askingPrice(G, p) {
     if (p.teamId == null) return 0;
     const t = team(G, p.teamId);
     const starter = t.lineup.includes(p.id);
-    const f = (p.listed ? 0.9 : 1.15) + (starter ? 0.25 : 0) + (t.squad.length <= 20 ? 0.3 : 0);
-    return Math.round(p.value * f / 100) * 100;
+    const f = (p.listed ? 0.9 : 1.15) + (starter ? 0.25 : 0) + (t.squad.length <= 20 ? 0.3 : 0) + (p.contract >= 4 ? 0.1 : p.contract <= 1 ? -0.2 : 0);
+    return Math.round(p.value * f / 25) * 25;
   }
   function wageDemand(G, p, toTeam) {
     const repGap = (p.teamId != null ? team(G, p.teamId).rep : 55) - toTeam.rep;
     const f = 1.1 + Math.max(0, repGap) * 0.03 + (p.teamId == null ? -0.05 : 0);
-    return Math.round(W.wageOf(p) * f / 5) * 5;
+    return Math.max(1, Math.round(W.wageOf(p) * f * 10) / 10);
   }
   function willingToJoin(G, p, toTeam) {
     const from = p.teamId != null ? team(G, p.teamId) : null;
     if (!from) return true;
-    // 2부 팀이 1부 주전급을 데려오기 어려움
-    if (toTeam.div > from.div && p.ovr > W.squadOvr(G, toTeam) + 6) return false;
-    return toTeam.rep >= from.rep - 14;
+    return toTeam.rep >= from.rep - 12;
   }
 
   function makeBid(G, pid, amount) {
@@ -593,8 +625,8 @@
     const ut = userTeam(G);
     if (!windowOpen(G) && p.teamId != null) return { status: 'closed', msg: '이적시장이 닫혀 있어요. 자유계약 선수만 영입할 수 있어요.' };
     if (amount > ut.balance) return { status: 'money', msg: '구단 잔고가 부족해요.' };
-    if (ut.squad.length >= 30) return { status: 'full', msg: '선수단이 30명으로 가득 찼어요. 먼저 정리하세요.' };
-    if (!willingToJoin(G, p, ut)) return { status: 'refuse', msg: `${josa(p.name, '은/는')} 우리 구단 이적에 관심이 없어요.` };
+    if (ut.squad.length >= 32) return { status: 'full', msg: '선수단이 32명으로 가득 찼어요. 먼저 정리하세요.' };
+    if (!willingToJoin(G, p, ut)) return { status: 'refuse', msg: `${josa(p.name, '은/는')} 우리 구단 이적에 관심이 없어요. (구단 평판 차이)` };
     const ask = askingPrice(G, p);
     const n = G.nego[pid] || (G.nego[pid] = { tries: 0 });
     n.tries++;
@@ -613,17 +645,19 @@
     p.wage = wage; p.contract = years;
     if (fee > 0) addFin(G, `${p.name} 영입`, -fee);
     delete G.nego[pid];
-    if (fee > G.records.recordFee) { G.records.recordFee = fee; if (fee >= 300000) unlock(G, 'bigSpender'); }
+    G.short = (G.short || []).filter((x) => x !== pid);
+    if (fee > G.records.recordFee) { G.records.recordFee = fee; if (fee >= 50000) unlock(G, 'bigSpender'); }
     unlock(G, 'firstSigning');
     news(G, 'transfer', `오피셜: ${p.name} 영입`, `${from ? from.name + '에서 ' : '자유계약으로 '}${josa(p.name, '을/를')} 영입했습니다. 계약 ${years}년, 주급 ${money(wage)}.`);
     return { ok: true, msg: `${p.name} 영입 완료!` };
   }
 
+  function releaseCost(p) { return Math.round(p.wage * 16 * Math.max(1, p.contract) * 10) / 10; }
   function releasePlayer(G, pid) {
     const p = G.players[pid];
     const ut = userTeam(G);
     if (ut.squad.length <= 18) return { ok: false, msg: '선수단이 18명 이하라 방출할 수 없어요.' };
-    const comp = Math.round(p.wage * 16 * Math.max(1, p.contract) / 5) * 5;
+    const comp = releaseCost(p);
     if (comp > ut.balance) return { ok: false, msg: `위약금 ${money(comp)}가 부족해요.` };
     movePlayer(G, p, ut, null, 0);
     ut.balance -= comp;
@@ -634,7 +668,7 @@
   function renewDemand(G, p) {
     const base = W.wageOf(p);
     const moraleF = p.morale < 40 ? 1.35 : p.morale < 60 ? 1.15 : 1;
-    return Math.round(Math.max(p.wage, base) * moraleF * 1.05 / 5) * 5;
+    return Math.round(Math.max(p.wage, base) * moraleF * 1.05 * 10) / 10;
   }
   function renew(G, pid, years) {
     const p = G.players[pid];
@@ -651,7 +685,10 @@
     youth: { name: '유스 아카데미', desc: '유스 유망주 잠재력 상승' },
     stadium: { name: '경기장', desc: '수용 인원 +15%/단계' },
   };
-  function facCost(t, k) { return 150000 * t.facilities[k] * (k === 'stadium' ? 2 : 1); }
+  function facCost(t, k) {
+    const scale = Math.max(1500, (t.wage0 || 500) * 6);
+    return Math.round(scale * t.facilities[k] * (k === 'stadium' ? 2 : 1) / 100) * 100;
+  }
   function upgradeFacility(G, k) {
     const t = userTeam(G);
     if (t.build) return { ok: false, msg: '이미 공사가 진행 중이에요.' };
@@ -667,55 +704,51 @@
   // ── 시즌 종료 ───────────────────────────────────────────────
   function endSeason(G) {
     const rng = rngOf(G);
-    const report = { year: G.year, champions: [], promoted: [], relegated: [], awards: {}, user: {} };
-    const t1 = table(G, 0), t2 = table(G, 1);
-    report.champions = [t1[0].id, t2[0].id];
-    const relegated = t1.slice(-3).map((r) => r.id), promoted = t2.slice(0, 3).map((r) => r.id);
-    report.promoted = promoted; report.relegated = relegated;
-    // 상금
-    t1.forEach((r, i) => { const prize = (16 - i) * 12000 + (i === 0 ? 150000 : 0); team(G, r.id).balance += prize; if (r.id === G.user.teamId) addFin(G, '리그 상금', prize); });
-    t2.forEach((r, i) => { const prize = (16 - i) * 4000 + (i === 0 ? 40000 : 0); team(G, r.id).balance += prize; if (r.id === G.user.teamId) addFin(G, '리그 상금', prize); });
-    // 개인상
-    const all = Object.values(G.players).filter((p) => p.teamId != null);
-    const top = (div, key) => all.filter((p) => team(G, p.teamId).div === div).sort((a, b) => b.season[key] - a.season[key] || b.ovr - a.ovr)[0];
-    report.awards = {
-      scorer: top(1, 'goals'), assist: top(1, 'assists'),
-      mvp: all.filter((p) => team(G, p.teamId).div === 1 && p.season.apps >= 15).sort((a, b) => b.season.rsum / b.season.apps - a.season.rsum / a.season.apps)[0],
-    };
-    // 사용자 성적
     const ut = userTeam(G);
+    const report = { year: G.year, champions: [], awards: {}, user: {} };
+    G.leagues.forEach((lg, li) => {
+      const tb = table(G, li);
+      report.champions.push({ league: lg.name, team: tb[0].id });
+      const n = tb.length;
+      tb.forEach((r, i) => {
+        const t = team(G, r.id);
+        const prize = Math.round(econ(t).tv * (n - i) * 900 + (i === 0 ? econ(t).tv * 15000 : 0));
+        t.balance += prize;
+        if (r.id === G.user.teamId) addFin(G, '상금', prize);
+        t.rep = clamp(Math.round(t.rep * 0.9 + (t.rep + (n / 2 - i) * 0.8) * 0.1), 35, 96);
+      });
+    });
+    const uli = ut.league;
+    const all = Object.values(G.players).filter((p) => p.teamId != null && team(G, p.teamId).league === uli);
+    report.awards = {
+      scorer: all.slice().sort((a, b) => b.season.goals - a.season.goals || b.ovr - a.ovr)[0],
+      assist: all.slice().sort((a, b) => b.season.assists - a.season.assists)[0],
+      mvp: all.filter((p) => p.season.apps >= 12).sort((a, b) => b.season.rsum / b.season.apps - a.season.rsum / a.season.apps)[0],
+    };
+    if (report.awards.scorer) report.awards.scorerGoals = report.awards.scorer.season.goals;
     const pos = position(G, ut.id);
+    const n = G.leagues[uli].teams.length;
     const goal = G.board.goal;
-    report.user = { pos, div: ut.div, goal, met: pos <= goal.pos };
-    const cupRound = G.cup.rounds.findIndex((rd) => !rd.some((m) => m.w === ut.id && true) && rd.some((m) => m.h === ut.id || m.a === ut.id));
-    report.user.cup = G.cup.winner === ut.id ? '우승' : cupRound >= 0 ? CUP_NAMES[cupRound] + ' 탈락' : '-';
-    G.user.history.push({ year: G.year, team: ut.name, div: ut.div, pos, cup: report.user.cup, w: t1.concat(t2).find((r) => r.id === ut.id) });
-    if (pos === 1) { G.user.trophies.push({ year: G.year, name: ut.div === 1 ? '1부 리그 우승' : '2부 리그 우승' }); unlock(G, ut.div === 1 ? 'title' : 'title2'); }
-    if (promoted.includes(ut.id)) unlock(G, 'promotion');
-    // 구단주 평가
+    report.user = { pos, league: G.leagues[uli].name, goal, met: pos <= goal.pos, n };
+    const lastRound = G.cup.rounds.findIndex((rd) => rd.some((m) => (m.h === ut.id || m.a === ut.id) && m.w != null && m.w !== ut.id));
+    report.user.cup = G.cup.winner === ut.id ? '우승' : lastRound >= 0 ? cupRoundName(G, lastRound) + ' 탈락' : '-';
+    G.user.history.push({ year: G.year, team: ut.name, league: G.leagues[uli].name, pos, cup: report.user.cup });
+    if (pos === 1) { G.user.trophies.push({ year: G.year, name: G.leagues[uli].name + ' 우승' }); unlock(G, 'title'); }
     const diff = goal.pos - pos;
-    G.board.conf = clamp(G.board.conf + diff * 6 + (report.user.met ? 10 : -10), 0, 100);
-    if (relegated.includes(ut.id)) G.board.conf = clamp(G.board.conf - 25, 0, 100);
+    G.board.conf = clamp(G.board.conf + diff * 5 + (report.user.met ? 10 : -10), 0, 100);
+    if (pos > n - 3) G.board.conf = clamp(G.board.conf - 25, 0, 100);
     report.user.conf = G.board.conf;
     if (G.board.conf < 20) { G.user.sacked = true; report.user.sacked = true; }
     G.user.rep = clamp(G.user.rep + (report.user.met ? 6 : -4) + (pos === 1 ? 8 : 0), 0, 100);
     G.user.seasons++;
     if (G.user.seasons >= 5) unlock(G, 'legend');
     if (ut.squad.some((id) => G.players[id].youth && G.players[id].ovr >= 70)) unlock(G, 'youth');
-    // 승강
-    for (const id of relegated) { team(G, id).div = 2; }
-    for (const id of promoted) { team(G, id).div = 1; }
-    G.divs = [G.teams.filter((t) => t.div === 1).map((t) => t.id), G.teams.filter((t) => t.div === 2).map((t) => t.id)];
-    // 평판 갱신
-    t1.forEach((r, i) => { const t = team(G, r.id); t.rep = clamp(Math.round(t.rep * 0.8 + (82 - i * 1.2) * 0.2), 40, 95); });
-    t2.forEach((r, i) => { const t = team(G, r.id); t.rep = clamp(Math.round(t.rep * 0.8 + (64 - i * 0.8) * 0.2), 35, 90); });
     // 노화, 은퇴, 계약
-    report.retired = [];
-    report.left = [];
+    report.retired = []; report.left = [];
     for (const p of Object.values(G.players)) {
       p.age++;
-      if (p.teamId == null && !G.freeAgents.includes(p.id)) continue;
-      const retire = p.age >= 37 || (p.age >= 34 && rng.chance(0.35 + (p.age - 34) * 0.2)) || (p.teamId == null && p.age >= 32 && rng.chance(0.5));
+      W.agePlayerValue(p);
+      const retire = p.age >= 38 || (p.age >= 35 && rng.chance(0.3 + (p.age - 35) * 0.2)) || (p.teamId == null && p.age >= 33 && rng.chance(0.5));
       if (retire) {
         if (p.teamId === ut.id) report.retired.push(p.name);
         removePlayer(G, p);
@@ -725,41 +758,43 @@
         p.contract--;
         if (p.contract <= 0) {
           if (p.teamId === ut.id) { report.left.push(p.name); movePlayer(G, p, ut, null, 0); }
-          else if (rng.chance(0.75)) { p.contract = rng.int(1, 3); p.wage = W.wageOf(p); }
+          else if (rng.chance(0.75)) { p.contract = rng.int(1, 4); p.wage = W.wageOf(p); }
           else movePlayer(G, p, team(G, p.teamId), null, 0);
         }
       }
       W.refreshPlayer(p);
     }
-    // 유스 영입 + 선수단 보충
+    // 유스 + 선수단 보충
     report.youth = [];
     for (const t of G.teams) {
-      const n = t.id === ut.id ? 3 : rng.int(1, 3);
-      for (let i = 0; i < n; i++) {
-        const pos = rng.pick(['GK', 'DF', 'DF', 'MF', 'MF', 'FW', 'FW']);
-        const p = W.createPlayer(G, rng, pos, rng.int(42, 54), rng.int(16, 18));
-        p.pot = clamp(p.ovr + rng.int(14, 26) + t.facilities.youth * 3, p.ovr, 95);
-        p.contract = 3; p.wage = 30; W.refreshPlayer(p);
+      const pool = namePool(G, t.league);
+      const base = W.squadOvr(G, t);
+      const cnt = t.id === ut.id ? 3 : rng.int(1, 2);
+      for (let i = 0; i < cnt; i++) {
+        const role = rng.pick(['GK', 'CB', 'CB', 'LB', 'RB', 'DM', 'CM', 'AM', 'LW', 'RW', 'ST', 'ST']);
+        const p = W.createPlayer(G, rng, role, clamp(base - rng.int(14, 22), 42, 70), rng.int(16, 18), pool);
+        p.pot = clamp(p.ovr + rng.int(12, 24) + t.facilities.youth * 3, p.ovr, 95);
+        p.contract = 3; p.wage = Math.max(1, Math.round(W.wageOf(p) * 0.6 * 10) / 10);
         p.teamId = t.id; t.squad.push(p.id);
         if (t.id === ut.id) { report.youth.push(p); p.youth = true; }
       }
       while (t.squad.length < 22 && t.id !== ut.id) {
-        const fa = G.freeAgents.map((id) => G.players[id]).sort((a, b) => b.ovr - a.ovr)[0];
+        const fa = G.freeAgents.map((id) => G.players[id]).filter((p) => p && p.value <= t.balance).sort((a, b) => b.ovr - a.ovr)[0];
         if (fa) movePlayer(G, fa, null, t, 0);
-        else { const p = W.createPlayer(G, rng, rng.pick(['DF', 'MF', 'FW']), t.strength - 6, rng.int(20, 28)); p.teamId = t.id; t.squad.push(p.id); }
+        else { const p = W.createPlayer(G, rng, rng.pick(['CB', 'CM', 'ST']), base - 6, rng.int(20, 28), pool); p.teamId = t.id; t.squad.push(p.id); }
       }
-      while (t.squad.length > 30 && t.id !== ut.id) {
+      while (t.squad.length > 32 && t.id !== ut.id) {
         const worst = t.squad.map((id) => G.players[id]).sort((a, b) => a.ovr - b.ovr)[0];
         movePlayer(G, worst, t, null, 0);
       }
       W.assignNumbers(G, t);
     }
-    // 자유계약 풀 갱신
-    for (let i = 0; i < 12; i++) {
-      const p = W.createPlayer(G, rng, rng.pick(['GK', 'DF', 'MF', 'FW']), rng.int(50, 68), rng.int(20, 33));
+    for (let i = 0; i < 15; i++) {
+      const li = rng.int(0, G.leagues.length - 1);
+      const p = W.createPlayer(G, rng, rng.pick(['GK', 'CB', 'LB', 'CM', 'AM', 'LW', 'ST']), rng.int(55, 70), rng.int(20, 32), namePool(G, li));
       G.freeAgents.push(p.id);
     }
-    G.freeAgents = G.freeAgents.filter((id) => G.players[id]).slice(-60);
+    G.freeAgents = G.freeAgents.filter((id) => G.players[id]).slice(-80);
     const keep = new Set(G.freeAgents);
     for (const id in G.players) { const p = G.players[id]; if (p.teamId == null && !keep.has(p.id)) delete G.players[id]; }
     G.offers = []; G.nego = {};
@@ -786,19 +821,21 @@
     delete G.players[p.id];
   }
 
-  // 경질 후 새 구단 제의
   function jobOffers(G) {
     const cur = G.user.teamId;
-    const rep = G.user.rep;
-    return G.teams.filter((t) => t.id !== cur && t.rep <= 52 + rep * 0.35).sort((a, b) => b.rep - a.rep).slice(0, 3).map((t) => t.id);
+    const cap = 50 + G.user.rep * 0.4;
+    return G.teams.filter((t) => t.id !== cur && t.rep <= cap).sort((a, b) => b.rep - a.rep).slice(0, 4).map((t) => t.id);
   }
   function takeJob(G, teamId) {
+    const prevLeague = userTeam(G).league;
     G.user.teamId = teamId;
     G.user.sacked = false;
     G.board.conf = 60;
-    if (G.week >= G.calendar.length || !G.fixtures) setupSeason(G);
+    const t = userTeam(G);
+    // 다른 리그로 옮기면 그 리그 일정으로 새 시즌을 시작
+    if (t.league !== prevLeague || G.week >= G.calendar.length) setupSeason(G);
     G.board.goal = boardGoal(G);
-    news(G, 'board', `${team(G, teamId).name} 부임`, `${G.user.name} 감독이 ${team(G, teamId).name}의 지휘봉을 잡았습니다.`);
+    news(G, 'board', `${t.name} 부임`, `${G.user.name} 감독이 ${t.name}의 지휘봉을 잡았습니다.`);
   }
 
   // ── 기자회견 ───────────────────────────────────────────────
@@ -841,13 +878,11 @@
     unbeaten10: ['무패 행진', '10경기 연속 무패'],
     thrash: ['대승', '4골 차 이상 승리'],
     giant: ['자이언트 킬링', '전력이 훨씬 강한 팀을 꺾음'],
-    cup: ['컵 위너', '코리아 컵 우승'],
-    title: ['챔피언', '1부 리그 우승'],
-    title2: ['2부 챔피언', '2부 리그 우승'],
-    promotion: ['승격', '1부 리그 승격'],
-    bigSpender: ['큰손', '30억 이상 이적료로 영입'],
+    cup: ['컵 위너', '국내 컵 대회 우승'],
+    title: ['챔피언', '리그 우승'],
+    bigSpender: ['큰손', '€5,000만 이상 이적료로 영입'],
     youth: ['유스 키우기', '유스 출신 선수가 OVR 70 달성'],
-    legend: ['장기 집권', '5시즌 연속 지휘'],
+    legend: ['장기 집권', '5시즌 지휘'],
   };
   function unlock(G, k) {
     if (G.ach[k]) return;
@@ -857,10 +892,10 @@
   }
 
   KM.Season = {
-    newGame, setupSeason, userTeam, team, table, position, currentEvent, userFixture, windowOpen,
-    createMatch, playWeek, endSeason, quickSim, buildSide,
-    makeBid, completeSigning, askingPrice, wageDemand, willingToJoin, acceptOffer, rejectOffer, releasePlayer,
-    renew, renewDemand, upgradeFacility, facCost, FAC, jobOffers, takeJob,
-    pressQuestions, answerPress, unlock, ACH, CUP_NAMES, news, strengthRank,
+    createWorld, startCareer, setupSeason, userTeam, team, leagueOf, table, position, currentEvent, userFixture, windowOpen,
+    createMatch, playWeek, endSeason, quickSim, buildSide, cupRoundName,
+    makeBid, completeSigning, askingPrice, wageDemand, willingToJoin, acceptOffer, rejectOffer, releasePlayer, releaseCost,
+    renew, renewDemand, upgradeFacility, facCost, FAC, jobOffers, takeJob, strengthRank,
+    pressQuestions, answerPress, unlock, ACH, news,
   };
 })(globalThis.KM || (globalThis.KM = {}));

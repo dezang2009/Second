@@ -34,17 +34,14 @@
   const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
   const sigmoid = (x) => 1 / (1 + Math.exp(-x));
 
-  // 금액 단위: 만 원
-  function money(v) {
-    const neg = v < 0;
-    v = Math.abs(Math.round(v));
+  // 금액 단위: 천 유로(k€) → "€4,500만", "€1.80억", "€4,900"
+  function money(k) {
+    const neg = k < 0;
+    const v = Math.abs(k);
     let s;
-    if (v >= 10000) {
-      const eok = v / 10000;
-      s = (eok >= 100 ? Math.round(eok) : Math.round(eok * 10) / 10) + '억';
-    } else {
-      s = v.toLocaleString('ko-KR') + '만';
-    }
+    if (v >= 100000) s = '€' + (v / 100000).toFixed(v >= 1000000 ? 1 : 2) + '억';
+    else if (v >= 10) s = '€' + Math.round(v / 10).toLocaleString('ko-KR') + '만';
+    else s = '€' + Math.round(v * 1000).toLocaleString('ko-KR');
     return (neg ? '-' : '') + s;
   }
 

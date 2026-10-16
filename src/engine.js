@@ -37,13 +37,13 @@
     return clamp(xg, 0.003, 0.85);
   }
 
-  function MP(p, side, role, slot, cond, morale, phase) {
+  function MP(p, side, role, slot, cond, morale, phase, base) {
     // 역할 적합도에 따른 능력치 보정
-    const fit = D.ROLE_FIT[role][p.pos] || 0.6;
+    const fit = D.fit(role, p);
     const f = Math.pow(fit, 0.7) * (0.94 + 0.12 * (morale / 100));
     const a = {};
     // 능력치 차이를 완만하게 압축해 약팀도 이변을 낼 수 있게 함
-    for (const k in p.attr) a[k] = 62 + (p.attr[k] * f - 62) * 0.45;
+    for (const k in p.attr) a[k] = 62 + (p.attr[k] * f - (base || 62)) * 0.45;
     if (role === 'GK' && p.pos !== 'GK') a.gk = p.attr.gk * 0.5;
     this.p = p; this.id = p.id; this.side = side; this.role = role; this.grp = roleGroup(role);
     this.bx = slot[1]; this.by = slot[2];
@@ -68,9 +68,13 @@
     this.mp = [[], []];
     this.subsLeft = [5, 5];
     this.used = new Set();
+    // 경기 수준 기준점: 두 팀 선발의 평균 OVR. 리그 수준과 상관없이 두 팀의 '차이'가 경기를 좌우한다
+    let sum = 0, cnt = 0;
+    for (const sd of this.sides) for (const st of sd.starters) { sum += st.p.ovr; cnt++; }
+    this.base = cnt ? sum / cnt : 62;
     for (let s = 0; s < 2; s++) {
       const sd = this.sides[s];
-      sd.starters.forEach((st) => this.mp[s].push(new MP(st.p, s, st.role, st.slot, st.p.cond, st.p.morale, this.rng.next() * 6.28)));
+      sd.starters.forEach((st) => this.mp[s].push(new MP(st.p, s, st.role, st.slot, st.p.cond, st.p.morale, this.rng.next() * 6.28, this.base)));
     }
     this.ball = { x: 52.5, y: 34, vx: 0, vy: 0, owner: null, mode: 'held', z: 0 };
     this.t = 0;
@@ -556,7 +560,7 @@
     const skill = header ? (m.a.phy * 0.6 + m.a.sho * 0.4) : m.a.sho;
     const gkSkill = gk ? gk.a.gk : 30;
     let pGoal = xg * (0.55 + skill / 110) * (1.45 - gkSkill / 110);
-    pGoal = clamp(pGoal * 0.85, 0.005, 0.9);
+    pGoal = clamp(pGoal * 0.72, 0.005, 0.9);
     const f = fx(s, m.x), y = fy(s, m.y);
     const d = Math.hypot(LEN - f, 34 - y);
     const pOn = clamp(0.32 + skill / 250 - d * 0.006, 0.18, 0.75);
@@ -880,14 +884,14 @@
   M.autoSub = function (s, out) {
     const bench = this.sides[s].bench.filter((p) => !this.used.has(p.id) && p.inj <= 0);
     if (!bench.length) return false;
-    const fitBy = (p) => (D.ROLE_FIT[out.role][p.pos] || 0.5) * p.ovr * (0.7 + 0.3 * p.cond / 100);
+    const fitBy = (p) => D.fit(out.role, p) * p.ovr * (0.7 + 0.3 * p.cond / 100);
     bench.sort((a, b) => fitBy(b) - fitBy(a));
     return this.substitute(s, out, bench[0]);
   };
 
   M.substitute = function (s, out, p) {
     if (this.subsLeft[s] <= 0 || !out.on || this.used.has(p.id)) return false;
-    const nm = new MP(p, s, out.role, [out.role, out.bx, out.by], p.cond, p.morale, this.rng.next() * 6.28);
+    const nm = new MP(p, s, out.role, [out.role, out.bx, out.by], p.cond, p.morale, this.rng.next() * 6.28, this.base);
     nm.x = out.x; nm.y = out.y; nm.startT = this.t;
     out.on = false; out.endT = this.t; out.subbed = true;
     if (this.ball.owner === out) this.giveBall(nm);

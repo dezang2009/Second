@@ -1,12 +1,12 @@
 {
   "name": "킥오프 매니저",
   "short_name": "킥오프",
-  "description": "2D 실시간 경기 엔진을 갖춘 모바일 축구 감독 게임",
+  "description": "실제 선수단과 2D 실시간 경기 엔진을 갖춘 모바일 축구 감독 게임",
   "start_url": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0e1524",
-  "theme_color": "#0e1524",
+  "background_color": "#edf0f4",
+  "theme_color": "#ffffff",
   "lang": "ko",
   "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

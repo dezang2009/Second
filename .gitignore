@@ -1,2 +1,7 @@
 node_modules/
 .DS_Store
+.tm-cache/
+# 빌드 결과물 (사진 스프라이트 포함: 저작권 있는 이미지라 저장소에 올리지 않음)
+dist/
+data/sprites.json
+__pycache__/
