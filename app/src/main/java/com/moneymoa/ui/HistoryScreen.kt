@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.moneymoa.data.Transaction
+import com.moneymoa.data.totals
 import com.moneymoa.parser.Category
 import com.moneymoa.parser.TxType
 
@@ -70,15 +71,17 @@ fun HistoryScreen(
             }
         }
 
-        val income = filtered.filter { it.type == TxType.INCOME }.sumOf { it.amount }
-        val expense = filtered.filter { it.type == TxType.EXPENSE }.sumOf { it.amount }
+        val t = filtered.totals()
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("${filtered.size}건", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            Text("수입 ${income.won()}", style = MaterialTheme.typography.bodySmall, color = IncomeColor, fontWeight = FontWeight.Medium)
-            Text("지출 ${expense.won()}", style = MaterialTheme.typography.bodySmall, color = ExpenseColor, fontWeight = FontWeight.Medium)
+            Text("수입 ${t.income.won()}", style = MaterialTheme.typography.bodySmall, color = IncomeColor, fontWeight = FontWeight.Medium)
+            Text("지출 ${t.expense.won()}", style = MaterialTheme.typography.bodySmall, color = ExpenseColor, fontWeight = FontWeight.Medium)
+            if (t.savings > 0) {
+                Text("저축 ${t.savings.won()}", style = MaterialTheme.typography.bodySmall, color = SavingsColor, fontWeight = FontWeight.Medium)
+            }
         }
 
         LazyColumn(

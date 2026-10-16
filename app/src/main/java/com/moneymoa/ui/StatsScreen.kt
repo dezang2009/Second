@@ -74,6 +74,13 @@ fun StatsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(total.won(), fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+                if (type == TxType.EXPENSE && data.totals.savings > 0) {
+                    Text(
+                        "저축·투자 ${data.totals.savings.won()}은 지출에 넣지 않았어요",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SavingsColor,
+                    )
+                }
             }
         }
         item {

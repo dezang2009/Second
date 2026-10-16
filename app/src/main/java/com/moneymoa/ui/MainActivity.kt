@@ -3,25 +3,35 @@ package com.moneymoa.ui
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +48,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.moneymoa.data.MissedNotification
 import com.moneymoa.data.Transaction
+import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -77,11 +89,30 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
     val data by viewModel.monthData.collectAsState()
     val banks by viewModel.banks.collectAsState()
     val filter by viewModel.filter.collectAsState()
+    val missed by viewModel.missed.collectAsState()
 
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     var hasAccess by remember { mutableStateOf(context.hasNotificationAccess()) }
     var showAdd by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Transaction?>(null) }
+    var showMissed by rememberSaveable { mutableStateOf(false) }
+    var addingFromMissed by remember { mutableStateOf<MissedNotification?>(null) }
+    var confirmRestore by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+    BackHandler(enabled = showMissed) { showMissed = false }
+
+    val today = LocalDate.now()
+    val exportCsv = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        uri?.let(viewModel::exportCsv)
+    }
+    val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let(viewModel::exportBackup)
+    }
+    val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::restoreBackup)
+    }
 
     LifecycleResumeEffect(Unit) {
         hasAccess = context.hasNotificationAccess()
@@ -89,13 +120,30 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(if (tab == Tab.HOME) "머니모아" else tab.label, fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        when {
+                            showMissed -> "인식 못 한 알림"
+                            tab == Tab.HOME -> "머니모아"
+                            else -> tab.label
+                        },
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                navigationIcon = {
+                    if (showMissed) {
+                        IconButton(onClick = { showMissed = false }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로")
+                        }
+                    }
+                },
             )
         },
         bottomBar = {
-            NavigationBar {
+            if (!showMissed) NavigationBar {
                 Tab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t,
@@ -107,12 +155,22 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
             }
         },
         floatingActionButton = {
-            if (tab == Tab.HOME || tab == Tab.HISTORY) {
+            if (!showMissed && (tab == Tab.HOME || tab == Tab.HISTORY)) {
                 FloatingActionButton(onClick = { showAdd = true }) { Icon(Icons.Filled.Add, "직접 추가") }
             }
         },
     ) { padding ->
         val modifier = Modifier.padding(padding)
+        if (showMissed) {
+            Box(modifier) {
+                MissedScreen(
+                    items = missed,
+                    onAdd = { addingFromMissed = it },
+                    onDelete = viewModel::deleteMissed,
+                )
+            }
+            return@Scaffold
+        }
         when (tab) {
             Tab.HOME -> Box(modifier) {
                 HomeScreen(
@@ -124,6 +182,8 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
                     onSeeAll = { tab = Tab.HISTORY },
                     onSeeStats = { tab = Tab.STATS },
                     onTransactionClick = { selected = it },
+                    missedCount = missed.size,
+                    onOpenMissed = { showMissed = true },
                 )
             }
             Tab.HISTORY -> Box(modifier) {
@@ -150,7 +210,14 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
                 )
             }
             Tab.SETTINGS -> Box(modifier) {
-                SettingsScreen(hasNotificationAccess = hasAccess)
+                SettingsScreen(
+                    hasNotificationAccess = hasAccess,
+                    missedCount = missed.size,
+                    onOpenMissed = { showMissed = true },
+                    onExportCsv = { exportCsv.launch("머니모아_거래내역_$today.csv") },
+                    onBackup = { exportBackup.launch("머니모아_백업_$today.json") },
+                    onRestore = { confirmRestore = true },
+                )
             }
         }
     }
@@ -165,11 +232,37 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
         )
     }
 
+    addingFromMissed?.let { item ->
+        AddTransactionDialog(
+            initialText = item.text,
+            onDismiss = { addingFromMissed = null },
+            onAdd = { type, amount, desc, inst, category ->
+                viewModel.add(type, amount, desc, inst, category, timestamp = item.timestamp, fromMissed = item)
+                addingFromMissed = null
+            },
+        )
+    }
+
+    if (confirmRestore) {
+        AlertDialog(
+            onDismissRequest = { confirmRestore = false },
+            title = { Text("백업에서 복원") },
+            text = { Text("지금 앱에 있는 거래와 규칙이 모두 백업 파일 내용으로 바뀌어요. 계속할까요?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRestore = false
+                    restore.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
+                }) { Text("파일 고르기") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRestore = false }) { Text("취소") } },
+        )
+    }
+
     selected?.let { tx ->
         TransactionDetailDialog(
             tx = tx,
             onDismiss = { selected = null },
-            onSave = { name, c, rememberRule -> viewModel.edit(tx, name, c, rememberRule) },
+            onSave = { name, c, excluded, rememberRule -> viewModel.edit(tx, name, c, excluded, rememberRule) },
             onDelete = { viewModel.delete(tx) },
         )
     }

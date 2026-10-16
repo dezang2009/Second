@@ -17,6 +17,7 @@ import kotlin.math.abs
 
 val IncomeColor = Color(0xFF2F6BFF)
 val ExpenseColor = Color(0xFFE5484D)
+val SavingsColor = Color(0xFF1E9E6A)
 
 private val wonFormat = NumberFormat.getInstance(Locale.KOREA)
 

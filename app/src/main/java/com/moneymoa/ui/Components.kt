@@ -31,9 +31,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,10 +44,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moneymoa.data.Transaction
+import com.moneymoa.data.totals
 import com.moneymoa.parser.Category
 import com.moneymoa.parser.TransactionParser
 import com.moneymoa.parser.TxType
@@ -91,7 +95,7 @@ fun SectionTitle(text: String, action: String? = null, onAction: () -> Unit = {}
 
 @Composable
 fun DayHeader(day: LocalDate, txs: List<Transaction>) {
-    val net = txs.sumOf { if (it.type == TxType.INCOME) it.amount else -it.amount }
+    val net = txs.totals().left
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -121,7 +125,11 @@ fun TransactionRow(tx: Transaction, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(tx.description, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
             Text(
-                "${tx.category.label} · ${tx.institution} · ${time.format(timeFormat)}",
+                listOfNotNull(
+                    if (tx.excluded) "합계 제외" else tx.category.label,
+                    tx.institution,
+                    time.format(timeFormat),
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -132,8 +140,14 @@ fun TransactionRow(tx: Transaction, onClick: () -> Unit) {
         Column(horizontalAlignment = Alignment.End) {
             Text(
                 signed(tx.type, tx.amount),
-                color = if (tx.type == TxType.INCOME) IncomeColor else MaterialTheme.colorScheme.onSurface,
+                color = when {
+                    tx.excluded -> MaterialTheme.colorScheme.outline
+                    tx.type == TxType.INCOME -> IncomeColor
+                    tx.isSaving -> SavingsColor
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
                 fontWeight = FontWeight.Bold,
+                textDecoration = if (tx.excluded) TextDecoration.LineThrough else null,
             )
             tx.balance?.let {
                 Text("잔액 ${it.won()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -161,15 +175,17 @@ fun CategoryPicker(type: TxType, selected: Category?, onSelect: (Category) -> Un
 fun TransactionDetailDialog(
     tx: Transaction,
     onDismiss: () -> Unit,
-    onSave: (name: String, category: Category, remember: Boolean) -> Unit,
+    onSave: (name: String, category: Category, excluded: Boolean, remember: Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
     var name by remember { mutableStateOf(tx.description) }
     var category by remember { mutableStateOf(tx.category) }
+    var excluded by remember { mutableStateOf(tx.excluded) }
     var rememberRule by remember { mutableStateOf(true) }
     var confirmDelete by remember { mutableStateOf(false) }
     val nameChanged = name.isNotBlank() && name.trim() != tx.description
-    val changed = nameChanged || category != tx.category
+    val ruleChanged = nameChanged || category != tx.category
+    val changed = ruleChanged || excluded != tx.excluded
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -190,7 +206,21 @@ fun TransactionDetailDialog(
                 )
                 Text("카테고리", style = MaterialTheme.typography.labelLarge)
                 CategoryPicker(tx.type, category) { category = it }
-                if (changed) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { excluded = !excluded }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("합계에서 제외", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "내 계좌끼리 옮긴 돈, 카드대금 출금처럼 실제 수입·지출이 아닌 거래",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = excluded, onCheckedChange = { excluded = it })
+                }
+                if (ruleChanged) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = rememberRule, onCheckedChange = { rememberRule = it })
                         Text(
@@ -211,7 +241,7 @@ fun TransactionDetailDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                if (changed) onSave(name, category, rememberRule)
+                if (changed) onSave(name, category, excluded, rememberRule && ruleChanged)
                 onDismiss()
             }) { Text("저장") }
         },
@@ -223,19 +253,32 @@ fun TransactionDetailDialog(
     )
 }
 
+private val AMOUNT_HINT = Regex("""(\d{1,3}(?:,\d{3})+|\d+)\s*원""")
+
 @Composable
 fun AddTransactionDialog(
     onDismiss: () -> Unit,
     onAdd: (TxType, Long, String, String, Category?) -> Unit,
+    /** '인식 못 한 알림'에서 열면 그 알림 원문 */
+    initialText: String = "",
 ) {
     var type by remember { mutableStateOf(TxType.EXPENSE) }
     var amount by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var institution by remember { mutableStateOf("") }
     var category by remember { mutableStateOf<Category?>(null) }
-    var pasted by remember { mutableStateOf("") }
+    var pasted by remember { mutableStateOf(initialText) }
     var parseError by remember { mutableStateOf(false) }
     val amountValue = amount.toLongOrNull()
+
+    // 알림 원문에서 금액만이라도 미리 채워 둔다.
+    LaunchedEffect(initialText) {
+        if (initialText.isNotBlank()) {
+            AMOUNT_HINT.find(initialText)?.let { amount = it.groupValues[1].replace(",", "") }
+            if (initialText.contains("입금")) type = TxType.INCOME
+            TransactionParser.findInstitution(initialText)?.let { institution = it }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,

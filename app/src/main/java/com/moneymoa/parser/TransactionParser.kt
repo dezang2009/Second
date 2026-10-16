@@ -95,6 +95,18 @@ object TransactionParser {
 
     private const val MAX_AMOUNT = 10_000_000_000L
 
+    /**
+     * 거래로 인식하지는 못했지만 금융기관이 보낸 금액 있는 알림인지.
+     * '인식 못 한 알림'에 모아 두고 사용자가 직접 추가할 수 있게 한다.
+     */
+    fun looksFinancial(text: String, packageName: String? = null): Boolean {
+        val normalized = text.replace('\u00A0', ' ').trim()
+        if (normalized.isEmpty() || REJECT_WORDS.any { normalized.contains(it) }) return false
+        val institution = packageName?.let { PACKAGE_INSTITUTIONS[it] } ?: findInstitution(normalized)
+        val cleaned = NOT_AMOUNT_RE.replace(normalized, " ")
+        return institution != null && (WON_AMOUNT_RE.containsMatchIn(cleaned) || COMMA_AMOUNT_RE.containsMatchIn(cleaned))
+    }
+
     fun parse(text: String, packageName: String? = null): ParsedTransaction? {
         val normalized = text.replace(' ', ' ').replace("\r", "").trim()
         if (normalized.isEmpty()) return null
@@ -163,6 +175,11 @@ object TransactionParser {
         if (type == TxType.INCOME && text.contains("급여")) return "급여"
         if (text.contains("이자") && !text.contains("대출")) return "이자"
         if (type == TxType.EXPENSE && (text.contains("ATM") || text.contains("인출"))) return "ATM 출금"
+        // 계좌에서 카드값이 빠져나가는 경우: "신한카드 대금"
+        if (type == TxType.EXPENSE && listOf("카드대금", "결제대금", "카드값").any { text.contains(it) }) {
+            val card = INSTITUTION_NAMES.firstOrNull { (key, name) -> name.endsWith("카드") && text.contains(key) }?.second
+            return if (card != null) "$card 대금" else "카드대금"
+        }
 
         // 카드 승인: "... 10/16 14:23 스타벅스 강남점 누적 ..."
         DATETIME_MERCHANT_RE.find(text)?.let { m ->

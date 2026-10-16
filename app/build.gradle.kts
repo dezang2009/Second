@@ -53,4 +53,5 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303") // JVM 테스트에서 실제 org.json 사용
 }

@@ -77,3 +77,11 @@ class MerchantNameTest {
         assertEquals("카드 결제", name("[Web발신]\n삼성카드 승인 15,000원"))
     }
 }
+
+class CardBillNameTest {
+    @Test fun cardBillGetsCardName() {
+        val p = TransactionParser.parse("[신한은행] 10/16 10:00 110-***-123456 출금 523,000 잔액 477,000 신한카드 결제대금")!!
+        assertEquals("신한카드 대금", p.description)
+        assertEquals(true, Categorizer.isExcludedByDefault(p.type, p.description, null))
+    }
+}

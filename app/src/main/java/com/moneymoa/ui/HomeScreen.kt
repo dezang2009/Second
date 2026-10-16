@@ -39,6 +39,8 @@ fun HomeScreen(
     onSeeAll: () -> Unit,
     onSeeStats: () -> Unit,
     onTransactionClick: (Transaction) -> Unit,
+    missedCount: Int = 0,
+    onOpenMissed: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -46,6 +48,7 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (!hasNotificationAccess) item { AccessBanner(onOpenSettings) }
+        if (missedCount > 0) item { MissedBanner(missedCount, onOpenMissed) }
         item { MonthHeader(data.month, onPrevMonth, onNextMonth) }
         item { SummaryCard(data) }
 
@@ -105,18 +108,37 @@ private fun AccessBanner(onOpenSettings: () -> Unit) {
 }
 
 @Composable
+private fun MissedBanner(count: Int, onClick: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("🔎 인식하지 못한 알림 ${count}건", fontWeight = FontWeight.Bold)
+            Text("눌러서 확인하고 거래로 추가할 수 있어요.", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
 private fun SummaryCard(data: MonthData) {
-    val net = data.income - data.expense
+    val t = data.totals
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
-            Text("이번 달 합계", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(signedNet(net), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text("이번 달 남은 돈", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(signedNet(t.left), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text(
+                "수입 − 지출 − 저축 · 내 계좌 이체·카드대금은 빼고 계산",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth()) {
-                SummaryCell("수입", data.income.won(), IncomeColor, Modifier.weight(1f))
-                SummaryCell("지출", data.expense.won(), ExpenseColor, Modifier.weight(1f))
+                SummaryCell("수입", t.income.won(), IncomeColor, Modifier.weight(1f))
+                SummaryCell("지출", t.expense.won(), ExpenseColor, Modifier.weight(1f))
+                SummaryCell("저축", t.savings.won(), SavingsColor, Modifier.weight(1f))
             }
         }
     }
@@ -126,6 +148,6 @@ private fun SummaryCard(data: MonthData) {
 private fun SummaryCell(label: String, value: String, color: Color, modifier: Modifier) {
     Column(modifier) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Text(value, color = color, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, softWrap = false)
     }
 }

@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">머니모아</string>
     <string name="listener_label">머니모아 입출금 알림 수집</string>
+    <string name="widget_description">오늘 쓴 돈과 이번 달 지출·수입</string>
 </resources>

@@ -26,6 +26,11 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SettingsScreen(
     hasNotificationAccess: Boolean,
+    missedCount: Int,
+    onOpenMissed: () -> Unit,
+    onExportCsv: () -> Unit,
+    onBackup: () -> Unit,
+    onRestore: () -> Unit,
 ) {
     val context = LocalContext.current
     Column(
@@ -57,10 +62,27 @@ fun SettingsScreen(
             }
         }
 
+        SettingsGroup("인식") {
+            SettingRow(
+                title = "인식 못 한 알림",
+                subtitle = if (missedCount > 0) "${missedCount}건 · 눌러서 확인하고 거래로 추가하기" else "없음",
+                subtitleColor = if (missedCount > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = onOpenMissed,
+            )
+        }
+
+        SettingsGroup("데이터") {
+            SettingRow("엑셀로 내보내기", "모든 거래를 CSV 파일로 저장해요. 엑셀·구글 시트에서 열 수 있어요.", onExportCsv)
+            SettingRow("백업 파일 만들기", "거래와 이름·카테고리 규칙을 파일 하나로 저장해요. 폰을 바꿀 때 쓰세요.", onBackup)
+            SettingRow("백업에서 복원", "백업 파일로 지금 데이터를 모두 바꿔요.", onRestore)
+        }
+
         SettingsGroup("정보") {
             Text(
                 "모든 거래 내역은 이 휴대폰 안에만 저장되고, 어디로도 전송되지 않아요.\n" +
-                    "카테고리는 가맹점 이름으로 자동 분류되며, 거래를 눌러 바꾸면 다음부터 그대로 적용돼요.",
+                    "카테고리는 가맹점 이름으로 자동 분류되며, 거래를 눌러 바꾸면 다음부터 그대로 적용돼요.\n" +
+                    "적금·청약·투자로 보낸 돈은 '저축'으로 따로 모으고, 내 계좌끼리 옮긴 돈과 카드대금 출금은 합계에서 빼요.\n" +
+                    "홈 화면을 길게 눌러 '머니모아' 위젯을 추가하면 오늘 쓴 돈을 바로 볼 수 있어요.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp),

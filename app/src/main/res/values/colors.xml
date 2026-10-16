@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_background">#2F6BFF</color>
+    <color name="widget_bg">#F7F8FC</color>
+    <color name="widget_text">#1B1C20</color>
+    <color name="widget_muted">#5F6370</color>
+    <color name="widget_divider">#1F000000</color>
+    <color name="widget_expense">#D63E43</color>
+    <color name="widget_income">#2F6BFF</color>
 </resources>

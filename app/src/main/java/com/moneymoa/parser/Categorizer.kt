@@ -11,6 +11,8 @@ enum class Category(val label: String, val emoji: String, val isIncome: Boolean 
     HEALTH("의료·건강", "💊"),
     CULTURE("문화·여가", "🎬"),
     FINANCE("금융·보험", "🏦"),
+    /** 지출 합계에 넣지 않고 저축으로 따로 모은다. */
+    SAVINGS("저축·투자", "🐷"),
     TRANSFER("이체", "🔁"),
     ETC("기타", "📦"),
     SALARY("급여", "💰", isIncome = true),
@@ -27,6 +29,10 @@ enum class Category(val label: String, val emoji: String, val isIncome: Boolean 
  * 사용자가 직접 바꾼 규칙(userRules: 내용 → 카테고리)이 항상 먼저 적용된다.
  */
 object Categorizer {
+
+    private val SAVINGS_WORDS = listOf(
+        "적금", "정기예금", "예금가입", "청약", "저축", "펀드", "증권", "투자", "ISA", "IRP", "연금저축",
+    )
 
     // 순서가 중요하다: 먼저 맞는 카테고리가 이긴다. (예: "KTX"는 통신 "KT"보다 교통이 먼저)
     private val EXPENSE_RULES: List<Pair<Category, List<String>>> = listOf(
@@ -65,9 +71,29 @@ object Categorizer {
             "백화점", "아울렛", "29CM", "에이블리", "지그재그", "알리익스프레스", "테무", "컬리",
             "네이버페이", "스마트스토어",
         ),
-        Category.FINANCE to listOf("보험", "대출", "이자", "카드대금", "수수료", "증권", "적금", "청약"),
+        Category.SAVINGS to SAVINGS_WORDS,
+        Category.FINANCE to listOf("보험", "대출", "이자", "카드대금", "결제대금", "수수료"),
         Category.TRANSFER to listOf("송금", "이체", "보냈어요", "보냄", "님에게"),
     )
+
+    private val CARD_BILL_WORDS = listOf("카드대금", "결제대금", "카드값", "카드 대금")
+    private val SAVINGS_RETURN_WORDS = listOf("만기", "해지")
+
+    /**
+     * 기본으로 합계에서 뺄 거래인지.
+     * - 계좌에서 나가는 카드대금: 카드 승인 때 이미 지출로 셌으므로 두 번 세지 않는다.
+     * - 적금·예금 만기/해지 입금: 내 돈이 돌아온 것이라 수입이 아니다. (이자는 수입)
+     */
+    fun isExcludedByDefault(type: TxType, description: String, rawText: String?): Boolean {
+        val text = description + " " + rawText.orEmpty()
+        return when (type) {
+            TxType.EXPENSE -> CARD_BILL_WORDS.any { text.contains(it) }
+            TxType.INCOME -> !text.contains("이자") && (
+                SAVINGS_RETURN_WORDS.any { text.contains(it) } ||
+                    SAVINGS_WORDS.any { text.contains(it.uppercase()) || text.contains(it) }
+                )
+        }
+    }
 
     private val SALARY_WORDS = listOf("급여", "월급", "상여", "성과급", "보너스")
     private val REFUND_WORDS = listOf("취소", "환불", "캐시백")
@@ -90,6 +116,8 @@ object Categorizer {
                 else -> Category.INCOME_ETC
             }
         }
+        // 적금·청약 등은 이름이 "자동이체"처럼 흔한 말이어도 원문에 단서가 있으면 저축이다.
+        if (SAVINGS_WORDS.any { text.contains(it.uppercase()) }) return Category.SAVINGS
         // 가맹점 이름(description)을 원문보다 먼저 본다. 원문에는 은행 이름 등 잡음이 많다.
         for (source in listOf(description.uppercase(), text)) {
             EXPENSE_RULES.firstOrNull { (_, words) -> words.any { source.contains(it.uppercase()) } }

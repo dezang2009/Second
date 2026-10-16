@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import com.moneymoa.parser.Category
 import com.moneymoa.parser.TxType
 import kotlinx.coroutines.flow.Flow
 
@@ -23,8 +24,50 @@ interface TransactionDao {
     )
     suspend fun findSimilar(type: TxType, amount: Long, from: Long, to: Long): List<Transaction>
 
+    @Query("SELECT * FROM transactions ORDER BY timestamp")
+    suspend fun all(): List<Transaction>
+
+    @Query("SELECT * FROM transactions WHERE timestamp >= :from AND timestamp < :to")
+    suspend fun between(from: Long, to: Long): List<Transaction>
+
     @Insert
     suspend fun insert(tx: Transaction): Long
+
+    @Insert
+    suspend fun insertAll(txs: List<Transaction>)
+
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAllTransactions()
+
+    @Query("DELETE FROM category_rules")
+    suspend fun deleteAllRules()
+
+    @Query("DELETE FROM name_rules")
+    suspend fun deleteAllNameRules()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putRules(rules: List<CategoryRule>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putNameRules(rules: List<NameRule>)
+
+    @Query("UPDATE transactions SET excluded = 1 WHERE id IN (:ids)")
+    suspend fun markExcluded(ids: List<Long>)
+
+    @Query("UPDATE transactions SET excluded = 1, category = :category WHERE id = :id")
+    suspend fun markExcluded(id: Long, category: Category)
+
+    @Query("SELECT * FROM missed_notifications ORDER BY timestamp DESC")
+    fun observeMissed(): Flow<List<MissedNotification>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMissed(missed: MissedNotification)
+
+    @Query("DELETE FROM missed_notifications WHERE id = :id")
+    suspend fun deleteMissed(id: Long)
+
+    @Query("DELETE FROM missed_notifications WHERE timestamp < :before")
+    suspend fun deleteMissedBefore(before: Long)
 
     @Update
     suspend fun update(tx: Transaction)

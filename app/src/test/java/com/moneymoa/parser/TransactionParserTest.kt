@@ -83,3 +83,20 @@ class TransactionParserTest {
         assertNull(TransactionParser.parse("[하나은행] 입금 계좌가 등록되었습니다"))
     }
 }
+
+class LooksFinancialTest {
+    @Test fun unrecognizedBankMessageWithAmount() {
+        // 입출금 키워드가 없어 거래로는 못 읽지만 은행이 보낸 금액 있는 알림
+        val text = "[KB국민은행] 홍길동님 10/16 14:23 50,000원 처리되었습니다"
+        assertNull(TransactionParser.parse(text))
+        assertEquals(true, TransactionParser.looksFinancial(text))
+    }
+
+    @Test fun ignoresNonFinancialOrNoAmount() {
+        assertEquals(false, TransactionParser.looksFinancial("친구: 50,000원 보내줘"))
+        assertEquals(false, TransactionParser.looksFinancial("[KB국민은행] 로그인되었습니다"))
+        assertEquals(false, TransactionParser.looksFinancial("(광고)[신한카드] 10,000원 캐시백"))
+        // 잔액만 있는 알림은 거래 금액이 아니다
+        assertEquals(false, TransactionParser.looksFinancial("[하나은행] 현재 잔액 1,000,000원"))
+    }
+}

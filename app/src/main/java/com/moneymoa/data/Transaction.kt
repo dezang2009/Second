@@ -20,7 +20,39 @@ data class Transaction(
     val rawText: String? = null,
     val sourcePackage: String? = null,
     @ColumnInfo(defaultValue = "ETC") val category: Category = Category.ETC,
+    /** 합계에서 뺀다: 내 계좌끼리 이체, 카드대금 출금, 적금 만기 입금 등 */
+    @ColumnInfo(defaultValue = "0") val excluded: Boolean = false,
+) {
+    val isSaving get() = type == TxType.EXPENSE && category == Category.SAVINGS
+}
+
+/** 금융기관이 보낸, 금액은 있는데 거래로 인식하지 못한 알림 */
+@Entity(tableName = "missed_notifications", indices = [Index(value = ["text"], unique = true)])
+data class MissedNotification(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long,
+    val text: String,
+    val sourcePackage: String,
 )
+
+data class Totals(val income: Long, val expense: Long, val savings: Long) {
+    /** 수입에서 쓴 돈과 저축한 돈을 빼고 남은 돈 */
+    val left get() = income - expense - savings
+}
+
+/** 합계 계산은 화면·위젯이 모두 이 함수를 쓴다. */
+fun List<Transaction>.totals(): Totals {
+    var income = 0L; var expense = 0L; var savings = 0L
+    for (tx in this) {
+        if (tx.excluded) continue
+        when {
+            tx.type == TxType.INCOME -> income += tx.amount
+            tx.isSaving -> savings += tx.amount
+            else -> expense += tx.amount
+        }
+    }
+    return Totals(income, expense, savings)
+}
 
 /** 사용자가 카테고리를 바꾸면 같은 내용의 다음 거래에도 적용한다. */
 @Entity(tableName = "category_rules")

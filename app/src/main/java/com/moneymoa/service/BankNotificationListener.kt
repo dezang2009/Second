@@ -39,7 +39,14 @@ class BankNotificationListener : NotificationListenerService() {
             .map { listOf(title, it).filter(String::isNotBlank).joinToString("\n") }
 
         for (text in messages) {
-            val parsed = TransactionParser.parse(text, sbn.packageName) ?: continue
+            val parsed = TransactionParser.parse(text, sbn.packageName)
+            if (parsed == null) {
+                // 금융기관이 보낸 금액 있는 알림인데 못 알아봤으면 나중에 직접 추가할 수 있게 모아 둔다.
+                if (TransactionParser.looksFinancial(text, sbn.packageName)) {
+                    scope.launch { repository.addMissed(text, sbn.packageName, sbn.postTime) }
+                }
+                continue
+            }
             scope.launch {
                 val saved = repository.addFromNotification(parsed, text, sbn.packageName, sbn.postTime)
                 Log.d(TAG, "${if (saved) "saved" else "duplicate"}: $parsed")

@@ -24,7 +24,11 @@ class Converters {
         Category.entries.firstOrNull { it.name == value } ?: Category.ETC
 }
 
-@Database(entities = [Transaction::class, CategoryRule::class, NameRule::class], version = 4, exportSchema = false)
+@Database(
+    entities = [Transaction::class, CategoryRule::class, NameRule::class, MissedNotification::class],
+    version = 5,
+    exportSchema = false,
+)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun transactions(): TransactionDao
@@ -34,7 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "moneymoa.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build().also { instance = it }
         }
 
@@ -116,6 +120,39 @@ abstract class AppDatabase : RoomDatabase() {
                             ContentValues().apply { put("description", parsed.description) },
                             "id = ?", arrayOf(c.getLong(0)),
                         )
+                    }
+                }
+            }
+        }
+    
+        /**
+         * 합계 제외 칸과 '인식 못 한 알림' 표를 추가한다.
+         * 이미 쌓인 거래 중 적금 등은 저축으로, 카드대금·적금 만기 입금은 합계 제외로 바꿔 둔다.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `missed_notifications` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, `text` TEXT NOT NULL, `sourcePackage` TEXT NOT NULL)"
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_missed_notifications_text` ON `missed_notifications` (`text`)")
+                // 예전에 자동 분류된 카테고리만 다시 본다. 사용자가 직접 고른 다른 카테고리는 그대로 둔다.
+                val autoCategories = setOf(Category.ETC.name, Category.FINANCE.name, Category.TRANSFER.name)
+                db.query("SELECT id, type, description, rawText, category FROM transactions").use { c ->
+                    while (c.moveToNext()) {
+                        val type = TxType.valueOf(c.getString(1))
+                        val name = c.getString(2)
+                        val raw = if (c.isNull(3)) null else c.getString(3)
+                        val values = ContentValues()
+                        if (type == TxType.EXPENSE && c.getString(4) in autoCategories) {
+                            val category = Categorizer.categorize(type, name, raw)
+                            if (category == Category.SAVINGS) values.put("category", category.name)
+                        }
+                        if (Categorizer.isExcludedByDefault(type, name, raw)) values.put("excluded", 1)
+                        if (values.size() > 0) {
+                            db.update("transactions", SQLiteDatabase.CONFLICT_NONE, values, "id = ?", arrayOf(c.getLong(0)))
+                        }
                     }
                 }
             }

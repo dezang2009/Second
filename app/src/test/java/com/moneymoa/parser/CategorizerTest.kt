@@ -57,3 +57,22 @@ class CategorizerTest {
         assertEquals(Category.CAFE, Categorizer.categorize(p.type, p.description, raw))
     }
 }
+
+class SavingsAndExclusionTest {
+    @Test fun savingsTransfersAreSavings() {
+        assertEquals(Category.SAVINGS, Categorizer.categorize(TxType.EXPENSE, "자동이체", "[KB] 자동이체 출금 300,000 KB적금"))
+        assertEquals(Category.SAVINGS, Categorizer.categorize(TxType.EXPENSE, "주택청약", null))
+        assertEquals(Category.SAVINGS, Categorizer.categorize(TxType.EXPENSE, "토스증권", null))
+    }
+
+    @Test fun cardBillIsExcluded() {
+        assertEquals(true, Categorizer.isExcludedByDefault(TxType.EXPENSE, "신한카드", "[신한은행] 출금 523,000 신한카드 결제대금"))
+        assertEquals(false, Categorizer.isExcludedByDefault(TxType.EXPENSE, "스타벅스", "신한카드 승인 4,500원"))
+    }
+
+    @Test fun savingsMaturityIsExcludedButInterestIsNot() {
+        assertEquals(true, Categorizer.isExcludedByDefault(TxType.INCOME, "입금", "[KB] 적금 만기 해지 입금 3,600,000"))
+        assertEquals(false, Categorizer.isExcludedByDefault(TxType.INCOME, "이자", "[KB] 적금 이자 입금 12,000"))
+        assertEquals(false, Categorizer.isExcludedByDefault(TxType.INCOME, "급여", "[KB] 급여 입금 2,800,000"))
+    }
+}
