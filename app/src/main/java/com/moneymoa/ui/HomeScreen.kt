@@ -16,32 +16,25 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moneymoa.data.Transaction
 import com.moneymoa.parser.TxType
-import java.time.LocalDate
-import java.time.YearMonth
 
 @Composable
 fun HomeScreen(
     data: MonthData,
-    budget: Long,
     hasNotificationAccess: Boolean,
     onPrevMonth: () -> Unit,
     onNextMonth: () -> Unit,
-    onEditBudget: () -> Unit,
     onOpenSettings: () -> Unit,
     onSeeAll: () -> Unit,
     onSeeStats: () -> Unit,
@@ -55,7 +48,6 @@ fun HomeScreen(
         if (!hasNotificationAccess) item { AccessBanner(onOpenSettings) }
         item { MonthHeader(data.month, onPrevMonth, onNextMonth) }
         item { SummaryCard(data) }
-        item { BudgetCard(data, budget, onEditBudget) }
 
         val top = data.byCategory(TxType.EXPENSE).take(3)
         if (top.isNotEmpty()) {
@@ -135,66 +127,5 @@ private fun SummaryCell(label: String, value: String, color: Color, modifier: Mo
     Column(modifier) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-    }
-}
-
-@Composable
-private fun BudgetCard(data: MonthData, budget: Long, onEdit: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (budget <= 0) {
-                Text("월 예산", fontWeight = FontWeight.Bold)
-                Text(
-                    "예산을 정하면 얼마나 남았는지 보여 주고, 80%·100%에 도달하면 알려 드려요.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(onClick = onEdit, contentPadding = PaddingValues(0.dp)) { Text("예산 설정하기") }
-                return@Column
-            }
-
-            val spent = data.expense
-            val ratio = spent.toFloat() / budget
-            val (statusColor, status) = when {
-                ratio >= 1f -> ExpenseColor to "초과"
-                ratio >= 0.8f -> WarningColor to "주의"
-                else -> IncomeColor to "여유"
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("월 예산", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text("● $status ${(ratio * 100).toInt()}%", color = statusColor, style = MaterialTheme.typography.labelLarge)
-            }
-            LinearProgressIndicator(
-                progress = { ratio.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(8.dp),
-                color = statusColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                strokeCap = StrokeCap.Round,
-                drawStopIndicator = {},
-            )
-            Row(Modifier.fillMaxWidth()) {
-                Text(
-                    "${spent.won()} / ${budget.won()}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                val left = budget - spent
-                Text(
-                    if (left >= 0) "${left.won()} 남음" else "${(-left).won()} 초과",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            if (data.month == YearMonth.now() && budget > spent) {
-                val today = LocalDate.now()
-                val daysLeft = data.month.lengthOfMonth() - today.dayOfMonth + 1
-                Text(
-                    "남은 ${daysLeft}일 동안 하루 ${((budget - spent) / daysLeft).won()}씩 쓸 수 있어요",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
     }
 }

@@ -13,8 +13,9 @@ class MerchantNameTest {
         assertEquals("배달의민족", clean("KCP_우아한형제들"))
         assertEquals("토스", clean("비바리퍼블리카"))
         assertEquals("CU", clean("비지에프리테일"))
-        assertEquals("세븐일레븐", clean("코리아세븐 역삼점"))
-        assertEquals("메가커피", clean("메가MGC커피 강남역점"))
+        assertEquals("세븐일레븐 역삼점", clean("코리아세븐 역삼점"))
+        assertEquals("메가커피 강남역점", clean("메가MGC커피 강남역점"))
+        assertEquals("메가커피 강남역점", clean("메가MGC커피강남역점"))
     }
 
     @Test fun englishBillingNames() {
@@ -24,18 +25,34 @@ class MerchantNameTest {
     }
 
     @Test fun shortBrandsOnlyAsWords() {
-        assertEquals("CU", clean("CU 역삼점"))
-        assertEquals("CU", clean("CU역삼점"))
+        assertEquals("CU 역삼점", clean("CU 역삼점"))
+        assertEquals("CU 역삼점", clean("CU역삼점"))
+        assertEquals("CU", clean("CU"))
         assertEquals("KT", clean("KT 통신요금"))
         // 'CU'가 단어 중간에 있으면 CU 편의점이 아니다
         assertEquals("ACUVUE", clean("ACUVUE"))
     }
 
-    @Test fun stripsBranchCorpAndCodes() {
-        assertEquals("김밥천국", clean("김밥천국 서초2호점"))
+    @Test fun keepsBranchNames() {
+        assertEquals("스타벅스 강남역점", clean("스타벅스 강남역점"))
+        assertEquals("스타벅스 강남역점", clean("스타벅스강남역점"))
+        assertEquals("스타벅스 강남역점", clean("스타벅스(강남역점)"))
+        assertEquals("배달의민족", clean("(주)우아한형제들"))
+        assertEquals("김밥천국 서초2호점", clean("김밥천국 서초2호점"))
+        assertEquals("현대백화점 판교점", clean("(주)현대백화점 판교점"))
+    }
+
+    @Test fun stripsCorpCodesAndNonBranchParens() {
         assertEquals("한솥도시락", clean("주식회사 한솥도시락"))
         assertEquals("동네식당", clean("동네식당(강남)"))
         assertEquals("우리약국", clean("우리약국_000123"))
+        assertEquals("우리약국 서초점", clean("우리약국 서초점_000123"))
+    }
+
+    @Test fun brandOfDropsBranch() {
+        assertEquals("스타벅스", MerchantName.brandOf("스타벅스 강남역점"))
+        assertEquals("현대백화점", MerchantName.brandOf("현대백화점 판교점"))
+        assertEquals("편의점", MerchantName.brandOf("편의점"))
     }
 
     @Test fun keepsNamesThatOnlyLookLikeSuffixes() {
@@ -53,7 +70,7 @@ class MerchantNameTest {
     @Test fun parserProducesCleanNames() {
         fun name(text: String, pkg: String? = null) = TransactionParser.parse(text, pkg)!!.description
         assertEquals("배달의민족", name("KB국민카드1234승인 홍*동 23,000원 일시불 10/16 12:03 (주)우아한형제들 누적500,000원"))
-        assertEquals("스타벅스", name("신한카드(1234)승인 홍*동 4,500원(일시불)10/16 08:10 스타벅스 강남역점 누적100,000원"))
+        assertEquals("스타벅스 강남역점", name("신한카드(1234)승인 홍*동 4,500원(일시불)10/16 08:10 스타벅스 강남역점 누적100,000원"))
         assertEquals("급여", name("[KB]10/25 09:00\n123456**789\n(주)회사\n급여입금\n2,800,000\n잔액3,000,000"))
         assertEquals("김철수", name("송금\n고객님, 김철수님에게 30,000원을 보냈어요", "viva.republica.toss"))
         assertEquals("ATM 출금", name("[신한은행] 10/16 14:23 110-***-123456 ATM인출 100,000 잔액 900,000"))

@@ -78,7 +78,9 @@ object Categorizer {
         rawText: String? = null,
         userRules: Map<String, Category> = emptyMap(),
     ): Category {
-        userRules[description.trim()]?.let { if (it.isIncome == (type == TxType.INCOME)) return it }
+        // 정확히 같은 이름이 먼저, 없으면 지점과 상관없이 브랜드 규칙을 쓴다.
+        val rule = userRules[description.trim()] ?: userRules[MerchantName.brandOf(description.trim())]
+        rule?.let { if (it.isIncome == (type == TxType.INCOME)) return it }
 
         val text = (description + " " + rawText.orEmpty()).uppercase()
         if (type == TxType.INCOME) {

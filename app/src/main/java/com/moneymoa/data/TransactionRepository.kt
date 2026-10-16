@@ -3,11 +3,9 @@ package com.moneymoa.data
 import android.content.Context
 import com.moneymoa.parser.Categorizer
 import com.moneymoa.parser.Category
+import com.moneymoa.parser.MerchantName
 import com.moneymoa.parser.ParsedTransaction
 import com.moneymoa.parser.TxType
-import com.moneymoa.service.BudgetNotifier
-import java.time.YearMonth
-import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 class TransactionRepository private constructor(
@@ -22,10 +20,7 @@ class TransactionRepository private constructor(
     suspend fun categorize(type: TxType, description: String, rawText: String?): Category =
         Categorizer.categorize(type, description, rawText, dao.rules().associate { it.keyword to it.category })
 
-    suspend fun add(tx: Transaction) {
-        dao.insert(tx)
-        afterChange(tx)
-    }
+    suspend fun add(tx: Transaction) = dao.insert(tx)
 
     suspend fun delete(tx: Transaction) = dao.delete(tx)
 
@@ -41,7 +36,7 @@ class TransactionRepository private constructor(
             dao.putNameRule(NameRule(tx.description, newName))
             dao.renameAll(tx.description, newName)
         }
-        dao.putRule(CategoryRule(newName, category))
+        dao.putRule(CategoryRule(MerchantName.brandOf(newName), category))
     }
 
     /** 자동으로 정한 이름에 사용자가 바꾼 이름이 있으면 그것을 쓴다. */
@@ -90,16 +85,6 @@ class TransactionRepository private constructor(
             )
         )
         return true
-    }
-
-    private suspend fun afterChange(tx: Transaction) {
-        if (tx.type != TxType.EXPENSE) return
-        val zone = ZoneId.systemDefault()
-        val month = YearMonth.from(java.time.Instant.ofEpochMilli(tx.timestamp).atZone(zone))
-        if (month != YearMonth.now()) return
-        val from = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val to = month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        BudgetNotifier.check(context, dao.sumBetween(TxType.EXPENSE, from, to), month)
     }
 
     companion object {

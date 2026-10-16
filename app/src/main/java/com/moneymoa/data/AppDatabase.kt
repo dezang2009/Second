@@ -24,7 +24,7 @@ class Converters {
         Category.entries.firstOrNull { it.name == value } ?: Category.ETC
 }
 
-@Database(entities = [Transaction::class, CategoryRule::class, NameRule::class], version = 3, exportSchema = false)
+@Database(entities = [Transaction::class, CategoryRule::class, NameRule::class], version = 4, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun transactions(): TransactionDao
@@ -34,7 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "moneymoa.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build().also { instance = it }
         }
 
@@ -98,6 +98,25 @@ abstract class AppDatabase : RoomDatabase() {
                         "category_rules", SQLiteDatabase.CONFLICT_REPLACE,
                         ContentValues().apply { put("keyword", cleaned); put("category", category) },
                     )
+                }
+            }
+        }
+    
+        /** 지점명을 살리도록 바뀌어서, 알림 원문이 있는 거래 이름을 다시 만든다. 사용자가 바꾼 이름은 그대로 둔다. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val renamed = mutableSetOf<String>()
+                db.query("SELECT name FROM name_rules").use { c -> while (c.moveToNext()) renamed += c.getString(0) }
+                db.query("SELECT id, description, rawText, sourcePackage FROM transactions WHERE rawText IS NOT NULL").use { c ->
+                    while (c.moveToNext()) {
+                        if (c.getString(1) in renamed) continue
+                        val parsed = TransactionParser.parse(c.getString(2), if (c.isNull(3)) null else c.getString(3)) ?: continue
+                        db.update(
+                            "transactions", SQLiteDatabase.CONFLICT_NONE,
+                            ContentValues().apply { put("description", parsed.description) },
+                            "id = ?", arrayOf(c.getLong(0)),
+                        )
+                    }
                 }
             }
         }

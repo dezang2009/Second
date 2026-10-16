@@ -3,7 +3,6 @@ package com.moneymoa.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.moneymoa.data.AppSettings
 import com.moneymoa.data.InstitutionKind
 import com.moneymoa.data.Transaction
 import com.moneymoa.data.TransactionRepository
@@ -47,7 +46,6 @@ data class HistoryFilter(val institution: String? = null, val category: Category
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repository = TransactionRepository.get(app)
-    private val settings = AppSettings.get(app)
     private val zone = ZoneId.systemDefault()
 
     private val _month = MutableStateFlow(YearMonth.now())
@@ -68,17 +66,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _filter = MutableStateFlow(HistoryFilter())
     val filter: StateFlow<HistoryFilter> = _filter.asStateFlow()
 
-    val budget: StateFlow<Long> = settings.budget
-    val alertsEnabled: StateFlow<Boolean> = settings.alertsEnabled
-
     fun previousMonth() { _month.value = _month.value.minusMonths(1) }
     fun nextMonth() { _month.value = _month.value.plusMonths(1) }
 
     fun setInstitutionFilter(name: String?) { _filter.value = _filter.value.copy(institution = name) }
     fun setCategoryFilter(category: Category?) { _filter.value = _filter.value.copy(category = category) }
-
-    fun setBudget(value: Long) = settings.setBudget(value)
-    fun setAlertsEnabled(enabled: Boolean) = settings.setAlertsEnabled(enabled)
 
     fun add(type: TxType, amount: Long, description: String, institution: String, category: Category?) =
         viewModelScope.launch {

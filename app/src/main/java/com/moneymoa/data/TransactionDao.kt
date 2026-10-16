@@ -23,9 +23,6 @@ interface TransactionDao {
     )
     suspend fun findSimilar(type: TxType, amount: Long, from: Long, to: Long): List<Transaction>
 
-    @Query("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = :type AND timestamp >= :from AND timestamp < :to")
-    suspend fun sumBetween(type: TxType, from: Long, to: Long): Long
-
     @Insert
     suspend fun insert(tx: Transaction): Long
 

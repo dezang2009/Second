@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,12 +26,6 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SettingsScreen(
     hasNotificationAccess: Boolean,
-    budget: Long,
-    alertsEnabled: Boolean,
-    canPostNotifications: Boolean,
-    onEditBudget: () -> Unit,
-    onAlertsChange: (Boolean) -> Unit,
-    onRequestPostPermission: () -> Unit,
 ) {
     val context = LocalContext.current
     Column(
@@ -61,36 +54,6 @@ fun SettingsScreen(
                     },
                     modifier = Modifier.padding(horizontal = 4.dp),
                 ) { Text("앱 정보 열기") }
-            }
-        }
-
-        SettingsGroup("예산") {
-            SettingRow(
-                title = "월 예산",
-                subtitle = if (budget > 0) budget.won() else "설정 안 함",
-                onClick = onEditBudget,
-            )
-            Row(
-                Modifier.fillMaxWidth().clickable { onAlertsChange(!alertsEnabled) }.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("예산 알림", fontWeight = FontWeight.Medium)
-                    Text(
-                        "예산의 80%, 100%에 도달하면 알려 드려요",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = alertsEnabled, onCheckedChange = onAlertsChange)
-            }
-            if (alertsEnabled && !canPostNotifications) {
-                SettingRow(
-                    title = "알림 표시 권한이 필요해요",
-                    subtitle = "눌러서 허용하기",
-                    subtitleColor = MaterialTheme.colorScheme.error,
-                    onClick = onRequestPostPermission,
-                )
             }
         }
 

@@ -1,15 +1,10 @@
 package com.moneymoa.ui
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -42,17 +37,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.moneymoa.data.Transaction
-import com.moneymoa.service.BudgetNotifier
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        BudgetNotifier.createChannel(this)
         enableEdgeToEdge()
         setContent { MoneyMoaTheme { MoneyMoaApp(viewModel) } }
     }
@@ -78,10 +70,6 @@ private val BarChartIcon: ImageVector by lazy {
 private fun Context.hasNotificationAccess() =
     NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
 
-private fun Context.canPostNotifications() =
-    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-        ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MoneyMoaApp(viewModel: MainViewModel) {
@@ -89,26 +77,14 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
     val data by viewModel.monthData.collectAsState()
     val banks by viewModel.banks.collectAsState()
     val filter by viewModel.filter.collectAsState()
-    val budget by viewModel.budget.collectAsState()
-    val alertsEnabled by viewModel.alertsEnabled.collectAsState()
 
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     var hasAccess by remember { mutableStateOf(context.hasNotificationAccess()) }
-    var canPost by remember { mutableStateOf(context.canPostNotifications()) }
     var showAdd by remember { mutableStateOf(false) }
-    var showBudget by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Transaction?>(null) }
-
-    val postPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { canPost = it }
-    fun requestPostPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !canPost) {
-            postPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
 
     LifecycleResumeEffect(Unit) {
         hasAccess = context.hasNotificationAccess()
-        canPost = context.canPostNotifications()
         onPauseOrDispose { }
     }
 
@@ -141,11 +117,9 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
             Tab.HOME -> Box(modifier) {
                 HomeScreen(
                     data = data,
-                    budget = budget,
                     hasNotificationAccess = hasAccess,
                     onPrevMonth = viewModel::previousMonth,
                     onNextMonth = viewModel::nextMonth,
-                    onEditBudget = { showBudget = true },
                     onOpenSettings = { tab = Tab.SETTINGS },
                     onSeeAll = { tab = Tab.HISTORY },
                     onSeeStats = { tab = Tab.STATS },
@@ -176,18 +150,7 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
                 )
             }
             Tab.SETTINGS -> Box(modifier) {
-                SettingsScreen(
-                    hasNotificationAccess = hasAccess,
-                    budget = budget,
-                    alertsEnabled = alertsEnabled,
-                    canPostNotifications = canPost,
-                    onEditBudget = { showBudget = true },
-                    onAlertsChange = {
-                        viewModel.setAlertsEnabled(it)
-                        if (it) requestPostPermission()
-                    },
-                    onRequestPostPermission = ::requestPostPermission,
-                )
+                SettingsScreen(hasNotificationAccess = hasAccess)
             }
         }
     }
@@ -198,17 +161,6 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
             onAdd = { type, amount, desc, inst, category ->
                 viewModel.add(type, amount, desc, inst, category)
                 showAdd = false
-            },
-        )
-    }
-
-    if (showBudget) {
-        BudgetDialog(
-            current = budget,
-            onDismiss = { showBudget = false },
-            onSave = {
-                viewModel.setBudget(it)
-                if (it > 0 && alertsEnabled) requestPostPermission()
             },
         )
     }

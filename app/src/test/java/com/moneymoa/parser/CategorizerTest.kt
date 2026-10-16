@@ -44,6 +44,9 @@ class CategorizerTest {
     @Test fun userRuleWins() {
         val rules = mapOf("홍길동" to Category.HOUSING)
         assertEquals(Category.HOUSING, Categorizer.categorize(TxType.EXPENSE, "홍길동", null, rules))
+        // 브랜드 규칙은 다른 지점에도 적용된다.
+        val brandRule = mapOf("스타벅스" to Category.FOOD)
+        assertEquals(Category.FOOD, Categorizer.categorize(TxType.EXPENSE, "스타벅스 역삼점", null, brandRule))
         // 지출 규칙은 같은 이름의 입금에는 적용하지 않는다.
         assertEquals(Category.INCOME_ETC, Categorizer.categorize(TxType.INCOME, "홍길동", null, rules))
     }

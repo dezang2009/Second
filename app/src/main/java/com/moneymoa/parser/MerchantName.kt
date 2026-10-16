@@ -2,7 +2,8 @@ package com.moneymoa.parser
 
 /**
  * 알림에서 뽑은 거래 이름을 사람이 알아보기 쉬운 짧은 이름으로 정리한다.
- * "KCP_(주)우아한형제들" → "배달의민족", "스타벅스 강남역점" → "스타벅스", "NETFLIX.COM" → "넷플릭스"
+ * 브랜드 이름은 사람들이 부르는 이름으로, 지점명은 그대로 살린다.
+ * "KCP_(주)우아한형제들" → "배달의민족", "스타벅스강남역점" → "스타벅스 강남역점", "NETFLIX.COM" → "넷플릭스"
  */
 object MerchantName {
 
@@ -17,7 +18,7 @@ object MerchantName {
         "YOUTUBE" to "유튜브", "유튜브" to "유튜브", "SPOTIFY" to "스포티파이", "DISNEY" to "디즈니+",
         "APPLE.COM" to "애플", "APPLE" to "애플", "GOOGLE" to "구글", "STEAM" to "스팀",
         "STARBUCKS" to "스타벅스", "스타벅스" to "스타벅스",
-        "메가MGC" to "메가커피", "메가엠지씨" to "메가커피", "메가커피" to "메가커피",
+        "메가MGC커피" to "메가커피", "메가MGC" to "메가커피", "메가엠지씨" to "메가커피", "메가커피" to "메가커피",
         "투썸플레이스" to "투썸플레이스", "투썸" to "투썸플레이스", "이디야" to "이디야커피",
         "컴포즈커피" to "컴포즈커피", "빽다방" to "빽다방", "할리스" to "할리스", "폴바셋" to "폴바셋",
         "파리바게뜨" to "파리바게뜨", "파리크라상" to "파리바게뜨", "뚜레쥬르" to "뚜레쥬르",
@@ -41,11 +42,11 @@ object MerchantName {
         "교보문고" to "교보문고", "예스이십사" to "예스24", "예스24" to "예스24",
     )
 
-    // "CU 역삼점"처럼 짧은 영문 브랜드는 단어로 시작할 때만 인정한다.
+    // "CU 역삼점"처럼 짧은 영문 브랜드는 이름 맨 앞에 단어로 올 때만 인정한다.
     private val WORD_ALIASES = listOf(
-        Regex("""^CU(\s|$|\(|[가-힣])""") to "CU",
-        Regex("""^KT(\s|$|\()""") to "KT",
-        Regex("""^SKT(\s|$|\()""") to "SK텔레콤",
+        Regex("""^CU(?=\s|$|\(|[가-힣])""") to "CU",
+        Regex("""^KT(?=\s|$|\()""") to "KT",
+        Regex("""^SKT(?=\s|$|\()""") to "SK텔레콤",
     )
 
     private val PG_PREFIX = Regex(
@@ -58,8 +59,11 @@ object MerchantName {
             """\b(INC|CO|LTD|CORP|LLC)\b\.?""",
         RegexOption.IGNORE_CASE,
     )
-    private val BRANCH_SUFFIX = Regex("""\s+[가-힣A-Za-z0-9]{1,10}(점|지점|본점|직영점|매장)$""")
-    private val TRAILING_PAREN = Regex("""\s*\([^)]*\)$""")
+    private val BRANCH_WORD = Regex("""[가-힣A-Za-z0-9]{1,12}(점|지점|본점|직영점|매장)""")
+    private val SPACED_BRANCH = Regex("""\s+(${BRANCH_WORD.pattern})$""")
+    private val TRAILING_PAREN = Regex("""\s*\(([^)]*)\)$""")
+    /** '점'으로 끝나지만 지점명이 아닌 말 */
+    private val NOT_BRANCH = setOf("편의점", "백화점", "할인점", "면세점", "전문점", "대리점", "음식점", "상점", "매점", "아울렛점")
     private val TRAILING_CODE = Regex("""[\s_\-#]*\d{3,}$""")
     private val DOMAIN_SUFFIX = Regex("""\.(COM|CO\.KR|KR|NET)(/.*)?$""", RegexOption.IGNORE_CASE)
 
@@ -74,23 +78,57 @@ object MerchantName {
     fun clean(candidate: String?): String? {
         if (candidate.isNullOrBlank()) return null
         var name = candidate.replace('_', ' ').replace(Regex("""\s+"""), " ").trim()
-
         name = PG_PREFIX.replace(name, "")
-        val upper = name.uppercase()
-        ALIASES.firstOrNull { (key, _) -> upper.contains(key.uppercase()) }?.let { return it.second }
-        WORD_ALIASES.firstOrNull { (re, _) -> re.containsMatchIn(upper) }?.let { return it.second }
 
-        name = CORP_WORDS.replace(name, " ")
-        name = DOMAIN_SUFFIX.replace(name, "")
-        repeat(2) {
-            name = TRAILING_PAREN.replace(name, "").trim()
-            name = BRANCH_SUFFIX.replace(name, "").trim()
-            name = TRAILING_CODE.replace(name, "").trim()
+        // 지점명을 먼저 떼어 두었다가 마지막에 다시 붙인다.
+        var branch: String? = null
+        TRAILING_PAREN.find(name)?.let { m ->
+            val inner = m.groupValues[1].trim()
+            if (isBranch(inner)) branch = inner
+            name = name.removeRange(m.range).trim()
         }
-        name = name.trim(' ', '.', ',', '-', '*', '/', '|', ':').replace(Regex("""\s+"""), " ")
+        name = CORP_WORDS.replace(name, " ").replace(Regex("""\s+"""), " ").trim()
+        name = DOMAIN_SUFFIX.replace(name, "")
+        name = TRAILING_CODE.replace(name, "").trim()
+        if (branch == null) {
+            SPACED_BRANCH.find(name)?.let { m ->
+                val b = m.groupValues[1]
+                if (isBranch(b)) { branch = b; name = name.removeRange(m.range).trim() }
+            }
+        }
 
+        val upper = name.uppercase()
+        val alias = ALIASES.firstNotNullOfOrNull { (key, brand) ->
+            upper.indexOf(key.uppercase()).takeIf { it >= 0 }?.let { Triple(brand, it, key.length) }
+        } ?: WORD_ALIASES.firstNotNullOfOrNull { (re, brand) ->
+            re.find(upper)?.let { Triple(brand, it.range.first, it.value.length) }
+        }
+        if (alias != null) {
+            val (brand, at, len) = alias
+            // "스타벅스강남역점"처럼 브랜드 뒤에 붙어 있는 지점명
+            if (branch == null) {
+                val rest = name.substring(at + len).trim(' ', '-', '.')
+                if (BRANCH_WORD.matches(rest) && isBranch(rest)) branch = rest
+            }
+            return withBranch(brand, branch)
+        }
+
+        name = name.trim(' ', '.', ',', '-', '*', '/', '|', ':').replace(Regex("""\s+"""), " ")
         if (name.length < 2 || name.none { it.isLetter() } || name in STOP_WORDS) return null
-        return if (name.length > 16) name.take(16).trimEnd() + "…" else name
+        return withBranch(name, branch)
+    }
+
+    /** 지점명을 뺀 브랜드 이름. 카테고리 규칙은 지점과 상관없이 브랜드에 건다. */
+    fun brandOf(name: String): String =
+        SPACED_BRANCH.find(name)?.takeIf { isBranch(it.groupValues[1]) }
+            ?.let { name.removeRange(it.range).trim() }?.ifBlank { null } ?: name
+
+    private fun isBranch(word: String) =
+        BRANCH_WORD.matches(word) && word !in NOT_BRANCH && NOT_BRANCH.none { word.endsWith(it) }
+
+    private fun withBranch(base: String, branch: String?): String {
+        val full = if (branch != null) "$base $branch" else base
+        return if (full.length > 20) full.take(20).trimEnd() + "…" else full
     }
 
     fun isStopWord(word: String) = word in STOP_WORDS
