@@ -40,4 +40,13 @@ interface TransactionDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putRule(rule: CategoryRule)
+
+    @Query("SELECT * FROM name_rules")
+    suspend fun nameRules(): List<NameRule>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putNameRule(rule: NameRule)
+
+    @Query("UPDATE transactions SET description = :newName WHERE description = :oldName")
+    suspend fun renameAll(oldName: String, newName: String)
 }

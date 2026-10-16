@@ -89,6 +89,7 @@ object TransactionParser {
     private val LONE_NUMBER_LINE_RE = Regex("""^\s*(\d{1,9})\s*$""")
     private val DATETIME_MERCHANT_RE =
         Regex("""\d{1,2}[/.\-]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?\s+([^\n]+)""")
+    private val ACCOUNT_LIKE_RE = Regex("""[\d\-,.원]+""")
     private val NAME_NIM_RE = Regex("""([가-힣A-Za-z*]{2,10})님""")
     private val BRACKET_RE = Regex("""\[([^\]]+)]""")
 
@@ -158,27 +159,49 @@ object TransactionParser {
     }
 
     private fun findDescription(text: String, type: TxType): String {
-        // 카드 승인: "... 10/16 14:23 스타벅스 누적 ..."
-        DATETIME_MERCHANT_RE.find(text)?.let { m ->
-            val merchant = m.groupValues[1]
-                .substringBefore("누적").substringBefore("잔액")
-                .trim()
-            if (merchant.isNotEmpty() && merchant.any { it.isLetter() }) return merchant.take(30)
-        }
-        // 간편송금: "홍길동님에게 보냈어요"
-        NAME_NIM_RE.find(text)?.let { return it.groupValues[1] }
+        // 이름보다 거래 성격이 더 중요한 경우
+        if (type == TxType.INCOME && text.contains("급여")) return "급여"
+        if (text.contains("이자") && !text.contains("대출")) return "이자"
+        if (type == TxType.EXPENSE && (text.contains("ATM") || text.contains("인출"))) return "ATM 출금"
 
-        // 그 밖에는 숫자·기관명·키워드를 지우고 남는 단어를 쓴다.
+        // 카드 승인: "... 10/16 14:23 스타벅스 강남점 누적 ..."
+        DATETIME_MERCHANT_RE.find(text)?.let { m ->
+            // 은행 문자는 시간 뒤에 계좌번호·금액이 오므로 그런 조각은 버린다.
+            val keywords = INCOME_WORDS + EXPENSE_WORDS + WEAK_EXPENSE_WORDS + CANCEL_WORDS
+            val merchant = m.groupValues[1].substringBefore("누적").substringBefore("잔액")
+                .split(' ')
+                .filter { w ->
+                    w.isNotBlank() && w.any { it.isLetter() } && !w.contains('*') &&
+                        !ACCOUNT_LIKE_RE.matches(w) && keywords.none { w.contains(it) }
+                }
+                .joinToString(" ")
+            MerchantName.clean(merchant)?.let { return it }
+        }
+        // 간편송금: "홍길동님에게 보냈어요" (단, "고객님"은 이름이 아니다)
+        NAME_NIM_RE.findAll(text).map { it.groupValues[1] }
+            .firstOrNull { !MerchantName.isStopWord(it) }
+            ?.let { return it }
+
+        // 그 밖에는 숫자·기관명·키워드를 지우고 남는 단어 중 이름이 될 만한 것을 쓴다.
         val noise = (INSTITUTION_NAMES.map { it.first } + INCOME_WORDS + EXPENSE_WORDS +
-            WEAK_INCOME_WORDS + WEAK_EXPENSE_WORDS + CANCEL_WORDS + listOf("잔액", "잔고", "Web발신", "체크", "일시불", "알림", "입출금"))
+            WEAK_INCOME_WORDS + WEAK_EXPENSE_WORDS + CANCEL_WORDS + listOf("잔액", "잔고", "Web발신", "입출금"))
             .sortedByDescending { it.length }
         var rest = BRACKET_RE.replace(text, " ")
         rest = NOT_AMOUNT_RE.replace(rest, " ")
         noise.forEach { rest = rest.replace(it, " ") }
-        val words = rest.split(Regex("""[\s|,()/]+"""))
+        rest.split(Regex("""[\s|,()/]+"""))
             .map { it.trim('.', ':', '-', '>', '→') }
-            .filter { w -> w.length >= 2 && w.any { it.isLetter() } && !w.contains('*') && !w.endsWith("원") }
-        return words.firstOrNull()?.take(30) ?: if (type == TxType.INCOME) "입금" else "출금"
+            .filter { w -> w.length >= 2 && w.any { it.isLetter() } && !w.endsWith("원") && !w.contains('*') }
+            .firstNotNullOfOrNull { MerchantName.clean(it) }
+            ?.let { return it }
+
+        return when {
+            text.contains("자동이체") -> "자동이체"
+            type == TxType.INCOME -> "입금"
+            text.contains("카드") || text.contains("승인") || text.contains("결제") -> "카드 결제"
+            text.contains("송금") || text.contains("이체") -> "송금"
+            else -> "출금"
+        }
     }
 
     private fun String.toAmount(): Long? {

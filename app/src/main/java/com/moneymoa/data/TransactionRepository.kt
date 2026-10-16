@@ -29,10 +29,27 @@ class TransactionRepository private constructor(
 
     suspend fun delete(tx: Transaction) = dao.delete(tx)
 
-    /** 카테고리를 바꾸고, remember면 같은 내용의 다음 거래에도 적용한다. */
-    suspend fun changeCategory(tx: Transaction, category: Category, remember: Boolean) {
-        dao.update(tx.copy(category = category))
-        if (remember && tx.description.isNotBlank()) dao.putRule(CategoryRule(tx.description.trim(), category))
+    /**
+     * 이름·카테고리를 바꾼다. remember면 같은 이름의 기존 거래도 함께 바꾸고,
+     * 앞으로 같은 이름으로 들어오는 거래에도 적용한다.
+     */
+    suspend fun edit(tx: Transaction, name: String, category: Category, remember: Boolean) {
+        val newName = name.trim().ifBlank { tx.description }
+        dao.update(tx.copy(description = newName, category = category))
+        if (!remember) return
+        if (newName != tx.description) {
+            dao.putNameRule(NameRule(tx.description, newName))
+            dao.renameAll(tx.description, newName)
+        }
+        dao.putRule(CategoryRule(newName, category))
+    }
+
+    /** 자동으로 정한 이름에 사용자가 바꾼 이름이 있으면 그것을 쓴다. */
+    private suspend fun resolveName(autoName: String): String {
+        val rules = dao.nameRules().associate { it.original to it.name }
+        var name = autoName
+        repeat(3) { name = rules[name] ?: return name } // 여러 번 바꾼 경우를 따라가되 순환은 막는다
+        return name
     }
 
     /**
@@ -58,17 +75,18 @@ class TransactionRepository private constructor(
         }
         if (duplicate) return false
 
+        val name = resolveName(parsed.description)
         add(
             Transaction(
                 timestamp = postedAt,
                 type = parsed.type,
                 amount = parsed.amount,
                 institution = parsed.institution ?: "기타",
-                description = parsed.description,
+                description = name,
                 balance = parsed.balance,
                 rawText = rawText,
                 sourcePackage = sourcePackage,
-                category = categorize(parsed.type, parsed.description, rawText),
+                category = categorize(parsed.type, name, rawText),
             )
         )
         return true

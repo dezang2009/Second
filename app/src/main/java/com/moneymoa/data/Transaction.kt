@@ -29,6 +29,13 @@ data class CategoryRule(
     val category: Category,
 )
 
+/** 사용자가 바꾼 거래 이름. original(자동으로 정한 이름)로 들어오면 name으로 바꾼다. */
+@Entity(tableName = "name_rules")
+data class NameRule(
+    @PrimaryKey val original: String,
+    val name: String,
+)
+
 enum class InstitutionKind { BANK, CARD, PAY, OTHER }
 
 fun institutionKind(name: String): InstitutionKind = when {

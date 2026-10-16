@@ -9,6 +9,7 @@ import com.moneymoa.data.Transaction
 import com.moneymoa.data.TransactionRepository
 import com.moneymoa.data.institutionKind
 import com.moneymoa.parser.Category
+import com.moneymoa.parser.MerchantName
 import com.moneymoa.parser.TxType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,7 +82,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun add(type: TxType, amount: Long, description: String, institution: String, category: Category?) =
         viewModelScope.launch {
-            val desc = description.ifBlank { if (type == TxType.INCOME) "수입" else "지출" }
+            val desc = MerchantName.clean(description) ?: description.ifBlank { if (type == TxType.INCOME) "수입" else "지출" }
             repository.add(
                 Transaction(
                     timestamp = System.currentTimeMillis(),
@@ -94,8 +95,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
 
-    fun changeCategory(tx: Transaction, category: Category, remember: Boolean) =
-        viewModelScope.launch { repository.changeCategory(tx, category, remember) }
+    fun edit(tx: Transaction, name: String, category: Category, remember: Boolean) =
+        viewModelScope.launch { repository.edit(tx, name, category, remember) }
 
     fun delete(tx: Transaction) = viewModelScope.launch { repository.delete(tx) }
 }

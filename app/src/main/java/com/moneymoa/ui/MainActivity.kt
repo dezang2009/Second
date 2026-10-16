@@ -217,7 +217,7 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
         TransactionDetailDialog(
             tx = tx,
             onDismiss = { selected = null },
-            onChangeCategory = { c, rememberRule -> viewModel.changeCategory(tx, c, rememberRule) },
+            onSave = { name, c, rememberRule -> viewModel.edit(tx, name, c, rememberRule) },
             onDelete = { viewModel.delete(tx) },
         )
     }

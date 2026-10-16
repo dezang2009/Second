@@ -156,26 +156,24 @@ fun CategoryPicker(type: TxType, selected: Category?, onSelect: (Category) -> Un
     }
 }
 
-/** 거래를 눌렀을 때: 상세 보기, 카테고리 변경, 삭제 */
+/** 거래를 눌렀을 때: 상세 보기, 이름·카테고리 변경, 삭제 */
 @Composable
 fun TransactionDetailDialog(
     tx: Transaction,
     onDismiss: () -> Unit,
-    onChangeCategory: (Category, Boolean) -> Unit,
+    onSave: (name: String, category: Category, remember: Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
+    var name by remember { mutableStateOf(tx.description) }
     var category by remember { mutableStateOf(tx.category) }
     var rememberRule by remember { mutableStateOf(true) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val nameChanged = name.isNotBlank() && name.trim() != tx.description
+    val changed = nameChanged || category != tx.category
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(signed(tx.type, tx.amount), fontWeight = FontWeight.Bold)
-                Text(tx.description, style = MaterialTheme.typography.bodyMedium)
-            }
-        },
+        title = { Text(signed(tx.type, tx.amount), fontWeight = FontWeight.Bold) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -183,12 +181,23 @@ fun TransactionDetailDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(30) },
+                    label = { Text("이름") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Text("카테고리", style = MaterialTheme.typography.labelLarge)
                 CategoryPicker(tx.type, category) { category = it }
-                if (category != tx.category) {
+                if (changed) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = rememberRule, onCheckedChange = { rememberRule = it })
-                        Text("'${tx.description}'은(는) 앞으로도 이 카테고리로", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (nameChanged) "'${tx.description}' 거래를 모두 바꾸고 다음에도 적용"
+                            else "'${tx.description}'은(는) 앞으로도 이 카테고리로",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
                 tx.rawText?.let {
@@ -202,7 +211,7 @@ fun TransactionDetailDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                if (category != tx.category) onChangeCategory(category, rememberRule)
+                if (changed) onSave(name, category, rememberRule)
                 onDismiss()
             }) { Text("저장") }
         },
