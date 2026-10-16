@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- coin -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z" />
+    <!-- won sign -->
+    <path
+        android:strokeColor="#2F6BFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M42,42 L48,66 L54,48 L60,66 L66,42 M40,52 L68,52 M40,58 L68,58" />
+</vector>
