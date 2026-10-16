@@ -237,11 +237,15 @@
     D.normTactics(t.tactics);
     W.validateLineup(G, t);
     const slots = D.FORMATIONS[t.tactics.formation];
+    const roles = W.validateRoles(t);
+    const opF = t.tactics.formationOP && D.FORMATIONS[t.tactics.formationOP] ? t.tactics.formationOP : '';
+    const op = opF ? D.shapeMap(slots, D.FORMATIONS[opF]) : null;
     return {
       team: t,
       tactics: Object.assign({}, t.tactics),
       baseMent: t.tactics.mentality,
-      starters: t.lineup.map((id, i) => ({ p: G.players[id], role: slots[i][0], slot: slots[i] })),
+      fam: t.id !== G.user.teamId ? 90 : opF ? (W.famOf(t, t.tactics.formation) + W.famOf(t, opF)) / 2 : W.famOf(t, t.tactics.formation),
+      starters: t.lineup.map((id, i) => ({ p: G.players[id], role: slots[i][0], slot: slots[i], r: roles[i], op: op ? op[i] : null })),
       bench: t.bench.map((id) => G.players[id]),
     };
   }
@@ -261,16 +265,14 @@
     D.normTactics(t.tactics);
     if (t.id === G.user.teamId) return;
     W.autoLineup(G, t);
-    const diff = W.teamRating(G, t) - W.teamRating(G, opp);
-    let key;
-    if (diff > 6) key = t.rep >= 85 ? (t.id % 2 ? 'gegen' : 'tiki') : 'vtiki';
-    else if (diff > 2) key = t.id % 3 === 0 ? 'wing' : t.id % 3 === 1 ? 'gegen' : 'balance';
-    else if (diff > -3) key = t.id % 2 ? 'balance' : 'direct';
-    else if (diff > -8) key = 'counter';
-    else key = 'bus';
+    const key = aiPlan(G, t, opp);
     const preset = D.TACTIC_PRESETS.find((x) => x[0] === key);
     Object.assign(t.tactics, preset[3]);
     D.normTactics(t.tactics);
+    // 수비 시 포메이션: 내려앉는 팀은 측면 미드필더까지 내려 두 줄 수비
+    const f = t.tactics.formation;
+    t.tactics.formationOP = key === 'bus' || key === 'counter' ? ({ '4-3-3': '4-1-4-1', '4-2-3-1': '4-4-1-1', '3-5-2': '5-3-2', '3-4-3': '5-4-1' }[f] || '') : key === 'gegen' && f === '4-2-3-1' ? '4-4-2' : '';
+    W.autoRoles(G, t);
   }
 
   // ── 빠른 시뮬레이션 (AI 대 AI) ─────────────────────────────
@@ -545,6 +547,18 @@
         if (before) for (const k in p.attr) if (p.attr[k] > before[k]) log.push(`${p.name} ${KM.World.ATTR_KO[k]} +${p.attr[k] - before[k]}`);
       }
     }
+    // 전술 숙련도: 쓰는 포메이션은 매일 익숙해지고, 안 쓰는 포메이션은 서서히 잊는다
+    const ut = userTeam(G);
+    const cur = ut.tactics.formation, op = ut.tactics.formationOP;
+    W.famOf(ut, cur);
+    for (const f in D.FORMATIONS) {
+      const v = W.famOf(ut, f);
+      if (f === cur || f === op) ut.fam[f] = Math.min(100, v + (G.training.focus === 'tac' ? 2.4 : 0.9) * (f === cur ? 1 : 0.6));
+      else ut.fam[f] = Math.max(35, v - 0.12);
+    }
+    // 어시스턴트 매니저의 상대 분석 보고서 (경기 이틀 전)
+    const nev = currentEvent(G);
+    if (nev && userFixture(G) && nev.day - G.day <= 2) sendReport(G);
     // 이적시장: 화·목에 AI 이적과 영입 제안
     if (windowOpen(G) && (dow === 2 || dow === 4)) { aiTransfers(G, rng); incomingOffers(G, rng); }
   }
@@ -572,6 +586,7 @@
       }
     }
     G.offers = G.offers.filter((o) => o.exp > G.week);
+    if (windowOpen(G) && G.week % 2 === 0) scoutTip(G);
     if (G.board.conf < 10 && G.week > 10 && position(G, uid) > G.board.goal.pos + 2) G.user.sacked = true;
   }
 
@@ -596,7 +611,7 @@
     }
     W.refreshPlayer(p);
   }
-  const FOCUS = { bal: null, atk: ['sho', 'dri', 'pac'], def: ['def', 'phy'], tec: ['pas', 'dri'], phy: ['pac', 'phy'] };
+  const FOCUS = { tac: null, bal: null, atk: ['sho', 'dri', 'pac'], def: ['def', 'phy'], tec: ['pas', 'dri'], phy: ['pac', 'phy'] };
   function pickAttr(p, focus, rng, decline) {
     if (decline) return rng.pick(['pac', 'pac', 'phy', 'dri', p.pos === 'GK' ? 'gk' : 'def']);
     if (p.pos === 'GK') return rng.chance(0.75) ? 'gk' : rng.pick(['pas', 'phy']);
@@ -624,7 +639,7 @@
       if (seller.squad.length <= 20) continue;
       const fee = Math.round(p.value * rng.range(0.95, 1.3) / 25) * 25;
       movePlayer(G, p, seller, buyer, fee);
-      news(G, 'transfer', `${p.name}, ${buyer.name} 이적`, `${seller.name}에서 ${josa(buyer.name, '으로/로')} 이적 (이적료 ${money(fee)})`);
+      news(G, 'transfer', `${p.name}, ${buyer.name} 이적`, `${seller.name}에서 ${josa(buyer.name, '으로/로')} 이적 (이적료 ${money(fee)})`, { gen: true, read: true, from: '이적 소식' });
     }
   }
 
@@ -974,10 +989,133 @@
   }
 
   // ── 소식, 업적 ─────────────────────────────────────────────
-  function news(G, tag, title, body) {
-    G.news.unshift({ s: G.season, w: G.week, tag, title, body });
+  // 받은 편지함: 소식마다 보낸 사람(스태프)이 있다
+  const SENDER = { match: '수석 코치', transfer: '단장', injury: '의료팀장', board: '구단주', cup: '대회 운영국', offer: '단장', ach: '구단 기록관', club: '구단 사무국', scout: '수석 스카우트', report: '어시스턴트 매니저', train: '피트니스 코치' };
+  function news(G, tag, title, body, extra) {
+    G.newsId = (G.newsId || 0) + 1;
+    G.news.unshift(Object.assign({ id: G.newsId, s: G.season, w: G.week, d: G.day, tag, from: SENDER[tag] || '구단 사무국', title, body, read: false }, extra || {}));
     if (G.news.length > 80) G.news.pop();
   }
+
+  // ── 상대 분석 (AI 전술 선택과 어시스턴트 보고서가 같은 판단을 쓴다) ──
+  function aiPlan(G, t, opp) {
+    const diff = W.teamRating(G, t) - W.teamRating(G, opp);
+    if (diff > 6) return t.rep >= 85 ? (t.id % 2 ? 'gegen' : 'tiki') : 'vtiki';
+    if (diff > 2) return t.id % 3 === 0 ? 'wing' : t.id % 3 === 1 ? 'gegen' : 'balance';
+    if (diff > -3) return t.id % 2 ? 'balance' : 'direct';
+    if (diff > -8) return 'counter';
+    return 'bus';
+  }
+  function unitStrength(G, t) {
+    const slots = D.FORMATIONS[t.tactics.formation];
+    const u = { DF: [], MF: [], FW: [] };
+    t.lineup.forEach((id, i) => { const p = G.players[id]; const g = D.ROLE_GROUP[slots[i][0]]; if (p && u[g]) u[g].push(W.roleOvr(p, slots[i][0])); });
+    const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+    return { DF: avg(u.DF), MF: avg(u.MF), FW: avg(u.FW) };
+  }
+  function oppReport(G) {
+    const fx = userFixture(G);
+    if (!fx) return null;
+    const ut = userTeam(G), oppId = fx.m.h === ut.id ? fx.m.a : fx.m.h, opp = team(G, oppId);
+    W.autoLineup(G, opp);
+    const key = aiPlan(G, opp, ut);
+    const preset = D.TACTIC_PRESETS.find((x) => x[0] === key);
+    const us = unitStrength(G, ut), them = unitStrength(G, opp);
+    const NAME = { DF: '수비', MF: '중원', FW: '공격' };
+    const weak = Object.keys(them).sort((a, b) => them[a] - them[b])[0];
+    const strong = Object.keys(them).sort((a, b) => them[b] - them[a])[0];
+    const stars = opp.lineup.map((id) => G.players[id]).filter(Boolean).sort((a, b) => b.ovr - a.ovr).slice(0, 3);
+    const fast = opp.lineup.map((id) => G.players[id]).filter((p) => p && p.pos === 'FW').sort((a, b) => b.attr.pac - a.attr.pac)[0];
+    const diff = W.teamRating(G, ut) - W.teamRating(G, opp);
+    const tips = [];
+    if (key === 'bus' || key === 'counter') tips.push('상대는 내려앉을 가능성이 높아요. 짧은 패스로 점유하면서 박스까지 파고들거나 측면 크로스로 블록을 넓히세요.');
+    if (key === 'gegen' || key === 'vtiki') tips.push('상대가 강하게 압박해 올 거예요. 직선적인 패스나 뒷공간 침투로 압박을 벗겨내면 기회가 생겨요.');
+    if (key === 'wing') tips.push('상대는 측면 크로스가 주무기예요. 공격 폭을 좁히고 수비 라인을 깊게 두는 것도 방법이에요.');
+    if (fast && fast.attr.pac >= 78) tips.push(`${fast.name}의 스피드가 위협적이에요. 높은 수비 라인은 뒷공간을 내줄 수 있어요.`);
+    if (them[weak] + 2 < us[weak === 'DF' ? 'FW' : weak === 'FW' ? 'DF' : 'MF']) tips.push(`상대 ${NAME[weak]}이 약점이에요.`);
+    return { opp, key, presetName: preset[1], formation: opp.tactics.formation, stars, weak: NAME[weak], strong: NAME[strong], tips, diff, label: fx.label, day: fx.ev.day };
+  }
+  function sendReport(G) {
+    const r = oppReport(G);
+    if (!r) return;
+    const k = G.season + ':' + G.week;
+    if (G.repSent === k) return;
+    G.repSent = k;
+    const lines = [`예상 포메이션 ${r.formation}, 예상 전술 '${r.presetName}'.`, `강점은 ${r.strong}, 약점은 ${r.weak}이에요.`, `경계 대상: ${r.stars.map((p) => p.name).join(', ')}.`].concat(r.tips);
+    news(G, 'report', `${r.label} 상대 분석: ${r.opp.name}`, lines.join(' '), { opp: r.opp.id });
+  }
+
+  // 수석 스카우트: 라인업에서 가장 약한 자리를 보강할 후보 추천
+  function scoutTip(G) {
+    const ut = userTeam(G);
+    const slots = D.FORMATIONS[ut.tactics.formation];
+    let wi = -1, wv = 999;
+    ut.lineup.forEach((id, i) => { const p = G.players[id]; const v = p ? W.roleOvr(p, slots[i][0]) : 0; if (v < wv) { wv = v; wi = i; } });
+    if (wi < 0) return;
+    const role = slots[wi][0];
+    const cands = Object.values(G.players).filter((p) => p.teamId !== ut.id && p.age <= 31 && D.fit(role, p) >= 0.9 && W.roleOvr(p, role) >= wv + 3 && p.value <= Math.max(ut.balance, 0) * 0.8)
+      .sort((a, b) => W.roleOvr(b, role) - W.roleOvr(a, role) || a.value - b.value).slice(0, 3);
+    if (!cands.length) return;
+    news(G, 'scout', `${D.ROLE_NAME[role]} 보강 후보 보고서`, `현재 ${D.ROLE_NAME[role]} 자리(${wv})가 가장 약해요. 예산 안에서 영입할 만한 선수를 찾았습니다: ${cands.map((p) => `${p.name}(${p.age}세, ${W.roleOvr(p, role)})`).join(', ')}.`, { pids: cands.map((p) => p.id) });
+  }
+
+  // ── 팀 토크 ────────────────────────────────────────────────
+  // ctx: { phase: 'pre'|'ht', fav: 전력 차(우리-상대), gd: 현재 득실차, xgd: xG 차 }
+  const TALKS = {
+    pre: [
+      ['expect', '승리를 기대한다', '“우리가 이길 경기다. 보여줘.”'],
+      ['nopress', '부담 갖지 마라', '“잃을 게 없다. 즐기고 와라.”'],
+      ['focus', '집중해라', '“하던 대로, 실수만 줄이자.”'],
+      ['faith', '너희를 믿는다', '“나는 너희를 믿는다.”'],
+    ],
+    ht: [
+      ['praise', '잘하고 있다', '“좋다, 계속 이렇게 가자.”'],
+      ['complacent', '방심하지 마라', '“아직 끝나지 않았다. 집중해.”'],
+      ['encourage', '할 수 있다', '“충분히 뒤집을 수 있다. 자신 있게.”'],
+      ['disappointed', '실망스럽다', '“이게 너희 실력이냐? 실망이다.”'],
+      ['angry', '분노', '(라커룸 문을 걷어차며) “당장 정신 차려!”'],
+    ],
+  };
+  function talkBase(tone, c) {
+    const fav = c.fav, gd = c.gd || 0, xgd = c.xgd || 0;
+    switch (tone) {
+      case 'expect': return fav > 2 ? 6 : fav > -2 ? 2 : -5;
+      case 'nopress': return fav < -2 ? 7 : fav < 2 ? 2 : -3;
+      case 'focus': return 2.5;
+      case 'faith': return c.morale < 55 ? 6 : 1.5;
+      case 'praise': return gd > 0 || (gd === 0 && xgd > 0.3) ? 6 : gd === 0 ? 1 : -4;
+      case 'complacent': return gd > 0 ? 4.5 : gd === 0 ? 1.5 : -2;
+      case 'encourage': return gd < 0 ? 5.5 : gd === 0 ? 3 : 0.5;
+      case 'disappointed': return gd < 0 && xgd < 0 ? 4 : gd < 0 ? 1 : -6;
+      case 'angry': return gd < 0 && fav > 0 ? 7 : gd < 0 ? 2 : -8;
+      default: return 0;
+    }
+  }
+  function reaction(d) {
+    if (d >= 6) return ['fire', '의욕이 넘친다'];
+    if (d >= 3) return ['up', '자신감이 생겼다'];
+    if (d >= 0.5) return ['ok', '집중하고 있다'];
+    if (d > -2) return ['flat', '별 반응이 없다'];
+    if (d > -5) return ['down', '긴장한 것 같다'];
+    return ['bad', '실망한 표정이다'];
+  }
+  // 선수마다 성격(고정 난수)에 따라 반응이 다르다. 사기를 바꾸고 반응 목록을 돌려준다
+  function teamTalk(G, players, tone, c) {
+    const avgM = players.reduce((s, p) => s + p.morale, 0) / Math.max(1, players.length);
+    const base = talkBase(tone, Object.assign({ morale: avgM }, c));
+    const out = [];
+    for (const p of players) {
+      const pers = (((p.id * 2654435761) >>> 0) % 1000) / 1000 - 0.5; // -0.5 ~ 0.5
+      const vol = tone === 'angry' || tone === 'disappointed' ? 2.2 : 1;
+      let d = base + pers * 6 * vol + (p.age >= 30 ? 1 : 0) * (base < 0 ? 1 : 0);
+      if (p.morale > 85 && d > 0) d *= 0.5;
+      d = Math.round(clamp(d, -12, 12));
+      p.morale = clamp(p.morale + d, 5, 100);
+      out.push({ p, d, r: reaction(d) });
+    }
+    return out;
+  }
+
 
   const ACH = {
     firstWin: ['첫 승', '감독 커리어 첫 승리'],
@@ -1003,6 +1141,6 @@
     createMatch, playWeek, endSeason, advanceDay, canAdvance, nextEventDay, dateText, dateOf, ensureDays, quickSim, buildSide, cupRoundName,
     makeBid, completeSigning, askingPrice, wageDemand, willingToJoin, acceptOffer, rejectOffer, counterOffer, releasePlayer, releaseCost,
     renew, renewDemand, upgradeFacility, facCost, FAC, jobOffers, takeJob, strengthRank,
-    pressQuestions, answerPress, unlock, ACH, news,
+    pressQuestions, answerPress, unlock, ACH, news, oppReport, sendReport, aiPlan, teamTalk, TALKS, unitStrength,
   };
 })(globalThis.KM || (globalThis.KM = {}));

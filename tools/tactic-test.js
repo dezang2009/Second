@@ -4,13 +4,15 @@ const KM = globalThis.KM, S = KM.Season, D = KM.DATA;
 const N = +process.argv[2] || 30;
 const G = S.createWorld(7);
 const a = G.teams.find((t) => t.name.includes('토트넘')), b = G.teams.find((t) => t.name.includes('뉴캐슬'));
+const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 for (const [key, name, , preset] of D.TACTIC_PRESETS) {
+  if (ONLY && !ONLY.includes(key)) continue;
   let w = [0, 0, 0], gf = 0, ga = 0, poss = 0, shots = 0, pass = 0, tkl = 0, fouls = 0, stam = 0;
   for (let i = 0; i < N; i++) {
-    const sa = S.buildSide(G, a), sb = S.buildSide(G, b);
+    const sa = S.buildSide(G, a), sb = S.buildSide(G, process.env.MIRROR ? a : b);
     Object.assign(sa.tactics, preset);
     Object.assign(sb.tactics, D.TACTIC_DEFAULT);
-    const m = new KM.Engine.Match(sa, sb, { seed: 500 + i });
+    const m = new KM.Engine.Match(sa, sb, { seed: (+process.env.SEED || 500) + i });
     m.runToEnd();
     w[m.score[0] > m.score[1] ? 0 : m.score[0] === m.score[1] ? 1 : 2]++;
     gf += m.score[0]; ga += m.score[1]; poss += m.possPct(); shots += m.stats[0].shots; pass += m.stats[0].pass; tkl += m.stats[0].tkl; fouls += m.stats[0].fouls;

@@ -215,10 +215,20 @@
         <div class="bal"><small>구단 잔고</small><span class="num">${money(t.balance)}</span></div>
       </header>
       <main class="view" id="view">${viewHtml()}</main>
+      ${contBtn(G)}
       <nav class="tabs" aria-label="메뉴"><div class="in">
         ${[['home', '홈'], ['squad', '선수단'], ['league', '리그'], ['transfer', '이적'], ['club', '구단']].map(([k, l]) =>
-          `<button data-act="tab" data-v="${k}" class="${UI.tab === k ? 'on' : ''}" aria-current="${UI.tab === k}">${ICON[k]}${l}${k === 'transfer' && G.offers.length ? '<span class="dot"></span>' : ''}</button>`).join('')}
+          `<button data-act="tab" data-v="${k}" class="${UI.tab === k ? 'on' : ''}" aria-current="${UI.tab === k}">${ICON[k]}${l}${k === 'transfer' && G.offers.length ? '<span class="dot"></span>' : ''}${k === 'home' && G.news.some((n) => n.read === false && !n.gen) ? '<span class="dot"></span>' : ''}</button>`).join('')}
       </div></nav>`;
+  }
+  // FM식 '계속' 버튼: 경기일이면 경기 준비, 아니면 하루 진행
+  function contBtn(G) {
+    const ev = S.currentEvent(G);
+    let label = '계속', sub = '다음 날';
+    if (!ev) { label = '시즌 결산'; sub = '시즌 종료'; }
+    else if (S.userFixture(G) && ev.day <= G.day) { label = '경기 준비'; sub = '오늘 경기'; }
+    else { const d = S.userFixture(G) ? ev.day - G.day : 0; sub = d ? `경기까지 ${d}일` : '다음 날'; }
+    return `<button class="cont" data-act="cont"><span><b>${label}</b><small>${sub}</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l8 7-8 7"/></svg></button>`;
   }
   function rerenderView() {
     const v = $('#view');
@@ -387,7 +397,10 @@
     const pos = tb.findIndex((r) => r.id === t.id);
     const from = clamp(pos - 2, 0, tb.length - 5);
     parts.push(`<section class="card"><h2>${esc(S.leagueOf(G, t).name)} <small><button class="btn sm ghost" data-act="goto" data-tab="league" data-sub="table">전체 순위</button></small></h2>${tableHtml(G, t.league, tb.slice(from, from + 5), from)}</section>`);
-    parts.push(`<section class="card news"><h2>구단 소식</h2><div class="list">${G.news.slice(0, 8).map(newsItem).join('') || '<div class="empty">아직 소식이 없습니다.</div>'}</div></section>`);
+    const inbox = G.news.filter((n) => !n.gen);
+    const unread = inbox.filter((n) => n.read === false).length;
+    parts.splice(ev ? 2 : 1, 0, `<section class="card inbox"><div class="row"><h2 class="grow" style="margin:0">받은 편지함 ${unread ? `<span class="badge">${unread}</span>` : ''}</h2><button class="btn sm ghost" data-act="inboxall">전체 보기</button></div>
+      <div class="list">${inbox.slice(0, 5).map(mailItem).join('') || '<div class="empty">새 메시지가 없어요.</div>'}</div></section>`);
     return parts.join('');
   }
   // 오늘부터 7일 일정: 경기일·훈련일을 한눈에
@@ -413,6 +426,25 @@
       <div class="days">${days.join('')}</div></section>`;
   }
 
+  const SENDER_IC = { '수석 코치': '코', '단장': '단', '의료팀장': '의', '구단주': '주', '대회 운영국': '컵', '구단 기록관': '★', '구단 사무국': '사', '수석 스카우트': '스', '어시스턴트 매니저': '수', '피트니스 코치': '피', '이적 소식': '⇄' };
+  function mailItem(n) {
+    return `<button class="li tap mail ${n.read === false ? 'unread' : ''}" data-act="mail" data-v="${n.id || ''}" data-i="${UI.G.news.indexOf(n)}">
+      <span class="who" aria-hidden="true">${SENDER_IC[n.from] || NEWS_IC[n.tag] || '•'}</span>
+      <div class="grow"><div class="from">${esc(n.from || '구단 사무국')}<span>${n.d != null ? esc(shortDate(n.d)) : ''}</span></div><div class="t">${esc(n.title)}</div><div class="b">${esc(n.body)}</div></div></button>`;
+  }
+  function shortDate(d) { const dt = S.dateOf(UI.G, d); return `${dt.getMonth() + 1}/${dt.getDate()}`; }
+  function openMail(n) {
+    const G = UI.G;
+    n.read = true;
+    const pls = (n.pids || []).map((id) => G.players[id]).filter(Boolean);
+    const opp = n.opp != null ? G.teams[n.opp] : null;
+    sheet(`<div class="row"><span class="who big">${SENDER_IC[n.from] || NEWS_IC[n.tag] || '•'}</span><div class="grow"><div class="eyebrow">${esc(n.from || '구단 사무국')} · ${n.d != null ? esc(S.dateText(G, n.d)) : ''}</div><h2 style="margin:2px 0 0">${esc(n.title)}</h2></div></div>
+      ${opp ? `<div class="row">${logo(opp, 44)}<b class="grow">${esc(opp.name)}</b><span class="muted">${opp.tactics.formation}</span></div>` : ''}
+      <div style="font-size:14px;line-height:1.75">${esc(n.body).replace(/\. /g, '.<br>')}</div>
+      ${pls.length ? `<div class="list">${pls.map((p) => `<div class="li tap" data-act="player" data-v="${p.id}">${avatar(p, 40)}<div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${posTag(p)} ${p.age}세 · ${money(p.value)} · ${esc(teamOf(p) ? teamOf(p).name : '자유계약')}</div></div>${ovrBadge(p.ovr)}</div>`).join('')}</div>` : ''}
+      ${n.tag === 'offer' ? '<button class="btn" data-act="goto" data-tab="transfer" data-sub="offers">이적 제안 보기</button>' : ''}
+      <button class="btn primary" data-act="closesheet">확인</button>`, () => rerenderView());
+  }
   function newsItem(n) {
     return `<div class="li"><span class="ic" aria-hidden="true">${NEWS_IC[n.tag] || '•'}</span><div class="grow"><div class="t">${esc(n.title)}</div><div class="b">${esc(n.body)}</div></div></div>`;
   }
@@ -486,10 +518,13 @@
     return parts.length > 1 ? parts[parts.length - 1] : n;
   }
 
+  const DUTY_S = ['수', '지', '공'];
+  function roleTag(r) { return `${D.ROLE_AB[r[0]]}<i class="duty d${r[1]}">${DUTY_S[r[1]]}</i>`; }
   function lineupEditor(t) {
     const G = UI.G;
     W.validateLineup(G, t);
     const slots = D.FORMATIONS[t.tactics.formation];
+    const roles = W.validateRoles(t);
     const sel = UI.selSlot;
     const discs = slots.map((sl, i) => {
       const p = G.players[t.lineup[i]];
@@ -498,23 +533,29 @@
       const bad = p && D.fit(sl[0], p) < 0.86;
       return `<button class="slot ${sel === i ? 'sel' : ''} ${bad ? 'bad' : ''}" style="left:${l}%;top:${tp}%" data-act="slot" data-v="${i}" aria-label="${sl[0]} ${p ? esc(p.name) : ''}">
         ${p ? avatar(p, 42, t.c1) : '<span class="ph fb" style="width:36px;height:47px">?</span>'}
-        <span class="lbl">${p ? esc(shortPlayerName(p.name)) : '비어 있음'}</span><span class="rt">${sl[0]} ${ro}</span></button>`;
+        <span class="lbl">${p ? esc(shortPlayerName(p.name)) : '비어 있음'}</span><span class="rt">${roleTag(roles[i])} ${ro}</span></button>`;
     }).join('');
+    const fam = Math.round(t.tactics.formationOP ? (W.famOf(t, t.tactics.formation) + W.famOf(t, t.tactics.formationOP)) / 2 : W.famOf(t, t.tactics.formation));
     const inXI = new Set(t.lineup);
     const others = sortPlayers(t.squad.map((id) => G.players[id]).filter((p) => !inXI.has(p.id)), 'pos');
     const benchSet = new Set(t.bench);
     const role = sel != null ? slots[sel][0] : null;
     return `<section class="card stack">
-      <div class="row"><h2 class="grow h2" style="margin:0">선발 라인업</h2>
-        <select class="sel" data-act="formation" aria-label="포메이션">${Object.keys(D.FORMATIONS).map((f) => `<option ${f === t.tactics.formation ? 'selected' : ''}>${f}</option>`).join('')}</select>
-        <button class="btn sm" data-act="autolineup">자동</button></div>
+      <div class="row"><h2 class="grow h2" style="margin:0">선발 라인업</h2><button class="btn sm" data-act="autolineup">자동</button></div>
+      <div class="grid2 form-pick">
+        <label><span class="eyebrow">공격 시 포메이션</span><select class="sel" data-act="formation" aria-label="공격 시 포메이션">${Object.keys(D.FORMATIONS).map((f) => `<option ${f === t.tactics.formation ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
+        <label><span class="eyebrow">수비 시 포메이션</span><select class="sel" data-act="formationop" aria-label="수비 시 포메이션"><option value="">공격 시와 같게</option>${Object.keys(D.FORMATIONS).map((f) => `<option ${f === t.tactics.formationOP ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
+      </div>
+      <div class="fam"><span class="eyebrow">전술 숙련도</span><div class="meter"><i style="width:${fam}%;background:${fam >= 80 ? 'var(--win)' : fam >= 60 ? 'var(--draw)' : 'var(--loss)'}"></i></div><b class="num">${fam}%</b></div>
       <div class="row muted" style="font-size:12.5px"><span class="grow">${sel != null ? `<b style="color:var(--ink)">${slots[sel][0]}</b> 자리에 넣을 선수를 아래에서 고르세요. 다른 자리를 누르면 서로 바뀌어요.` : '자리를 눌러 선수를 바꾸세요. 숫자는 그 자리에서의 능력치예요.'}</span><span>전력 <b class="num" style="color:var(--ink);font-size:17px">${W.teamRating(G, t)}</b></span></div>
       <div class="pitch-ed">
         <span class="ln" style="inset:3% 4%;border-radius:4px"></span><span class="ln" style="left:4%;right:4%;top:50%;border-width:2px 0 0"></span>
         <span class="ln" style="left:50%;top:50%;width:26%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%"></span>
         <span class="ln" style="left:24%;right:24%;bottom:3%;height:16%;border-bottom:0"></span><span class="ln" style="left:24%;right:24%;top:3%;height:16%;border-top:0"></span>
         ${discs}</div>
+      <p class="muted" style="margin:0;font-size:11.5px">${fam < 70 ? '아직 익숙하지 않은 포메이션이라 선수들의 움직임이 조금 둔해요. 경기와 훈련(전술 초점)으로 숙련도가 올라가요.' : '선수들이 이 포메이션에 익숙해요.'}${t.tactics.formationOP ? ` 공을 잃으면 ${t.tactics.formationOP} 대형으로 바꿔 수비해요.` : ''}</p>
     </section>
+    ${rolesCard(slots.map((sl, i) => ({ i, pos: sl[0], p: G.players[t.lineup[i]], r: roles[i] })), 'team')}
     <section class="card stack">
       <div class="row"><h2 class="grow h2" style="margin:0">교체 명단 <small style="margin-left:6px">${t.bench.length}/9</small></h2>
         <button class="btn sm ghost" data-act="benchauto">자동 구성</button></div>
@@ -532,6 +573,40 @@
       ${fitO != null ? `<span class="muted num" style="font-size:14px;font-weight:700">${role} ${fitO}</span>` : ''}${ovrBadge(p.ovr)}
       ${out ? '' : `<button class="bench-btn ${onBench ? 'on' : ''}" data-act="benchtoggle" data-v="${p.id}" aria-label="${onBench ? '교체 명단에서 빼기' : '교체 명단에 넣기'}">${onBench ? '−' : '+'}</button>`}</div>`;
   }
+
+  // 선수 역할·임무 (FM식): 행을 누르면 그 자리에서 고를 수 있는 역할이 펼쳐진다
+  function rolesCard(entries, scope) {
+    const open = UI.roleOpen;
+    return `<section class="card stack roles-card">
+      <div class="row"><h2 class="grow h2" style="margin:0">역할과 임무</h2>${scope === 'team' ? '<button class="btn sm ghost" data-act="autoroles">자동 배정</button>' : ''}</div>
+      <p class="muted" style="margin:0;font-size:12px">역할은 공을 가졌을 때와 잃었을 때의 움직임, 패스·슈팅·드리블 판단을 바꿔요. 임무는 공격 가담 정도예요.</p>
+      <div class="list">${entries.map((e) => {
+        const def = D.ROLES[e.r[0]];
+        const isOpen = open === scope + e.i;
+        let body = '';
+        if (isOpen) {
+          const dm = e.p ? W.detailMap(e.p) : null;
+          body = `<div class="role-pick">
+            <div class="role-opts">${D.rolesFor(e.pos).map((k) => {
+              const sc = dm ? W.roleScore(e.p, k, dm) : 0;
+              return `<button class="role-opt ${k === e.r[0] ? 'on' : ''}" data-act="rolepick" data-scope="${scope}" data-i="${e.i}" data-v="${k}"><b>${D.ROLES[k].n}</b><span class="stars">${dm ? stars5(sc) : ''}</span></button>`;
+            }).join('')}</div>
+            <div class="muted" style="font-size:12.5px">${esc(def.desc)}</div>
+            <div class="seg">${[0, 1, 2].map((d) => `<button ${def.d.includes(d) ? '' : 'disabled'} class="${e.r[1] === d ? 'on' : ''}" data-act="roleduty" data-scope="${scope}" data-i="${e.i}" data-v="${d}">${D.DUTY[d]}</button>`).join('')}</div>
+            ${e.p ? `<div class="keyattrs">${def.keyA.map((k) => { const v = W.detailMap(e.p)[k]; return v != null ? `<span>${k} <b class="av a${attrTier(v)}">${v}</b></span>` : ''; }).join('')}</div>` : ''}
+          </div>`;
+        }
+        return `<div class="role-row ${isOpen ? 'open' : ''}"><button class="li tap" data-act="roleopen" data-v="${scope + e.i}" style="width:100%;background:none;border:0;text-align:left">
+          <span class="pos ${D.ROLE_GROUP[e.pos]}">${e.pos}</span>
+          <div class="grow"><div class="name">${e.p ? esc(e.p.name) : '비어 있음'}</div><div class="sub">${def.n} · ${D.DUTY[e.r[1]]}</div></div>
+          ${e.p ? `<span class="stars" title="역할 적합도">${stars5(W.roleScore(e.p, e.r[0]))}</span>` : ''}<span class="muted">${isOpen ? '−' : '›'}</span></button>${body}</div>`;
+      }).join('')}</div></section>`;
+  }
+  function stars5(score) {
+    const n = clamp(Math.round((score - 7) / 2.2), 0, 5);
+    return '★'.repeat(n) + '<i>' + '★'.repeat(5 - n) + '</i>';
+  }
+  function attrTier(v) { return v >= 16 ? 4 : v >= 11 ? 3 : v >= 6 ? 2 : 1; }
 
   // 풋볼 매니저식 전술 화면: 프리셋 + 공격 시 / 수비 시 / 전환 팀 지시
   function tacticsPanel(tac, scope) {
@@ -566,13 +641,13 @@
   function trainingView() {
     const G = UI.G, t = S.userTeam(G);
     const tr = G.training;
-    const focus = [['bal', '균형'], ['atk', '공격'], ['def', '수비'], ['tec', '기술'], ['phy', '체력']];
+    const focus = [['bal', '균형'], ['tac', '전술'], ['atk', '공격'], ['def', '수비'], ['tec', '기술'], ['phy', '체력']];
     const young = t.squad.map((id) => G.players[id]).filter((p) => p.age <= 23).sort((a, b) => (b.pot - b.ovr) - (a.pot - a.ovr));
     return `<section class="card stack">
       <h2 style="margin:0">주간 훈련</h2>
       <div class="stack" style="gap:6px"><span class="eyebrow">훈련 초점</span><div class="seg">${focus.map(([k, l]) => `<button data-act="tfocus" data-v="${k}" class="${tr.focus === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div class="stack" style="gap:6px"><span class="eyebrow">훈련 강도</span><div class="seg">${['가볍게', '보통', '강하게'].map((l, i) => `<button data-act="tint" data-v="${i}" class="${tr.intensity === i ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-      <p class="muted" style="margin:0;font-size:12.5px">${['회복이 빠르지만 성장이 느려요.', '성장과 회복의 균형을 맞춰요.', '성장이 40% 빨라지지만 컨디션 회복이 느리고 부상 위험이 있어요.'][tr.intensity]} 훈련장 ${t.facilities.train}단계 효과로 성장 속도 +${(t.facilities.train - 1) * 12}%.</p>
+      <p class="muted" style="margin:0;font-size:12.5px">${['회복이 빠르지만 성장이 느려요.', '성장과 회복의 균형을 맞춰요.', '성장이 40% 빨라지지만 컨디션 회복이 느리고 부상 위험이 있어요.'][tr.intensity]} 훈련장 ${t.facilities.train}단계 효과로 성장 속도 +${(t.facilities.train - 1) * 12}%.${tr.focus === 'tac' ? ' 전술 초점: 포메이션 숙련도가 두 배 이상 빨리 올라요.' : ''}</p>
     </section>
     <section class="card"><h2>유망주 <small>23세 이하 ${young.length}명</small></h2><div class="list">
       ${young.map((p) => `<div class="li tap" data-act="player" data-v="${p.id}">${avatar(p, 40)}<div class="grow"><div class="name">${esc(p.name)} <span class="muted" style="font-weight:600">${p.age}세</span></div>
@@ -593,8 +668,24 @@
     const mine = p.teamId === G.user.teamId;
     const st = p.season;
     const avg = st.apps ? (st.rsum / st.apps).toFixed(2) : '-';
-    const attrs = (p.pos === 'GK' ? ['gk', 'pas', 'phy', 'pac'] : ['pac', 'sho', 'pas', 'dri', 'def', 'phy']).map((k) =>
-      `<div class="attr"><span class="muted" style="font-weight:600">${W.ATTR_KO[k]}</span><div class="bar"><i style="width:${p.attr[k]}%;background:${p.attr[k] >= 78 ? 'var(--win)' : p.attr[k] >= 62 ? 'var(--draw)' : 'var(--loss)'}"></i></div><span class="num">${p.attr[k]}</span></div>`).join('');
+    const ptab = d.tab || 'detail';
+    let attrs;
+    if (ptab === 'core') {
+      attrs = `<div class="attrs">${(p.pos === 'GK' ? ['gk', 'pas', 'phy', 'pac'] : ['pac', 'sho', 'pas', 'dri', 'def', 'phy']).map((k) =>
+        `<div class="attr"><span class="muted" style="font-weight:600">${W.ATTR_KO[k]}</span><div class="bar"><i style="width:${p.attr[k]}%;background:${p.attr[k] >= 78 ? 'var(--win)' : p.attr[k] >= 62 ? 'var(--draw)' : 'var(--loss)'}"></i></div><span class="num">${p.attr[k]}</span></div>`).join('')}</div>`;
+    } else if (ptab === 'role') {
+      const dm = W.detailMap(p);
+      const list = Object.keys(D.ROLES).filter((k) => D.ROLES[k].pos.includes(p.role) || (D.ROLES[k].pos.some((x) => D.fit(x, p) >= 0.93))).map((k) => [k, W.roleScore(p, k, dm)]).sort((a, b) => b[1] - a[1]).slice(0, 6);
+      attrs = `<div class="list">${list.map(([k, v]) => `<div class="li"><div class="grow"><div class="name">${D.ROLES[k].n} <span class="muted num" style="font-size:12px">${D.ROLE_AB[k]}</span></div><div class="sub">${esc(D.ROLES[k].desc)}</div></div><span class="stars">${stars5(v)}</span></div>`).join('')}</div>`;
+    } else {
+      // 세부 능력치 1~20: 지금 맡은 역할의 핵심 능력치는 강조
+      const ut = S.userTeam(G);
+      const idx = mine ? ut.lineup.indexOf(p.id) : -1;
+      const rk = idx >= 0 ? W.validateRoles(ut)[idx][0] : null;
+      const key = new Set(rk ? D.ROLES[rk].keyA : []);
+      attrs = `${rk ? `<div class="muted" style="font-size:12px">강조 표시는 <b style="color:var(--ink)">${D.ROLES[rk].n}</b> 역할의 핵심 능력치예요.</div>` : ''}<div class="fm-attrs">${W.details(p).map((g) => `<div class="col"><div class="eyebrow">${g.title}</div>${g.rows.map(([n, v]) => `<div class="ar ${key.has(n) ? 'key' : ''}"><span>${n}</span><b class="av a${attrTier(v)}">${v}</b></div>`).join('')}</div>`).join('')}</div>`;
+    }
+    attrs = `<div class="seg">${[['detail', '능력치'], ['core', '요약'], ['role', '역할 적합도']].map(([k, l]) => `<button data-act="ptab" data-v="${k}" class="${ptab === k ? 'on' : ''}">${l}</button>`).join('')}</div>${attrs}`;
     const shortlisted = (G.short || []).includes(pid);
     let actions = '';
     if (mine) {
@@ -626,7 +717,7 @@
       </div>
       <div class="row wrap" style="gap:6px">${statusTags(p)}${!mine ? `<button class="chip ${shortlisted ? 'on' : ''}" data-act="short" data-v="${pid}">${shortlisted ? '★ 관심 선수' : '☆ 관심 등록'}</button>` : ''}</div>
       <div class="kv"><div><small>시장 가치</small><b>${money(p.value)}</b></div><div><small>주급</small><b>${money(p.wage)}</b></div><div><small>계약</small><b>${p.teamId != null ? p.contract + '년' : '-'}</b></div></div>
-      <div class="attrs">${attrs}</div>
+      ${attrs}
       <div class="kv"><div><small>컨디션</small><b style="color:${condColor(p.cond)}">${p.cond}%</b></div><div><small>사기</small><b>${moraleText(p.morale)}</b></div><div><small>폼</small><b>${p.ratings.length ? p.form.toFixed(1) : '-'}</b></div></div>
       <div class="kv"><div><small>시즌 출전</small><b>${st.apps}</b></div><div><small>골 / 도움</small><b>${st.goals} / ${st.assists}</b></div><div><small>평균 평점</small><b>${avg}</b></div></div>
       <div class="muted" style="font-size:12px">통산 ${p.career.apps}경기 ${p.career.goals}골 ${p.career.assists}도움${p.gen ? ' · 가상 선수(유스/자유계약)' : ''}</div>
@@ -962,6 +1053,7 @@
   function settingsView() {
     const G = UI.G;
     return `<section class="card stack"><h2 style="margin:0">게임</h2>
+      <div class="stack" style="gap:6px"><span class="eyebrow">화면 테마</span><div class="seg">${[['dark', 'FM 다크'], ['light', '라이트'], ['system', '시스템']].map(([k, l]) => `<button data-act="theme" data-v="${k}" class="${UI.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div class="stack" style="gap:6px"><span class="eyebrow">기본 경기 속도</span><div class="seg">${[1, 2, 4].map((s) => `<button data-act="defspeed" data-v="${s}" class="${G.settings.speed === s ? 'on' : ''}">${s}배속</button>`).join('')}</div></div>
       <button class="btn" data-act="save">지금 저장 (슬롯 ${UI.slot + 1})</button>
       <button class="btn ghost" data-act="totitle">메인 화면으로</button></section>
@@ -1014,10 +1106,20 @@
       <section class="card stack"><div class="row">${logo(opp, 56)}<div class="grow"><div class="eyebrow">${home ? '홈 경기' : '원정 경기'} 상대</div><h2 style="font-family:var(--f-display);font-size:22px">${esc(opp.name)}</h2>
         <div class="muted" style="font-size:12.5px">${opp.tactics.formation} · 전력 ${W.teamRating(G, opp)} · ${formHtml(opp.form)}</div></div></div>
         <div class="row" style="gap:6px;overflow-x:auto">${oppXI.map((p) => `<div style="text-align:center;width:62px;flex:none">${avatar(p, 44, opp.c1)}<div style="font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(shortPlayerName(p.name))}</div><div class="num" style="font-weight:700;color:var(--accent)">${p.ovr}</div></div>`).join('')}</div></section>
+      ${reportCard()}
       ${lineupEditor(t)}
       ${tacticsPanel(t.tactics, 'team')}
       <div class="grid2"><button class="btn" data-act="quickmatch">결과만 보기</button><button class="btn accent big" data-act="kickoff" style="padding:12px">킥오프</button></div>
     </div>`;
+  }
+
+  // 어시스턴트 매니저의 상대 분석
+  function reportCard() {
+    const r = S.oppReport(UI.G);
+    if (!r) return '';
+    return `<section class="card stack report"><div class="row"><span class="who">수</span><div class="grow"><div class="eyebrow">어시스턴트 매니저 보고서</div><b>${esc(r.opp.name)} 분석</b></div></div>
+      <div class="kv"><div><small>예상 포메이션</small><b>${r.formation}</b></div><div><small>예상 전술</small><b>${esc(r.presetName)}</b></div><div><small>약점</small><b>${r.weak}</b></div></div>
+      ${r.tips.length ? `<ul class="tips">${r.tips.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>`;
   }
 
   function startLive(quick) {
@@ -1028,7 +1130,7 @@
     const userSide = fx.m.h === t.id ? 0 : 1;
     UI.prematch = false;
     if (quick) { m.runToEnd(); return finishMatch(m); }
-    UI.live = { m, fx, userSide, speed: G.settings.speed || 1, paused: false, acc: 0, evShown: 0, tab: 'feed', selOut: null, last: 0, owner: null };
+    UI.live = { m, fx, userSide, speed: G.settings.speed || 1, talk: null, paused: false, acc: 0, evShown: 0, tab: 'feed', selOut: null, last: 0, owner: null };
     let el = $('.match-screen');
     if (!el) { el = document.createElement('div'); el.className = 'match-screen'; document.body.appendChild(el); lockScroll(); }
     const h = m.sides[0].team, a = m.sides[1].team;
@@ -1037,7 +1139,7 @@
       <div class="scoreboard"><div class="tm">${logo(h, 34)}<b>${esc(h.short)}</b></div><div class="mid"><div class="score" id="lv-score">0 - 0</div><div class="clock" id="lv-clock">00:00</div></div><div class="tm away">${logo(a, 34)}<b>${esc(a.short)}</b></div></div>
       <div class="possbar" aria-hidden="true"><i id="lv-ph" style="background:${kit[0].fill};width:50%"></i><i style="background:${kit[1].fill};flex:1"></i></div>
       <div class="pitch-wrap"><canvas class="pitch" id="lv-canvas" aria-label="경기 화면"></canvas><div class="owner" id="lv-owner"></div><div id="lv-flash"></div><div id="lv-ht" class="ht-wrap" hidden></div></div>
-      <div class="ctrl"><button class="btn" data-act="lvpause" id="lv-pause">일시정지</button><button class="btn" data-act="lvspeed" id="lv-speed">${UI.live.speed}배속</button><button class="btn" data-act="lvskip">결과로</button></div>
+      <div class="ctrl"><button class="btn" data-act="lvpause" id="lv-pause">일시정지</button><button class="btn" data-act="lvspeed" id="lv-speed">${speedLabel(UI.live.speed)}</button><button class="btn" data-act="lvskip">결과로</button></div>
       <div class="seg" id="lv-tabs">${[['feed', '중계'], ['stats', '기록'], ['tac', '전술'], ['subs', '교체']].map(([k, l]) => `<button data-act="lvtab" data-v="${k}" class="${k === 'feed' ? 'on' : ''}">${l}</button>`).join('')}</div>
       <section class="card" id="lv-panel"></section>
       <button class="btn accent big" id="lv-done" data-act="lvdone" hidden>경기 결과 확인</button>
@@ -1045,12 +1147,21 @@
     UI.live.view = new KM.Render.PitchView($('#lv-canvas'), m, userSide);
     UI.live.view.snapshot();
     renderLivePanel(true);
+    showTalk('pre');
     UI.live.last = performance.now();
     requestAnimationFrame(liveLoop);
     try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then((l) => { UI.wake = l; }).catch(() => {}); } catch (e) { /* 무시 */ }
   }
 
   const STEPS_PER_SEC = 40; // 1배속 = 초당 엔진 4초 → 90분 경기가 약 5분
+  function speedLabel(sp) { return sp === 'hl' ? '하이라이트' : sp + '배속'; }
+  // 하이라이트: 평소에는 빠르게 넘기고, 위험 지역 공격·세트피스·슈팅 장면만 천천히 보여준다
+  function hlSpeed(m) {
+    if (m.shot || m.setPiece || m.state === 'goal' || (m.restart && (m.restart.kind === 'pen' || m.restart.kind === 'corner'))) return 1.2;
+    const b = m.ball, s = b.owner ? b.owner.side : m.pass ? m.pass.from.side : m.poss;
+    const f = KM.Engine.fx(s, b.x);
+    return f > 74 && Math.abs(KM.Engine.fy(s, b.y) - 34) < 26 ? 1.5 : 12;
+  }
   function liveLoop(now) {
     const L = UI.live;
     if (!L) return;
@@ -1058,7 +1169,9 @@
     const dt = Math.min(0.1, (now - L.last) / 1000);
     L.last = now;
     if (!L.paused && !m.finished) {
-      L.acc += dt * STEPS_PER_SEC * L.speed;
+      const sp = L.speed === 'hl' ? hlSpeed(m) : L.speed;
+      L.hlSlow = L.speed === 'hl' && sp < 2;
+      L.acc += dt * STEPS_PER_SEC * sp;
       let n = 0;
       while (L.acc >= 1 && n < 400) {
         L.view.snapshot();
@@ -1080,22 +1193,54 @@
     requestAnimationFrame(liveLoop);
   }
 
-  // 하프타임: 경기를 멈추고 전반 요약 + 진영 교체 안내
-  function showHalftime() {
-    const L = UI.live, m = L.m;
-    L.paused = true;
+  // 팀 토크: 경기 전과 하프타임에 선수들에게 말을 건다. 반응에 따라 사기와 경기력이 바뀐다
+  function talkCtx() {
+    const L = UI.live, m = L.m, s = L.userSide;
+    const fav = W.teamRating(UI.G, m.sides[s].team) - W.teamRating(UI.G, m.sides[1 - s].team);
+    return { fav, gd: m.score[s] - m.score[1 - s], xgd: m.stats[s].xg - m.stats[1 - s].xg };
+  }
+  function showTalk(phase) {
+    const L = UI.live;
+    L.paused = true; L.talk = phase;
     const pb = $('#lv-pause'); if (pb) pb.textContent = '재개';
     const box = $('#lv-ht'); if (!box) return;
-    const s0 = m.stats[0], s1 = m.stats[1], pp = m.possPct();
-    const h = m.sides[0].team, a = m.sides[1].team;
-    box.innerHTML = `<div class="ht-card">
-      <div class="eyebrow" style="color:#ffd23a">HALF TIME</div>
-      <div class="ht-score">${logo(h, 30)}<b class="num">${m.score[0]} - ${m.score[1]}</b>${logo(a, 30)}</div>
-      <div class="ht-stats"><span>점유율 <b>${pp} : ${100 - pp}</b></span><span>슈팅 <b>${s0.shots} : ${s1.shots}</b></span><span>xG <b>${s0.xg.toFixed(1)} : ${s1.xg.toFixed(1)}</b></span></div>
-      <p>후반에는 진영을 바꿔요. 우리 팀은 이제 <b>아래쪽</b>으로 공격합니다.</p>
-      <div class="grid2"><button class="btn" data-act="httac">전술·교체</button><button class="btn accent" data-act="htgo">후반 시작</button></div></div>`;
+    const c = talkCtx();
+    const sit = phase === 'pre' ? (c.fav > 2 ? '우리가 우세하다는 평가예요.' : c.fav < -2 ? '상대가 한 수 위라는 평가예요.' : '팽팽한 승부가 예상돼요.')
+      : (c.gd > 0 ? '앞서고 있어요.' : c.gd < 0 ? '끌려가고 있어요.' : '동점이에요.') + (Math.abs(c.xgd) > 0.4 ? (c.xgd > 0 ? ' 내용은 우리가 더 좋았어요.' : ' 내용에서도 밀렸어요.') : '');
+    box.innerHTML = `<div class="ht-card talk">
+      <div class="eyebrow" style="color:#ffd23a">${phase === 'pre' ? '경기 전 팀 토크' : 'HALF TIME · 팀 토크'}</div>
+      ${phase === 'ht' ? htSummary() : ''}
+      <p style="margin:0">${sit} 선수들에게 뭐라고 할까요?</p>
+      <div class="talk-opts">${S.TALKS[phase].map(([k, n, q]) => `<button class="btn" data-act="talk" data-v="${k}"><b>${n}</b><small>${esc(q)}</small></button>`).join('')}</div>
+      <button class="btn ghost sm" data-act="talkskip">${phase === 'pre' ? '말없이 킥오프' : '말없이 후반 시작'}</button></div>`;
     box.hidden = false;
+    box.scrollTop = 0;
   }
+  function htSummary() {
+    const m = UI.live.m, s0 = m.stats[0], s1 = m.stats[1], pp = m.possPct();
+    const h = m.sides[0].team, a = m.sides[1].team;
+    return `<div class="ht-score">${logo(h, 30)}<b class="num">${m.score[0]} - ${m.score[1]}</b>${logo(a, 30)}</div>
+      <div class="ht-stats"><span>점유율 <b>${pp} : ${100 - pp}</b></span><span>슈팅 <b>${s0.shots} : ${s1.shots}</b></span><span>xG <b>${s0.xg.toFixed(1)} : ${s1.xg.toFixed(1)}</b></span></div>`;
+  }
+  function doTalk(tone) {
+    const L = UI.live, m = L.m, s = L.userSide, phase = L.talk;
+    const mps = m.onPitch(s);
+    const res = S.teamTalk(UI.G, mps.map((x) => x.p), tone, talkCtx());
+    for (const x of mps) x.setMorale(x.p.morale);
+    const name = S.TALKS[phase].find((x) => x[0] === tone)[1];
+    m.log('talk', s, `팀 토크: “${name}”`);
+    const avg = res.reduce((a, r) => a + r.d, 0) / Math.max(1, res.length);
+    const box = $('#lv-ht');
+    box.innerHTML = `<div class="ht-card talk">
+      <div class="eyebrow" style="color:#ffd23a">선수 반응</div>
+      <p style="margin:0">${avg >= 3 ? '선수들이 크게 고무됐어요!' : avg >= 0.5 ? '선수들이 집중하고 있어요.' : avg > -2 ? '반응이 미지근해요.' : '선수들이 동요하고 있어요…'}</p>
+      <div class="reacts">${res.sort((a, b) => b.d - a.d).map((r) => `<div class="react ${r.r[0]}">${avatar(r.p, 28)}<span class="grow">${esc(shortPlayerName(r.p.name))}</span><small>${r.r[1]}</small></div>`).join('')}</div>
+      <div class="grid2">${phase === 'ht' ? '<button class="btn" data-act="httac">전술·교체</button>' : '<button class="btn" data-act="lvtacnow">전술 확인</button>'}<button class="btn accent" data-act="htgo">${phase === 'pre' ? '킥오프' : '후반 시작'}</button></div></div>`;
+    box.scrollTop = 0;
+  }
+
+  // 하프타임: 경기를 멈추고 전반 요약 + 진영 교체 안내 + 팀 토크
+  function showHalftime() { showTalk('ht'); }
 
   function showFlash(f) {
     const box = $('#lv-flash');
@@ -1149,15 +1294,20 @@
       html = liveStats(m);
     } else if (L.tab === 'tac') {
       const tac = m.sides[L.userSide].tactics;
-      html = `<div class="stack"><div class="row"><span class="eyebrow grow">포메이션</span><select class="sel" data-act="lvform">${Object.keys(D.FORMATIONS).map((f) => `<option ${f === tac.formation ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
-        <p class="muted" style="margin:0;font-size:12px">변경 사항은 바로 경기에 반영돼요.</p></div>` + tacticsPanel(tac, 'live');
+      const s = L.userSide;
+      const ents = m.mp[s].map((x, i) => ({ i, pos: x.role, p: x.p, r: [x.R.key, x.R.duty], on: x.on })).filter((e) => e.on);
+      html = `<div class="stack"><div class="grid2 form-pick">
+          <label><span class="eyebrow">공격 시</span><select class="sel" data-act="lvform">${Object.keys(D.FORMATIONS).map((f) => `<option ${f === tac.formation ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
+          <label><span class="eyebrow">수비 시</span><select class="sel" data-act="formationop"><option value="">같게</option>${Object.keys(D.FORMATIONS).map((f) => `<option ${f === tac.formationOP ? 'selected' : ''}>${f}</option>`).join('')}</select></label></div>
+        <p class="muted" style="margin:0;font-size:12px">변경 사항은 바로 경기에 반영돼요.</p></div>` + tacticsPanel(tac, 'live') + rolesCard(ents, 'live');
     } else {
       const s = L.userSide;
       const on = m.onPitch(s).slice().sort((a, b) => a.bx - b.bx);
       const bench = m.sides[s].bench.filter((p) => !m.used.has(p.id));
+      m.ratings();
       html = `<div class="row" style="margin-bottom:8px"><b class="grow">교체 <span class="muted" style="font-weight:600">남은 횟수 ${m.subsLeft[s]}</span></b>${L.selOut ? '<span class="tag amber">들어갈 선수를 고르세요</span>' : '<span class="muted" style="font-size:12px">나갈 선수를 먼저 고르세요</span>'}</div>
         <div class="list">${on.map((x) => `<div class="li tap" data-act="lvout" data-v="${x.id}" style="${L.selOut === x.id ? 'background:#1f2a3a;border-radius:10px' : ''}">${avatar(x.p, 36)}<div class="grow"><div class="name">${esc(x.p.name)} <span class="pos ${x.grp}">${x.role}</span> ${x.yellow ? '<span class="tag amber">경고</span>' : ''}${x.injured ? '<span class="tag red">부상</span>' : ''}</div>
-          <div class="bar" style="margin-top:4px;max-width:150px"><i style="width:${Math.round(x.st * 100)}%;background:${condColor(x.st * 100)}"></i></div></div><span class="num" style="font-weight:700">${Math.round(x.st * 100)}%</span></div>`).join('')}</div>
+          <div class="bar" style="margin-top:4px;max-width:150px"><i style="width:${Math.round(x.st * 100)}%;background:${condColor(x.st * 100)}"></i></div></div><span class="num" style="font-weight:700">${Math.round(x.st * 100)}%</span><span class="rating ${ratingCls(x.rating)}">${x.rating.toFixed(1)}</span></div>`).join('')}</div>
         <div class="eyebrow" style="margin:12px 0 4px">벤치</div>
         <div class="list">${bench.map((p) => `<div class="li ${L.selOut && m.subsLeft[s] > 0 ? 'tap' : ''}" ${L.selOut && m.subsLeft[s] > 0 ? `data-act="lvin" data-v="${p.id}"` : ''} style="${L.selOut ? '' : 'opacity:.7'}">${avatar(p, 36)}<div class="grow"><div class="name">${esc(p.name)}</div><div class="sub">${posTag(p)} 컨디션 ${p.cond}%</div></div>${ovrBadge(p.ovr)}</div>`).join('') || '<div class="empty">벤치 선수가 없어요.</div>'}</div>`;
     }
@@ -1308,6 +1458,26 @@
     fbudget() { UI.filter.budget = !UI.filter.budget; rerenderView(); },
     player(el) { openPlayer(+el.dataset.v, { pid: +el.dataset.v }); },
     teamsheet(el) { openTeam(+el.dataset.v); },
+    mail(el) { const n = UI.G.news[+el.dataset.i]; if (n) openMail(n); },
+    inboxall() {
+      const G = UI.G;
+      UI.inboxF = UI.inboxF || 'mail';
+      const list = G.news.filter((n) => (UI.inboxF === 'mail' ? !n.gen : true));
+      sheet(`<h2>받은 편지함</h2>${`<div class="seg">${[['mail', '메시지'], ['all', '모든 소식']].map(([k, l]) => `<button data-act="inboxf" data-v="${k}" class="${UI.inboxF === k ? 'on' : ''}">${l}</button>`).join('')}</div>`}
+        <button class="btn sm ghost" data-act="readall">모두 읽음으로 표시</button>
+        <div class="list inbox">${list.map(mailItem).join('') || '<div class="empty">메시지가 없어요.</div>'}</div>
+        <button class="btn primary" data-act="closesheet">닫기</button>`, () => rerenderView(), { update: !!$('.sheet-bg') });
+    },
+    inboxf(el) { UI.inboxF = el.dataset.v; actions.inboxall(); },
+    readall() { for (const n of UI.G.news) n.read = true; actions.inboxall(); },
+    cont() {
+      const G = UI.G;
+      const ev = S.currentEvent(G);
+      if (!ev) return actions.endseason();
+      if (S.userFixture(G) && ev.day <= G.day) return openPrematch();
+      dayAdvance(1);
+    },
+    theme(el) { setTheme(el.dataset.v); rerenderView(); },
     closesheet() { const cb = UI._sheetClose; closeSheet(); if (cb) cb(); },
 
     load(el) {
@@ -1361,7 +1531,15 @@
       UI.selSlot = null;
       refreshLineupHost();
     },
-    formation(el) { const t = S.userTeam(UI.G); t.tactics.formation = el.value; W.autoLineup(UI.G, t); UI.selSlot = null; refreshLineupHost(); },
+    formation(el) { const t = S.userTeam(UI.G); t.tactics.formation = el.value; W.autoLineup(UI.G, t); W.autoRoles(UI.G, t); UI.selSlot = null; UI.roleOpen = null; refreshLineupHost(); },
+    formationop(el) {
+      if (UI.live) { const L = UI.live; L.m.setOPFormation(L.userSide, el.value); renderLivePanel(true); toast(el.value ? `수비 시 ${el.value}로 바꿔요.` : '수비 시에도 같은 대형을 써요.'); return; }
+      const t = S.userTeam(UI.G); t.tactics.formationOP = el.value; refreshLineupHost();
+    },
+    roleopen(el) { UI.roleOpen = UI.roleOpen === el.dataset.v ? null : el.dataset.v; if (UI.live) renderLivePanel(true); else refreshLineupHost(); },
+    rolepick(el) { setRole(el.dataset.scope, +el.dataset.i, el.dataset.v, null); },
+    roleduty(el) { setRole(el.dataset.scope, +el.dataset.i, null, +el.dataset.v); },
+    autoroles() { W.autoRoles(UI.G, S.userTeam(UI.G)); UI.roleOpen = null; refreshLineupHost(); toast('선수 능력에 맞춰 역할을 정했어요.'); },
     autolineup() { W.autoLineup(UI.G, S.userTeam(UI.G)); UI.selSlot = null; refreshLineupHost(); toast('가장 강한 라인업으로 채웠어요.'); },
     nextday() { dayAdvance(1); },
     tomatch() { dayAdvance(60); },
@@ -1400,6 +1578,7 @@
     tfocus(el) { UI.G.training.focus = el.dataset.v; rerenderView(); },
     tint(el) { UI.G.training.intensity = +el.dataset.v; rerenderView(); },
 
+    ptab(el) { UI.draft.tab = el.dataset.v; openPlayer(UI.draft.pid, UI.draft); },
     pmode(el) { UI.draft.mode = el.dataset.v || null; openPlayer(UI.draft.pid, UI.draft); },
     renew(el) { const r = S.renew(UI.G, UI.draft.pid, +el.dataset.v); toast(r.msg); UI.draft.mode = null; save(true); openPlayer(UI.draft.pid, UI.draft); rerenderView(); },
     list() { const p = UI.G.players[UI.draft.pid]; p.listed = !p.listed; toast(p.listed ? '이적 리스트에 올렸어요. 이적시장에서 제안이 들어와요.' : '이적 리스트에서 내렸어요.'); openPlayer(p.id, UI.draft); rerenderView(); },
@@ -1451,9 +1630,12 @@
     kickoff() { startLive(false); },
     quickmatch() { startLive(true); },
     lvpause(el) { const L = UI.live; L.paused = !L.paused; el.textContent = L.paused ? '재개' : '일시정지'; if (!L.paused) { const h = $('#lv-ht'); if (h) h.hidden = true; } },
-    lvspeed(el) { const L = UI.live; const sp = [1, 2, 4, 8]; L.speed = sp[(sp.indexOf(L.speed) + 1) % sp.length]; el.textContent = L.speed + '배속'; },
+    lvspeed(el) { const L = UI.live; const sp = [1, 2, 4, 8, 'hl']; L.speed = sp[(sp.indexOf(L.speed) + 1) % sp.length]; el.textContent = speedLabel(L.speed); },
     lvskip() { const L = UI.live; L.htShown = true; const h = $('#lv-ht'); if (h) h.hidden = true; L.view.snapshot(); L.m.runToEnd(); },
-    htgo() { const L = UI.live; $('#lv-ht').hidden = true; L.paused = false; L.last = performance.now(); const pb = $('#lv-pause'); if (pb) pb.textContent = '일시정지'; },
+    talk(el) { doTalk(el.dataset.v); },
+    talkskip() { actions.htgo(); },
+    lvtacnow() { const L = UI.live; $('#lv-ht').hidden = true; L.tab = 'tac'; document.querySelectorAll('#lv-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.v === 'tac')); renderLivePanel(true); const p = $('#lv-panel'); if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' }); toast('준비가 끝나면 재개를 누르세요.'); },
+    htgo() { const L = UI.live; $('#lv-ht').hidden = true; L.talk = null; L.paused = false; L.last = performance.now(); const pb = $('#lv-pause'); if (pb) pb.textContent = '일시정지'; },
     httac() { const L = UI.live; $('#lv-ht').hidden = true; L.tab = 'subs'; document.querySelectorAll('#lv-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.v === 'subs')); renderLivePanel(true); const p = $('#lv-panel'); if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' }); toast('준비가 끝나면 재개를 누르세요.'); },
     lvtab(el) { const L = UI.live; L.tab = el.dataset.v; L.selOut = null; document.querySelectorAll('#lv-tabs button').forEach((b) => b.classList.toggle('on', b === el)); renderLivePanel(true); },
     lvform(el) { const L = UI.live; L.m.setFormation(L.userSide, el.value); renderLivePanel(true); toast(`${el.value}로 바꿨어요.`); },
@@ -1468,6 +1650,19 @@
     lvdone() { finishMatch(UI.live.m); },
   };
 
+  function setRole(scope, i, key, duty) {
+    if (scope === 'live') {
+      const L = UI.live, m = L.m, mp = m.mp[L.userSide][i];
+      const r = D.validRole(mp.role, [key || mp.R.key, duty != null ? duty : mp.R.duty]);
+      m.setRole(L.userSide, mp, r);
+      renderLivePanel(true); return;
+    }
+    const t = S.userTeam(UI.G);
+    const roles = W.validateRoles(t);
+    const pos = D.FORMATIONS[t.tactics.formation][i][0];
+    roles[i] = D.validRole(pos, [key || roles[i][0], duty != null ? duty : roles[i][1]]);
+    refreshLineupHost();
+  }
   function refreshLineupHost() {
     if (UI.prematch) renderPrematch();
     else rerenderView();
@@ -1503,7 +1698,19 @@
     if (fn) fn(el);
   }
 
+  function setTheme(v) {
+    try { localStorage.setItem('km.theme', v); } catch (e) { /* 무시 */ }
+    applyTheme();
+  }
+  function applyTheme() {
+    let v = 'dark';
+    try { v = localStorage.getItem('km.theme') || 'dark'; } catch (e) { /* 무시 */ }
+    if (v === 'system') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = v;
+    UI.theme = v;
+  }
   function init() {
+    applyTheme();
     document.addEventListener('click', onClick);
     document.addEventListener('change', onChange);
     document.addEventListener('input', onInput);

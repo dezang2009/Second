@@ -281,6 +281,99 @@
     }
   }
 
+
+  // ── 세부 능력치 (1~20, 풋볼 매니저식 표시) ───────────────────
+  // 엔진은 7개 핵심 능력치를 쓰고, 세부 능력치는 핵심 능력치 + 선수별 고정 개성으로 계산한다.
+  const DETAIL = {
+    tech: ['기술', [
+      ['마무리', { sho: 1 }], ['중거리 슛', { sho: 0.7, pas: 0.3 }], ['헤딩', { phy: 0.6, def: 0.2, sho: 0.2 }, 'h'],
+      ['패스', { pas: 1 }], ['크로스', { pas: 0.6, dri: 0.4 }], ['퍼스트 터치', { dri: 0.5, pas: 0.5 }], ['기술', { dri: 0.7, pas: 0.3 }],
+      ['드리블', { dri: 1 }], ['태클', { def: 1 }], ['마킹', { def: 0.9, phy: 0.1 }], ['프리킥', { sho: 0.5, pas: 0.5 }, -6]]],
+    gk: ['골키핑', [
+      ['반사신경', { gk: 1 }], ['핸들링', { gk: 1 }], ['일대일', { gk: 0.8, pac: 0.2 }], ['공중볼 처리', { gk: 0.7, phy: 0.3 }, 'h'],
+      ['킥', { pas: 1 }, 18], ['커뮤니케이션', { gk: 0.6, phy: 0.4 }], ['펀칭', { gk: 0.8, phy: 0.2 }], ['스로잉', { pas: 0.6, gk: 0.4 }, 10]]],
+    mental: ['정신', [
+      ['시야', { pas: 0.8, dri: 0.2 }], ['판단력', { pas: 0.4, def: 0.3, sho: 0.3 }], ['침착성', { sho: 0.5, pas: 0.3, dri: 0.2 }],
+      ['오프 더 볼', { sho: 0.6, pac: 0.4 }], ['위치 선정', { def: 0.9, phy: 0.1 }], ['활동량', { phy: 0.6, pac: 0.2, def: 0.2 }],
+      ['팀워크', { pas: 0.5, def: 0.5 }], ['집중력', { def: 0.6, pas: 0.4 }], ['적극성', { phy: 0.6, def: 0.4 }], ['리더십', { phy: 0.3, def: 0.3, pas: 0.4 }, 'age']]],
+    phys: ['신체', [
+      ['가속도', { pac: 1 }], ['주력', { pac: 1 }], ['민첩성', { dri: 0.6, pac: 0.4 }], ['밸런스', { dri: 0.5, phy: 0.5 }],
+      ['점프', { phy: 1 }, 'h'], ['근력', { phy: 1 }, 'h'], ['지구력', { phy: 0.7, pac: 0.3 }, 'young']]],
+  };
+  function hash01(a, b) {
+    let h = (a * 374761393 + b * 668265263) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  function detailVal(p, w, extra, i) {
+    const isGK = p.pos === 'GK';
+    let v = 0;
+    for (const k in w) v += (isGK && k === 'def' ? p.attr.gk * 0.8 : p.attr[k]) * w[k];
+    if (typeof extra === 'number') v += extra;
+    if (extra === 'h' && p.h) v += clamp((p.h - 181) * 0.7, -9, 9);
+    if (extra === 'age') v += clamp((p.age - 25) * 1.6, -10, 12);
+    if (extra === 'young') v += clamp((27 - p.age) * 0.8, -8, 5);
+    v += (hash01(p.id, i) - 0.5) * 16;
+    return Math.round(clamp((v - 18) / 4.1, 1, 20));
+  }
+  // [{key, title, rows:[[이름, 값]]}] — 골키퍼는 기술 대신 골키핑
+  function details(p) {
+    const groups = p.pos === 'GK' ? ['gk', 'mental', 'phys'] : ['tech', 'mental', 'phys'];
+    let i = 0;
+    return groups.map((g) => ({ key: g, title: DETAIL[g][0], rows: DETAIL[g][1].map(([n, w, ex]) => [n, detailVal(p, w, ex, (i++) + g.length * 31)]) }));
+  }
+  function detailMap(p) {
+    const o = {};
+    for (const g of details(p)) for (const [n, v] of g.rows) o[n] = v;
+    return o;
+  }
+  // 역할 적합도: 그 역할의 핵심 세부 능력치 평균 (1~20)
+  function roleScore(p, roleKey, dm) {
+    const r = D.ROLES[roleKey];
+    dm = dm || detailMap(p);
+    const ks = r.keyA.filter((k) => dm[k] != null);
+    if (!ks.length) return 1;
+    return ks.reduce((s, k) => s + dm[k], 0) / ks.length;
+  }
+  // 슬롯마다 역할/임무 맞추기. 비어 있거나 맞지 않으면 기본 역할
+  function validateRoles(team) {
+    const slots = D.FORMATIONS[team.tactics.formation];
+    const prev = team.roles || [];
+    team.roles = slots.map((sl, i) => D.validRole(sl[0], prev[i]));
+    return team.roles;
+  }
+  // 선수 능력에 맞춰 역할 자동 선택 (전술 성향도 약간 반영)
+  function autoRoles(G, team) {
+    const slots = D.FORMATIONS[team.tactics.formation];
+    const tac = team.tactics;
+    const lean = { iwb: tac.passing <= 1 ? 1 : 0, wb: tac.width === 2 || tac.approach === 3 ? 1 : 0, bpd: tac.approach === 1 ? 1 : 0, pf: tac.press === 2 ? 1 : 0, bwm: tac.press === 2 ? 0.5 : 0, w: tac.finalThird === 3 ? 1 : 0, tm: tac.passing >= 4 ? 1.2 : 0, dlp: tac.passing <= 1 ? 0.6 : 0 };
+    const atk = tac.mentality >= 3;
+    team.roles = slots.map((sl, i) => {
+      const p = G.players[team.lineup[i]];
+      if (!p) return D.DEFAULT_ROLE[sl[0]].slice();
+      const dm = detailMap(p);
+      let best = null, bv = -1;
+      for (const k of D.rolesFor(sl[0])) {
+        if (k === 'wcb' && slots.filter((x) => x[0] === 'CB').length < 3) continue;
+        if (k === 'reg' || k === 'tq' || k === 'eng' || k === 'rmd' || k === 'lib') { if (roleScore(p, k, dm) < 15) continue; }
+        const v = roleScore(p, k, dm) + (lean[k] || 0) + (k === D.DEFAULT_ROLE[sl[0]][0] ? 0.6 : 0);
+        if (v > bv) { bv = v; best = k; }
+      }
+      const def = D.ROLES[best];
+      let duty = def.d[Math.min(def.d.length - 1, 1)];
+      if (atk && def.d.includes(2) && (sl[1] > 0.55)) duty = 2;
+      if (tac.mentality <= 1 && def.d.includes(0)) duty = 0;
+      return [best, duty];
+    });
+    return team.roles;
+  }
+  // 포메이션 숙련도: 오래 쓴 포메이션일수록 선수들이 자리를 잘 잡는다
+  function famOf(team, f) {
+    if (!team.fam) team.fam = {};
+    if (team.fam[f] == null) team.fam[f] = f === team.tactics.formation ? 85 : 40;
+    return team.fam[f];
+  }
+
   function teamRating(G, team) {
     const slots = D.FORMATIONS[team.tactics.formation];
     let s = 0, n = 0;
@@ -298,6 +391,7 @@
   }
 
   KM.World = {
+    DETAIL, details, detailMap, roleScore, validateRoles, autoRoles, famOf,
     ATTRS, ATTR_KO, ovrOf, roleOvr, wageOf, createPlayer, createRealTeam, refreshPlayer, agePlayerValue,
     ovrFromValue, valueFromOvr, autoLineup, validateLineup, teamRating, squadOvr, wageBill, assignNumbers, available, blankStats,
   };

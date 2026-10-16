@@ -102,7 +102,106 @@
       ['DM', 0.33, 0.5],
       ['LM', 0.52, 0.12], ['CM', 0.5, 0.38], ['CM', 0.5, 0.62], ['RM', 0.52, 0.88],
       ['ST', 0.84, 0.5]],
+    '4-4-1-1': [
+      ['GK', 0.02, 0.5], ['LB', 0.2, 0.12], ['CB', 0.16, 0.38], ['CB', 0.16, 0.62], ['RB', 0.2, 0.88],
+      ['LM', 0.5, 0.12], ['CM', 0.45, 0.38], ['CM', 0.45, 0.62], ['RM', 0.5, 0.88],
+      ['AM', 0.66, 0.5], ['ST', 0.84, 0.5]],
+    '3-4-3': [
+      ['GK', 0.02, 0.5], ['CB', 0.16, 0.25], ['CB', 0.14, 0.5], ['CB', 0.16, 0.75],
+      ['LM', 0.46, 0.08], ['CM', 0.4, 0.38], ['CM', 0.4, 0.62], ['RM', 0.46, 0.92],
+      ['LW', 0.76, 0.18], ['ST', 0.84, 0.5], ['RW', 0.76, 0.82]],
+    '5-4-1': [
+      ['GK', 0.02, 0.5], ['LB', 0.22, 0.08], ['CB', 0.15, 0.3], ['CB', 0.13, 0.5], ['CB', 0.15, 0.7], ['RB', 0.22, 0.92],
+      ['LM', 0.46, 0.12], ['CM', 0.42, 0.38], ['CM', 0.42, 0.62], ['RM', 0.46, 0.88],
+      ['ST', 0.8, 0.5]],
   };
+
+
+  // ── 선수 역할과 임무 (풋볼 매니저식) ─────────────────────────
+  // 역할마다 볼 소유/비소유 시 움직임과 판단 성향이 다르고, 경기 엔진이 그대로 사용한다.
+  // adv: 공격 시 전진 거리(m, 임무별) · inside/wide: 중앙/측면으로 좁히거나 벌리는 정도 · drop: 내려와서 받기
+  // run: 뒷공간 침투 · pm: 플레이메이커(동료가 이 선수에게 패스를 더 줌) · shoot/drb/cross/prog: 판단 보너스
+  // press: 압박 가담 · tackle: 태클 보너스 · aerial: 공중볼 · stay: 수비 시 높이 남아 있기 · keyA: 핵심 세부 능력치
+  const DUTY = ['수비', '지원', '공격'];
+  const ROLES = {
+    gk: { n: '골키퍼', pos: ['GK'], d: [0], desc: '골문을 지키고 안전하게 배급한다', keyA: ['반사신경', '핸들링', '일대일', '위치 선정'] },
+    sk: { n: '스위퍼 키퍼', pos: ['GK'], d: [0, 1, 2], adv: [4, 7, 10], sweep: 1, desc: '수비 뒷공간으로 나와 침투 패스를 끊고 짧게 빌드업', keyA: ['반사신경', '일대일', '판단력', '가속도', '킥'] },
+    cd: { n: '중앙 수비수', pos: ['CB'], d: [0], desc: '자리를 지키며 안정적으로 막는다', keyA: ['태클', '마킹', '헤딩', '위치 선정', '근력'] },
+    bpd: { n: '볼 플레잉 디펜더', pos: ['CB'], d: [0], prog: 0.22, pm: 0.04, desc: '수비 뒤에서 전진 패스로 빌드업을 시작한다', keyA: ['패스', '침착성', '시야', '태클', '마킹'] },
+    ncb: { n: '노프릴 센터백', pos: ['CB'], d: [0], prog: -0.25, tackle: 0.05, desc: '위험하면 무조건 걷어낸다. 실수는 적지만 빌드업에 약하다', keyA: ['태클', '헤딩', '근력', '적극성'] },
+    wcb: { n: '와이드 센터백', pos: ['CB'], d: [0, 1, 2], adv: [0, 7, 13], wide: 0.25, cross: 0.1, desc: '스리백의 측면에서 공격 시 바깥으로 올라간다', keyA: ['태클', '드리블', '패스', '활동량', '주력'] },
+    lib: { n: '리베로', pos: ['CB'], d: [0, 1], adv: [6, 11], inside: 0.4, prog: 0.18, drb: 0.12, pm: 0.08, desc: '공격 시 중원으로 올라가 미드필더처럼 뛴다', keyA: ['패스', '퍼스트 터치', '시야', '판단력', '태클'] },
+    fb: { n: '풀백', pos: ['LB', 'RB'], d: [0, 1, 2], adv: [-3, 4, 10], wide: 0.15, cross: 0.08, desc: '측면 수비를 맡고 상황에 따라 공격에 가담', keyA: ['태클', '마킹', '크로스', '위치 선정', '활동량'] },
+    wb: { n: '윙백', pos: ['LB', 'RB', 'LM', 'RM'], d: [0, 1, 2], adv: [3, 10, 16], wide: 0.5, cross: 0.28, desc: '터치라인을 오르내리며 측면 폭을 만든다', keyA: ['크로스', '드리블', '활동량', '주력', '지구력'] },
+    cwb: { n: '컴플리트 윙백', pos: ['LB', 'RB', 'LM', 'RM'], d: [1, 2], adv: [14, 19], wide: 0.6, cross: 0.32, drb: 0.15, desc: '사실상 윙어처럼 공격하는 풀백. 뒷공간이 비기 쉽다', keyA: ['크로스', '드리블', '기술', '활동량', '지구력'] },
+    iwb: { n: '인버티드 윙백', pos: ['LB', 'RB'], d: [0, 1, 2], adv: [2, 6, 12], invert: 1, inside: 0.72, prog: 0.1, pm: 0.06, desc: '공격 시 안쪽으로 좁혀 중앙 미드필더 자리에서 수적 우위를 만든다', keyA: ['패스', '퍼스트 터치', '판단력', '침착성', '태클'] },
+    nfb: { n: '노프릴 풀백', pos: ['LB', 'RB'], d: [0], adv: [-5], prog: -0.2, tackle: 0.04, desc: '오버래핑 없이 수비에만 집중한다', keyA: ['태클', '마킹', '위치 선정', '근력'] },
+    dm: { n: '수비형 미드필더', pos: ['DM'], d: [0, 1], adv: [-3, 3], tackle: 0.02, desc: '수비 앞을 보호하고 간단히 연결한다', keyA: ['태클', '위치 선정', '판단력', '팀워크', '패스'] },
+    anc: { n: '앵커', pos: ['DM'], d: [0], adv: [-6], screen: 1, desc: '수비 라인 앞 중앙을 절대 비우지 않는다', keyA: ['위치 선정', '집중력', '태클', '마킹', '판단력'] },
+    hb: { n: '하프백', pos: ['DM'], d: [0], adv: [-4], hb: 1, prog: 0.08, desc: '빌드업 때 센터백 사이로 내려가 스리백을 만든다', keyA: ['위치 선정', '패스', '판단력', '침착성', '태클'] },
+    dlp: { n: '딥 라잉 플레이메이커', pos: ['DM', 'CM'], d: [0, 1], adv: [-4, 0], pm: 0.2, prog: 0.16, desc: '깊은 곳에서 공을 받아 경기를 조율한다', keyA: ['패스', '시야', '퍼스트 터치', '침착성', '판단력'] },
+    reg: { n: '레지스타', pos: ['DM'], d: [1], adv: [-1], pm: 0.26, prog: 0.24, roam: 3, desc: '자유롭게 움직이며 모험적인 전진 패스를 뿌린다', keyA: ['패스', '시야', '기술', '퍼스트 터치', '판단력'] },
+    bwm: { n: '볼 위닝 미드필더', pos: ['DM', 'CM'], d: [0, 1], adv: [-2, 3], tackle: 0.07, press: 1, desc: '공을 가진 상대에게 달려들어 끊어낸다', keyA: ['태클', '적극성', '활동량', '지구력', '팀워크'] },
+    sv: { n: '세군도 볼란치', pos: ['DM'], d: [1, 2], adv: [6, 12], run: 0.25, shoot: 0.15, desc: '뒤에서 출발해 박스 근처까지 늦게 침투한다', keyA: ['오프 더 볼', '중거리 슛', '활동량', '태클', '패스'] },
+    cm: { n: '중앙 미드필더', pos: ['CM'], d: [0, 1, 2], adv: [-3, 1, 6], desc: '공수 양면에서 균형 있게 움직인다', keyA: ['패스', '퍼스트 터치', '판단력', '팀워크', '태클'] },
+    b2b: { n: '박스 투 박스', pos: ['CM'], d: [1], adv: [5], run: 0.2, press: 0.5, roam: 3, shoot: 0.06, desc: '양쪽 박스를 오가며 많이 뛴다. 체력 소모가 크다', keyA: ['활동량', '지구력', '패스', '태클', '오프 더 볼'] },
+    mez: { n: '메짤라', pos: ['CM'], d: [1, 2], adv: [6, 11], wide: 0.22, run: 0.25, drb: 0.12, shoot: 0.08, desc: '하프스페이스로 벌려 올라가 측면 공격을 돕는다', keyA: ['드리블', '패스', '오프 더 볼', '기술', '시야'] },
+    car: { n: '카릴레로', pos: ['CM'], d: [1], adv: [-1], cover: 1, prog: -0.05, desc: '측면 공간을 덮어 풀백과 윙어를 보좌한다', keyA: ['팀워크', '위치 선정', '활동량', '패스'] },
+    ap: { n: '어드밴스드 플레이메이커', pos: ['CM', 'AM', 'LM', 'RM'], d: [1, 2], adv: [3, 7], pm: 0.24, roam: 4, drb: 0.05, desc: '공격 진영 사이 공간에서 공을 받아 결정적인 패스를 노린다', keyA: ['패스', '시야', '기술', '퍼스트 터치', '판단력'] },
+    am: { n: '공격형 미드필더', pos: ['AM'], d: [1, 2], adv: [1, 6], shoot: 0.1, desc: '2선에서 연결과 마무리를 모두 한다', keyA: ['패스', '퍼스트 터치', '오프 더 볼', '중거리 슛', '판단력'] },
+    ss: { n: '섀도 스트라이커', pos: ['AM'], d: [2], adv: [10], run: 0.4, shoot: 0.22, desc: '공격수 뒤에서 박스로 침투하는 사실상의 두 번째 공격수', keyA: ['오프 더 볼', '마무리', '퍼스트 터치', '침착성', '가속도'] },
+    eng: { n: '엔간체', pos: ['AM'], d: [1], adv: [-2], pm: 0.3, prog: 0.1, stay: 4, desc: '움직임은 적지만 모든 공격이 이 선수를 거친다. 수비 가담이 적다', keyA: ['시야', '패스', '기술', '침착성', '퍼스트 터치'] },
+    tq: { n: '트레콰르티스타', pos: ['AM', 'ST'], d: [2], adv: [4], pm: 0.22, drb: 0.16, roam: 6, stay: 8, desc: '수비 부담 없이 자유롭게 공격만 한다', keyA: ['기술', '시야', '드리블', '퍼스트 터치', '판단력'] },
+    wm: { n: '측면 미드필더', pos: ['LM', 'RM'], d: [0, 1, 2], adv: [-4, 0, 5], cross: 0.1, desc: '측면에서 공수 균형을 맞춘다', keyA: ['크로스', '패스', '활동량', '팀워크', '태클'] },
+    wp: { n: '와이드 플레이메이커', pos: ['LM', 'RM'], d: [1, 2], adv: [0, 4], inside: 0.42, pm: 0.2, desc: '측면에서 안쪽으로 들어와 경기를 만든다', keyA: ['패스', '시야', '퍼스트 터치', '기술', '판단력'] },
+    dw: { n: '수비형 윙어', pos: ['LM', 'RM'], d: [0, 1], adv: [-3, 1], press: 0.6, tackle: 0.03, cross: 0.06, desc: '측면에서 상대 풀백을 압박하고 수비를 돕는다', keyA: ['활동량', '태클', '팀워크', '크로스', '위치 선정'] },
+    w: { n: '윙어', pos: ['LM', 'RM', 'LW', 'RW'], d: [1, 2], adv: [1, 5], wide: 0.5, cross: 0.32, drb: 0.14, desc: '터치라인까지 돌파해 크로스를 올린다', keyA: ['크로스', '드리블', '가속도', '주력', '기술'] },
+    if: { n: '인사이드 포워드', pos: ['LW', 'RW', 'LM', 'RM'], d: [1, 2], adv: [3, 7], inside: 0.42, cut: 1, run: 0.3, shoot: 0.24, drb: 0.18, cross: -0.15, desc: '안쪽으로 파고들어 직접 슈팅한다', keyA: ['마무리', '드리블', '오프 더 볼', '가속도', '기술'] },
+    iw: { n: '인버티드 윙어', pos: ['LW', 'RW', 'LM', 'RM'], d: [1, 2], adv: [1, 4], inside: 0.3, cut: 1, pm: 0.06, drb: 0.14, shoot: 0.1, cross: -0.1, desc: '안쪽으로 접고 들어와 패스와 슈팅을 섞는다', keyA: ['드리블', '패스', '기술', '시야', '퍼스트 터치'] },
+    wtf: { n: '와이드 타깃맨', pos: ['LW', 'RW', 'LM', 'RM'], d: [1, 2], adv: [3, 6], wide: 0.3, aerial: 0.35, desc: '측면에서 롱볼을 받아내고 공중볼을 따낸다', keyA: ['헤딩', '근력', '점프', '밸런스'] },
+    rmd: { n: '라움도이터', pos: ['LW', 'RW', 'AM'], d: [2], adv: [9], inside: 0.32, run: 0.5, shoot: 0.26, roam: 5, stay: 6, desc: '공간을 찾아다니며 침투해 마무리한다. 수비는 거의 하지 않는다', keyA: ['오프 더 볼', '마무리', '판단력', '침착성', '집중력'] },
+    af: { n: '어드밴스드 포워드', pos: ['ST'], d: [2], adv: [3], run: 0.5, shoot: 0.12, desc: '최종 수비 라인과 경쟁하며 뒷공간을 노린다', keyA: ['오프 더 볼', '마무리', '가속도', '드리블', '침착성'] },
+    pch: { n: '포처', pos: ['ST'], d: [2], adv: [4], box: 1, run: 0.32, shoot: 0.32, pm: -0.05, desc: '박스 안에 머물며 마무리에만 집중한다', keyA: ['마무리', '오프 더 볼', '침착성', '가속도'] },
+    tm: { n: '타깃맨', pos: ['ST'], d: [1, 2], adv: [-1, 2], aerial: 0.45, holdX: 0.3, pm: 0.06, desc: '등지고 공을 지켜내고 공중볼을 따낸다', keyA: ['헤딩', '근력', '점프', '밸런스', '팀워크'] },
+    f9: { n: '폴스 나인', pos: ['ST'], d: [1], adv: [0], drop: 12, pm: 0.18, drb: 0.1, desc: '미드필드로 내려와 상대 센터백을 끌어내고 2선의 침투를 연다', keyA: ['패스', '시야', '기술', '퍼스트 터치', '드리블'] },
+    dlf: { n: '딥 라잉 포워드', pos: ['ST'], d: [1, 2], adv: [0, 3], drop: 7, pm: 0.12, holdX: 0.15, desc: '내려와서 받아 연계한 뒤 다시 침투한다', keyA: ['퍼스트 터치', '패스', '팀워크', '침착성', '마무리'] },
+    pf: { n: '프레싱 포워드', pos: ['ST'], d: [0, 1, 2], adv: [-3, 0, 3], press: 1, tackle: 0.04, desc: '최전방부터 수비수와 골키퍼를 쉬지 않고 압박한다', keyA: ['활동량', '적극성', '지구력', '가속도', '팀워크'] },
+    cf: { n: '컴플리트 포워드', pos: ['ST'], d: [1, 2], adv: [1, 4], shoot: 0.16, pm: 0.08, drb: 0.1, aerial: 0.15, desc: '연계·드리블·공중볼·마무리를 모두 해내는 만능 공격수', keyA: ['마무리', '퍼스트 터치', '기술', '헤딩', '판단력'] },
+  };
+  const ROLE_AB = { gk: 'GK', sk: 'SK', cd: 'CD', bpd: 'BPD', ncb: 'NCB', wcb: 'WCB', lib: 'LIB', fb: 'FB', wb: 'WB', cwb: 'CWB', iwb: 'IWB', nfb: 'NFB', dm: 'DM', anc: 'A', hb: 'HB', dlp: 'DLP', reg: 'RGA', bwm: 'BWM', sv: 'SV', cm: 'CM', b2b: 'BBM', mez: 'MEZ', car: 'CAR', ap: 'AP', am: 'AM', ss: 'SS', eng: 'ENG', tq: 'T', wm: 'WM', wp: 'WP', dw: 'DW', w: 'W', if: 'IF', iw: 'IW', wtf: 'WTF', rmd: 'RMD', af: 'AF', pch: 'P', tm: 'TM', f9: 'F9', dlf: 'DLF', pf: 'PF', cf: 'CF' };
+  const DEFAULT_ROLE = { GK: ['gk', 0], CB: ['cd', 0], LB: ['fb', 1], RB: ['fb', 1], DM: ['dm', 0], CM: ['cm', 1], AM: ['am', 1], LM: ['wm', 1], RM: ['wm', 1], LW: ['w', 2], RW: ['w', 2], ST: ['af', 2] };
+  function rolesFor(pos) { return Object.keys(ROLES).filter((k) => ROLES[k].pos.includes(pos)); }
+  function validRole(pos, r) {
+    if (!r || !ROLES[r[0]] || !ROLES[r[0]].pos.includes(pos)) return DEFAULT_ROLE[pos].slice();
+    const def = ROLES[r[0]];
+    return [r[0], def.d.includes(r[1]) ? r[1] : def.d[Math.min(def.d.length - 1, 1)]];
+  }
+  // 엔진에서 쓰는 역할 수치 (임무 반영)
+  function roleMods(r) {
+    const def = ROLES[r[0]];
+    const i = Math.max(0, def.d.indexOf(r[1]));
+    const o = { key: r[0], duty: r[1], adv: def.adv ? def.adv[Math.min(i, def.adv.length - 1)] : 0 };
+    for (const k of ['inside', 'wide', 'drop', 'run', 'pm', 'shoot', 'drb', 'cross', 'cut', 'press', 'tackle', 'aerial', 'prog', 'sweep', 'roam', 'stay', 'holdX', 'invert', 'hb', 'screen', 'box', 'cover']) o[k] = def[k] || 0;
+    // 공격 임무는 침투·슈팅 성향이 조금 더 강하고, 수비 임무는 자리를 지킨다
+    if (r[1] === 2) { o.run += 0.08; o.shoot += 0.04; }
+    if (r[1] === 0) { o.stay = Math.min(o.stay, 0); o.run *= 0.5; }
+    return o;
+  }
+
+  // 공격 시 포메이션 슬롯 → 수비 시 포메이션 슬롯 대응 (가까운 자리끼리 짝짓기)
+  function shapeMap(from, to) {
+    const out = new Array(from.length).fill(null);
+    const used = new Set();
+    out[0] = to[0]; used.add(0);
+    const pairs = [];
+    for (let i = 1; i < from.length; i++) for (let j = 1; j < to.length; j++) {
+      const dx = (from[i][1] - to[j][1]) * 1.2, dy = from[i][2] - to[j][2];
+      pairs.push([dx * dx + dy * dy, i, j]);
+    }
+    pairs.sort((a, b) => a[0] - b[0]);
+    for (const [, i, j] of pairs) { if (out[i] || used.has(j)) continue; out[i] = to[j]; used.add(j); }
+    return out;
+  }
 
   // 역할 → 포지션 그룹 적합도
   const ROLE_FIT = {
@@ -172,8 +271,9 @@
   function normTactics(t) {
     for (const k in TACTIC_DEFAULT) if (t[k] == null) t[k] = k === 'passing' && t.style != null ? [0, 2, 4][t.style] : TACTIC_DEFAULT[k];
     t.style = t.passing <= 1 ? 0 : t.passing >= 3 ? 2 : 1;
+    if (t.formationOP == null || (t.formationOP && !FORMATIONS[t.formationOP])) t.formationOP = '';
     return t;
   }
 
-  KM.DATA = { TACTIC_GROUPS, TACTIC_DEFAULT, TACTIC_PRESETS, normTactics, SURNAMES, GIVEN_A, GIVEN_B, FORMATIONS, ROLE_FIT, POS_KO, TACTIC_LABELS, ROLE_KO, ROLE_NAME, ROLE_GROUP, fit, LEAGUE_ECON, CLUB_KO };
+  KM.DATA = { ROLE_AB, DUTY, ROLES, DEFAULT_ROLE, rolesFor, validRole, roleMods, shapeMap, TACTIC_GROUPS, TACTIC_DEFAULT, TACTIC_PRESETS, normTactics, SURNAMES, GIVEN_A, GIVEN_B, FORMATIONS, ROLE_FIT, POS_KO, TACTIC_LABELS, ROLE_KO, ROLE_NAME, ROLE_GROUP, fit, LEAGUE_ECON, CLUB_KO };
 })(globalThis.KM || (globalThis.KM = {}));
