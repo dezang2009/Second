@@ -535,7 +535,8 @@
       });
       const list = [...rec.values()];
       for (let g = 0; g < goals; g++) {
-        const sc = weighted(rng, list, (r) => (r.role === 'GK' ? 0.01 : (r.p.attr.sho / 40) ** 3 * roleGoalW(r.role)) * r.mins);
+        // 실제 리그 분포에 맞춤: 주전 공격수가 팀 득점의 30% 안팎, 윙어·공격형 미드필더도 꾸준히 넣는다
+        const sc = weighted(rng, list, (r) => (r.role === 'GK' ? 0 : (r.p.attr.sho / 50) ** 2 * roleGoalW(r.role)) * r.mins);
         sc.goals++;
         if (rng.chance(0.72)) {
           const as = weighted(rng, list.filter((r) => r !== sc), (r) => (r.role === 'GK' ? 0.02 : (r.p.attr.pas / 40) ** 3 * roleAstW(r.role)) * r.mins);
@@ -557,7 +558,7 @@
     if (knockout && hs === as) res.pens = shootout(rng);
     return res;
   }
-  function roleGoalW(r) { return r === 'ST' ? 3.2 : r === 'LW' || r === 'RW' ? 2.2 : r === 'AM' ? 1.6 : r === 'LM' || r === 'RM' || r === 'CM' ? 0.8 : r === 'DM' ? 0.4 : 0.3; }
+  function roleGoalW(r) { return r === 'ST' ? 1.9 : r === 'LW' || r === 'RW' ? 1.55 : r === 'AM' ? 1.35 : r === 'LM' || r === 'RM' ? 0.9 : r === 'CM' ? 0.7 : r === 'DM' ? 0.3 : r === 'CB' ? 0.25 : 0.22; }
   function roleAstW(r) { return r === 'AM' ? 2.2 : r === 'LW' || r === 'RW' || r === 'LM' || r === 'RM' ? 1.9 : r === 'CM' ? 1.3 : r === 'ST' ? 1.2 : r === 'LB' || r === 'RB' ? 0.8 : 0.4; }
   function mentF(t) { return 1 + (t.tactics.mentality - 2) * 0.07; }
   function effRating(G, t) {
