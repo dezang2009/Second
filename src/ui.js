@@ -42,7 +42,8 @@
     const json = JSON.stringify(G);
     G._pools = pools;
     const t = S.userTeam(G);
-    const meta = { team: { name: t.name, tm: t.tm, c1: t.c1, short: t.short }, year: G.year, week: G.week, name: G.user.name, league: S.leagueOf(G, t).name };
+    const meta = { team: { name: t.name, tm: t.tm, c1: t.c1, c2: t.c2, short: t.short }, year: G.year, week: G.week, name: G.user.name, league: S.leagueOf(G, t).name,
+      savedAt: Date.now(), date: S.currentEvent(G) ? S.dateText(G, G.day) : '시즌 종료', pos: S.position(G, t.id), trophies: G.user.trophies.length, wins: G.user.wins, draws: G.user.draws, losses: G.user.losses };
     return gz(json).then((data) => {
       try {
         localStorage.setItem(KEY(UI.slot), data);
@@ -258,38 +259,60 @@
   }
 
   // ── 타이틀 / 새 게임 ───────────────────────────────────────
-  function heroFaces() {
-    const all = KM.REAL.leagues.flatMap((l) => l.clubs.flatMap((c) => c.players)).filter((p) => p.photo).sort((a, b) => b.value - a.value).slice(0, 7);
-    return all.map((p) => avatar({ id: p.id, name: p.name, photo: p.photo }, 46)).join('');
+  // ── 로비 ───────────────────────────────────────────────────
+  function heroStars() {
+    // 몸값 상위 선수 5명을 부채꼴로 (가운데가 가장 비싼 선수)
+    const top = KM.REAL.leagues.flatMap((l) => l.clubs.flatMap((c) => c.players)).filter((p) => p.photo).sort((a, b) => b.value - a.value).slice(0, 5);
+    const order = [top[3], top[1], top[0], top[2], top[4]].filter(Boolean);
+    return order.map((p, i) => `<div class="star s${i}">${avatar({ id: p.id, name: p.name, photo: p.photo }, i === 2 ? 118 : i % 4 === 0 ? 86 : 100)}${i === 2 ? `<span>${esc(p.name)}</span>` : ''}</div>`).join('');
+  }
+  function crestStrip() {
+    const cols = KM.REAL.colors || {};
+    const clubs = KM.REAL.leagues.flatMap((l) => l.clubs).map((c) => ({ tm: c.id, name: c.name, short: c.name.slice(0, 3), c1: (cols[c.id] || ['#2d3a4a'])[0] }));
+    const row = clubs.map((t) => `<i class="cr">${logo(t, 28)}</i>`).join('');
+    return `<div class="crests" aria-hidden="true"><div class="track">${row}${row}</div></div>`;
+  }
+  function mgrName(n) { n = n || '감독'; return /감독$/.test(n) ? n : n + ' 감독'; }
+  function ago(ts) {
+    if (!ts) return '';
+    const m = Math.round((Date.now() - ts) / 60000);
+    return m < 1 ? '방금 전' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m / 60)}시간 전` : `${Math.round(m / 1440)}일 전`;
   }
   function renderTitle() {
     if (UI.newGame) return renderNewGame();
     const slots = [];
     for (let i = 0; i < SLOTS; i++) slots.push(slotInfo(i));
+    const used = slots.map((s, i) => s && { s, i }).filter(Boolean).sort((a, b) => (b.s.savedAt || 0) - (a.s.savedAt || 0));
+    const last = used[0];
+    const free = slots.findIndex((s) => !s);
+    const lastCard = last ? (() => {
+      const s = last.s, t = s.team;
+      return `<button class="resume" data-act="load" data-v="${last.i}" style="--tc:${t.c1 || '#3b3f7a'}">
+        <span class="glow"></span>${logo(t, 64)}
+        <span class="info"><small>이어하기 · 슬롯 ${last.i + 1}${s.savedAt ? ` · ${ago(s.savedAt)}` : ''}</small><b>${esc(t.name)}</b>
+          <span>${esc(mgrName(s.name))} · ${esc(s.league)} ${seasonLabel(s.year)}${s.pos ? ` · ${s.pos}위` : ''}</span>
+          ${s.date ? `<span class="d">${esc(s.date)}${s.wins != null ? ` · ${s.wins}승 ${s.draws}무 ${s.losses}패` : ''}${s.trophies ? ` · 🏆 ${s.trophies}` : ''}</span>` : ''}</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>`;
+    })() : '';
     app().innerHTML = `
-      <div class="title-screen">
-        <section class="hero">
-          <h1 class="wordmark">Kick-off<span>Manager</span></h1>
-          <p style="margin:0;opacity:.85;max-width:36ch">프리미어리그부터 K리그까지 6개 리그, 108개 구단의 실제 선수단으로 감독 커리어를 시작하세요. 경기는 22명이 움직이는 2D 화면으로 지켜보고 전술과 교체로 흐름을 바꿀 수 있어요.</p>
-          <div class="faces">${heroFaces()}</div>
-        </section>
-        <div class="stack">
-          ${slots.map((s, i) => s ? `
-            <div class="card row">${logo(s.team, 40)}
-              <div class="grow"><div style="font-weight:700">${esc(s.team.name)}</div><div class="muted" style="font-size:12px">${esc(s.name)} 감독 · ${esc(s.league)} · ${seasonLabel(s.year)} ${s.week + 1}주차</div></div>
-              <button class="btn sm primary" data-act="load" data-v="${i}">이어하기</button>
-            </div>` : `
-            <div class="card row">
-              <span class="logo fb" style="width:40px;height:40px">${i + 1}</span>
-              <div class="grow muted">빈 슬롯</div>
-              <button class="btn sm" data-act="newgame" data-v="${i}">새 커리어</button>
-            </div>`).join('')}
+      <div class="lobby">
+        <div class="lobby-bg" aria-hidden="true"><svg viewBox="0 0 400 700" preserveAspectRatio="xMidYMid slice"><rect x="20" y="20" width="360" height="660" rx="6"/><line x1="20" y1="350" x2="380" y2="350"/><circle cx="200" cy="350" r="62"/><circle cx="200" cy="350" r="3"/><rect x="110" y="20" width="180" height="96"/><rect x="110" y="584" width="180" height="96"/></svg></div>
+        <div class="lobby-in">
+          <div class="lobby-top"><span class="pill">${KM.REAL.season ? `${seasonLabel(+KM.REAL.season)} 시즌` : '2026/27 시즌'} · 6개 리그 · 108개 구단</span></div>
+          <h1 class="logo-type"><span>KICK-OFF</span><em>MANAGER</em></h1>
+          <p class="tagline">실제 선수단으로 펼치는 나만의 감독 커리어</p>
+          <div class="stars">${heroStars()}</div>
+          ${crestStrip()}
+          <div class="lobby-actions">
+            ${lastCard}
+            ${free >= 0 ? `<button class="btn big new-career ${last ? 'ghosty' : ''}" data-act="newgame" data-v="${free}">${last ? '+ 새 커리어' : '새 커리어 시작'}</button>` : ''}
+            ${used.length > 1 || (used.length && free < 0) ? `<div class="slots">${used.slice(1).map(({ s, i }) => `<button class="slot-row" data-act="load" data-v="${i}">${logo(s.team, 30)}<span class="grow"><b>${esc(s.team.name)}</b><small>${esc(s.name)} · ${seasonLabel(s.year)}${s.pos ? ` · ${s.pos}위` : ''}${s.savedAt ? ` · ${ago(s.savedAt)}` : ''}</small></span><i>슬롯 ${i + 1}</i></button>`).join('')}</div>` : ''}
+            ${used.length ? `<details class="manage"><summary>슬롯 관리</summary><div class="stack" style="margin-top:8px">${slots.map((s, i) => s ? `<div class="row"><span class="grow">슬롯 ${i + 1} · ${esc(s.team.name)}</span>${UI.confirm === 'del' + i ? `<button class="btn sm danger" data-act="delslot" data-v="${i}">정말 삭제</button>` : `<button class="btn sm ghost" data-act="askdel" data-v="${i}">삭제</button>`}</div>` : '').join('')}</div></details>` : ''}
+          </div>
+          <p class="credit">데이터·사진: <a href="https://www.transfermarkt.co.kr" target="_blank" rel="noopener">Transfermarkt</a> (${esc(KM.REAL.fetched)} 기준) · 능력치는 시장 가치와 실제 기록으로 추정한 값이에요.</p>
         </div>
-        ${slots.some(Boolean) ? `<details class="card"><summary class="muted" style="cursor:pointer;font-weight:600">슬롯 관리</summary><div class="stack" style="margin-top:10px">${slots.map((s, i) => s ? `<div class="row"><span class="grow">슬롯 ${i + 1} · ${esc(s.team.name)}</span>${UI.confirm === 'del' + i ? `<button class="btn sm danger" data-act="delslot" data-v="${i}">정말 삭제</button>` : `<button class="btn sm ghost" data-act="askdel" data-v="${i}">삭제</button>`}</div>` : '').join('')}</div></details>` : ''}
-        <p class="credit">선수·구단·시장 가치 데이터와 사진 출처: <a href="https://www.transfermarkt.co.kr" target="_blank" rel="noopener">Transfermarkt</a> (${esc(KM.REAL.fetched)} 기준).<br>능력치는 시장 가치·나이·포지션으로 추정한 값이에요. 세이브는 이 기기 브라우저에 저장돼요.</p>
       </div>`;
   }
-
   function renderNewGame() {
     const ng = UI.newGame;
     if (!ng.G) ng.G = S.createWorld(ng.seed);
@@ -1259,7 +1282,7 @@
   function careerView() {
     const G = UI.G, u = G.user;
     const games = u.wins + u.draws + u.losses;
-    return `<section class="card stack"><h2 style="margin:0">${esc(u.name)} 감독</h2>
+    return `<section class="card stack"><h2 style="margin:0">${esc(mgrName(u.name))}</h2>
       <div class="kv"><div><small>경기</small><b>${games}</b></div><div><small>승-무-패</small><b>${u.wins}-${u.draws}-${u.losses}</b></div><div><small>승률</small><b>${games ? Math.round(u.wins / games * 100) : 0}%</b></div></div>
       <div class="kv"><div><small>감독 평판</small><b>${u.rep}</b></div><div><small>시즌</small><b>${u.seasons}</b></div><div><small>트로피</small><b>${u.trophies.length}</b></div></div></section>
       <section class="card"><h2>트로피</h2><div class="list">${u.trophies.map((x) => `<div class="li"><span>🏆</span><span class="grow" style="font-weight:600">${esc(x.name)}</span><span class="muted num">${seasonLabel(x.year)}</span></div>`).join('') || '<div class="empty">첫 트로피를 향해!</div>'}</div></section>

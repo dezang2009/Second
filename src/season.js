@@ -285,7 +285,8 @@
     inheritTactics(G, userTeam(G));
     setupSeason(G);
     const t = userTeam(G);
-    news(G, 'board', `${G.user.name} 감독 부임`, `${josa(t.name, '이/가')} ${G.user.name} 감독을 새 사령탑으로 선임했습니다. 구단주의 목표는 '${G.board.goal.text}'입니다.`);
+    const mn = /감독$/.test(G.user.name) ? G.user.name : G.user.name + ' 감독';
+    news(G, 'board', `${mn} 부임`, `${josa(t.name, '이/가')} ${josa(mn, '을/를')} 새 사령탑으로 선임했습니다. 구단주의 목표는 '${G.board.goal.text}'입니다.`);
   }
 
   // 같은 리그 선수들의 이름 조각으로 가상 선수 이름 풀을 만든다
@@ -1271,7 +1272,7 @@
     // 다른 리그로 옮기면 그 리그 일정으로 새 시즌을 시작
     if (t.league !== prevLeague || G.week >= G.calendar.length) setupSeason(G);
     G.board.goal = boardGoal(G);
-    news(G, 'board', `${t.name} 부임`, `${G.user.name} 감독이 ${t.name}의 지휘봉을 잡았습니다.`);
+    news(G, 'board', `${t.name} 부임`, `${KM.josa(/감독$/.test(G.user.name) ? G.user.name : G.user.name + ' 감독', '이/가')} ${t.name}의 지휘봉을 잡았습니다.`);
   }
 
   // ── 기자회견 ───────────────────────────────────────────────
