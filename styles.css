@@ -1089,3 +1089,9 @@ table.pltbl { border-spacing: 0 2px; margin-top: -2px; }
 .pltbl td.tn .cr { width: 19px; height: 19px; }
 .pltbl td.pts { font-size: 15.5px; min-width: 28px; }
 .card:has(> .tbl-wrap > .pltbl) { padding: 8px 10px; }
+
+/* 순위표: 구단 색 띠 없이 유럽대항전권·강등권만 표시 */
+.pltbl td.zone, .pltbl tr.me td.zone { background: transparent; box-shadow: none !important; }
+.pltbl td.zone.up, .pltbl tr.me td.zone.up { background: var(--pl-up-ink); }
+.pltbl td.zone.down, .pltbl tr.me td.zone.down { background: var(--pl-dn-ink); }
+.pltbl tr.me td { background: color-mix(in srgb, var(--fm) 18%, var(--surface-2)); }
