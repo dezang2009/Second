@@ -349,7 +349,7 @@
   function roleScore(p, roleKey, dm) {
     const r = D.ROLES[roleKey];
     dm = dm || detailMap(p);
-    const ks = r.keyA.filter((k) => dm[k] != null);
+    const ks = r ? r.keyA.filter((k) => Number.isFinite(dm[k])) : [];
     if (!ks.length) return 1;
     return ks.reduce((s, k) => s + dm[k], 0) / ks.length;
   }

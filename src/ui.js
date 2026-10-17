@@ -97,10 +97,12 @@
     const pool = kr && F.asian.length ? F.asian : F.general;
     if (!pool.length) return null;
     let h = (p.id * 2654435761) >>> 0; h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0;
-    return { k: pool[h % pool.length], flip: (h >>> 7) & 1 };
+    // 유니폼 자리는 투명이라 배경색(소속팀 메인 색)이 그대로 유니폼 색이 된다. 무소속은 회색 트레이닝복
+    const t = UI.G && p.teamId != null ? UI.G.teams[p.teamId] : null;
+    return { k: pool[h % pool.length], flip: (h >>> 7) & 1, kit: (t && t.c1) || '#5b6475' };
   }
   function faceHtml(fc, st, cls, alt) {
-    const fl = fc.flip ? ';transform:scaleX(-1)' : '';
+    const fl = (fc.flip ? ';transform:scaleX(-1)' : '') + `;background-color:${fc.kit}`;
     if (KM.PHOTOS && KM.PHOTOS.f) return `<img class="${cls}" style="${st}${fl}" src="ph/f/${fc.k}.webp" alt="${esc(alt)}" loading="lazy" decoding="async">`;
     return null;
   }
@@ -112,7 +114,7 @@
       const hd = faceHtml(fc, st, 'ph', p.name);
       if (hd) return hd;
       const FS = KM.FACES;
-      if (FS.sheet) return `<span class="ph" style="${st};${spriteCss(FS.sheet, fc.k % FS.cols, Math.floor(fc.k / FS.cols), FS.w, FS.h, size, FS.cols)}${fc.flip ? ';transform:scaleX(-1)' : ''}" role="img" aria-label="${esc(p.name)}"></span>`;
+      if (FS.sheet) return `<span class="ph" style="${st};${spriteCss(FS.sheet, fc.k % FS.cols, Math.floor(fc.k / FS.cols), FS.w, FS.h, size, FS.cols)};background-color:${fc.kit}${fc.flip ? ';transform:scaleX(-1)' : ''}" role="img" aria-label="${esc(p.name)}"></span>`;
     }
     const HD = KM.PHOTOS;
     // 앱(APK): 선수마다 고화질 사진 파일 (240×312)
@@ -131,7 +133,7 @@
       const hd = faceHtml(fc, '', '', p.name);
       if (hd) return hd;
       const FS = KM.FACES;
-      if (FS.sheet) return `<span class="spr" style="${spriteCss(FS.sheet, fc.k % FS.cols, Math.floor(fc.k / FS.cols), FS.w, FS.h, 146, FS.cols)}${fc.flip ? ';transform:scaleX(-1)' : ''}"></span>`;
+      if (FS.sheet) return `<span class="spr" style="${spriteCss(FS.sheet, fc.k % FS.cols, Math.floor(fc.k / FS.cols), FS.w, FS.h, 146, FS.cols)};background-color:${fc.kit}${fc.flip ? ';transform:scaleX(-1)' : ''}"></span>`;
     }
     if (KM.PHOTOS && KM.PHOTOS.p[p.id]) return `<img src="ph/p/${p.id}.webp" alt="" decoding="async">`;
     const SP = KM.SPRITES;
@@ -659,6 +661,7 @@
       <div class="row"><h2 class="grow h2" style="margin:0">역할과 임무</h2>${scope === 'team' ? '<button class="btn sm ghost" data-act="autoroles">자동 배정</button>' : ''}</div>
       <p class="muted" style="margin:0;font-size:12px">역할은 공을 가졌을 때와 잃었을 때의 움직임, 패스·슈팅·드리블 판단을 바꿔요. 임무는 공격 가담 정도예요.</p>
       <div class="list">${entries.map((e) => {
+        if (!e.r || !D.ROLES[e.r[0]]) e.r = D.validRole(e.pos, e.r);  // 저장 데이터가 어긋나도 기본 역할로 보여 준다
         const def = D.ROLES[e.r[0]];
         const isOpen = open === scope + e.i;
         let body = '';
@@ -753,7 +756,9 @@
         `<div class="attr"><span class="muted" style="font-weight:600">${W.ATTR_KO[k]}</span><div class="bar"><i style="width:${p.attr[k]}%;background:${p.attr[k] >= 78 ? 'var(--win)' : p.attr[k] >= 62 ? 'var(--draw)' : 'var(--loss)'}"></i></div><span class="num">${p.attr[k]}</span></div>`).join('')}</div>`;
     } else if (ptab === 'role') {
       const dm = W.detailMap(p);
-      const list = Object.keys(D.ROLES).filter((k) => D.ROLES[k].pos.includes(p.role) || (D.ROLES[k].pos.some((x) => D.fit(x, p) >= 0.93))).map((k) => [k, W.roleScore(p, k, dm)]).sort((a, b) => b[1] - a[1]).slice(0, 6);
+      let keys = Object.keys(D.ROLES).filter((k) => D.ROLES[k].pos.includes(p.role) || (D.ROLES[k].pos.some((x) => D.fit(x, p) >= 0.93)));
+      if (!keys.length) keys = D.rolesFor(p.pos || p.role || 'CM');
+      const list = keys.map((k) => [k, W.roleScore(p, k, dm)]).sort((a, b) => b[1] - a[1]).slice(0, 6);
       attrs = `<div class="list">${list.map(([k, v]) => `<div class="li"><div class="grow"><div class="name">${D.ROLES[k].n} <span class="muted num" style="font-size:12px">${D.ROLE_AB[k]}</span></div><div class="sub">${esc(D.ROLES[k].desc)}</div></div><span class="stars">${stars5(v)}</span></div>`).join('')}</div>`;
     } else {
       // 세부 능력치 1~20: 지금 맡은 역할의 핵심 능력치는 강조

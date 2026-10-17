@@ -172,7 +172,7 @@
   const DEFAULT_ROLE = { GK: ['gk', 0], CB: ['cd', 0], LB: ['fb', 1], RB: ['fb', 1], DM: ['dm', 0], CM: ['cm', 1], AM: ['am', 1], LM: ['wm', 1], RM: ['wm', 1], LW: ['w', 2], RW: ['w', 2], ST: ['af', 2] };
   function rolesFor(pos) { return Object.keys(ROLES).filter((k) => ROLES[k].pos.includes(pos)); }
   function validRole(pos, r) {
-    if (!r || !ROLES[r[0]] || !ROLES[r[0]].pos.includes(pos)) return DEFAULT_ROLE[pos].slice();
+    if (!r || !ROLES[r[0]] || !ROLES[r[0]].pos.includes(pos)) return (DEFAULT_ROLE[pos] || DEFAULT_ROLE.CM).slice();
     const def = ROLES[r[0]];
     return [r[0], def.d.includes(r[1]) ? r[1] : def.d[Math.min(def.d.length - 1, 1)]];
   }
