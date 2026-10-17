@@ -210,13 +210,14 @@
     void lg;
     const dateText = ev ? esc(S.dateText(G, G.day)) : `${seasonLabel(G.year)} 시즌 종료`;
     const win = S.windowOpen(G) ? '<span class="open">이적시장</span>' : '';
-    // FM처럼 오른쪽 위에 '계속' 버튼. 날짜와 잔고는 구단 이름 아래에
+    // 오른쪽 아래에 떠 있는 '계속' 버튼 (엄지로 누르기 편하게)
     app().innerHTML = `
       <header class="topbar">
-        <div class="club">${logo(t, 36)}<div style="min-width:0"><b>${esc(t.name)}</b><div class="meta"><span>${dateText}</span><span class="num money">${money(t.balance)}</span>${win}</div></div></div>
-        ${contBtn(G)}
+        <div class="club">${logo(t, 36)}<div style="min-width:0"><b>${esc(t.name)}</b><div class="meta"><span>${dateText}</span>${win}</div></div></div>
+        <div class="bal"><small>구단 잔고</small><span class="num">${money(t.balance)}</span></div>
       </header>
       <main class="view" id="view">${viewHtml()}</main>
+      ${contBtn(G)}
       <nav class="tabs" aria-label="메뉴"><div class="in">
         ${[['home', '홈'], ['squad', '선수단'], ['league', '리그'], ['transfer', '이적'], ['club', '구단']].map(([k, l]) =>
           `<button data-act="tab" data-v="${k}" class="${UI.tab === k ? 'on' : ''}" aria-current="${UI.tab === k}">${ICON[k]}${l}${k === 'transfer' && G.offers.length ? '<span class="dot"></span>' : ''}${k === 'home' && G.news.some((n) => n.read === false && !n.gen) ? '<span class="dot"></span>' : ''}</button>`).join('')}
