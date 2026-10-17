@@ -135,8 +135,15 @@
     this.shotLog = [];
     this.passNet = [{}, {}];
     this.sampleT = 0;
+    // 라이벌전: 열기(1~3)만큼 태클·카드가 늘어난다
+    this.derby = opts.derby || null;
+    this.dLv = this.derby ? this.derby.lvl : 0;
+    // 중계 멘트 전용 난수 (경기 결과에는 영향을 주지 않음)
+    this.crng = new RNG(((opts.seed || 7) ^ 0x5bd1e995) >>> 0);
+    this.comNext = 18; this.comFlags = {};
     SWAP = 0;
     this.placeKickoff();
+    this.intro(opts);
   }
 
   function blankStats() {
@@ -301,6 +308,7 @@
     this.randomIncidents();
     this.accumulate();
     this.sample();
+    if (this.t >= this.comNext) this.flavor();
     this.checkClock();
   };
   // 1초마다 선수 위치를 기록 (평균 위치·히트맵)
@@ -334,6 +342,7 @@
       this.half = 2;
       this.t = endHalf1;
       this.log('half', -1, `전반 종료. ${this.sides[0].team.short} ${this.score[0]} - ${this.score[1]} ${this.sides[1].team.short}`);
+      this.say(-1, this.halfLine());
       this.kickSide = 1;
       this.swap = 1; SWAP = 1; // 후반: 진영 교체
       this.state = 'kickoff'; this.timer = 1.5;
@@ -353,6 +362,7 @@
     this.state = 'end';
     for (const m of this.all()) m.endT = this.t;
     this.log('ft', -1, `경기 종료! ${this.sides[0].team.name} ${this.score[0]} - ${this.score[1]} ${this.sides[1].team.name}`);
+    this.say(-1, this.endLine());
   };
 
   M.runToEnd = function () {
@@ -768,6 +778,10 @@
     this.secondPasser = this.lastPasser;
     this.lastPasser = m;
     m.s.pass++; this.stats[m.side].pass++;
+    if (this.state === 'play') {
+      if (o.through && fx(m.side, m.x) > 45 && this.crng.chance(0.3)) this.say(m.side, this.pick(THROUGH)(sn(m.p), sn(o.t.p)), 'through');
+      else if (this.pass.cross && !this.setPiece && this.crng.chance(0.18)) this.say(m.side, this.pick(CROSS)(sn(m.p), sn(o.t.p)), 'cross');
+    }
     this.setPiece = null;
   };
 
@@ -801,7 +815,8 @@
     else gy = rng.chance(0.5) ? rng.range(GOAL_Y0 - 6, GOAL_Y0 - 0.5) : rng.range(GOAL_Y1 + 0.5, GOAL_Y1 + 6);
     const gx = UP(s) ? LEN + 0.5 : -0.5;
     const ty = UP(s) ? gy : WID - gy;
-    this.shot = { by: m, sx: m.x, sy: m.y, tx: blocked ? blocked.x : gx, ty: blocked ? blocked.y : ty, outcome, xg, gk, blocked, prog: 0, L: 1 };
+    this.shot = { by: m, sx: m.x, sy: m.y, tx: blocked ? blocked.x : gx, ty: blocked ? blocked.y : ty, outcome, xg, gk, blocked, prog: 0, L: 1, header, pen: !!this.penKick, d };
+    this.penKick = false;
     this.shot.L = Math.max(1, dist(m.x, m.y, this.shot.tx, this.shot.ty));
     const b = this.ball; b.owner = null; b.mode = 'shot';
     m.s.shots++; this.stats[s].shots++; this.stats[s].xg += xg;
@@ -942,7 +957,7 @@
     taker.tx = x; taker.ty = y; taker.chase = true;
     this.setPiece = kind === 'corner' ? { side } : null;
     this.poss = side;
-    if (kind === 'corner') { this.stats[side].corners++; }
+    if (kind === 'corner') { this.stats[side].corners++; if (this.crng.chance(0.4)) this.say(side, this.pick(CORNER)(sn(taker.p), this.sides[side].team.name), 'corner'); }
   };
 
   M.doRestart = function () {
@@ -954,7 +969,8 @@
     if (r.kind === 'pen') {
       this.giveBall(r.taker, 0);
       const s = r.taker.side;
-      this.log('chance', s, `${r.taker.p.name}, 페널티킥 키커로 나섭니다.`);
+      this.log('chance', s, this.pick(PEN_UP)(sn(r.taker.p)));
+      this.penKick = true;
       this.doShot(r.taker, 1.4);
       return;
     }
@@ -972,7 +988,7 @@
       m.s.goals++;
       const ast = this.shotAssist;
       if (ast) ast.s.ast++;
-      const ev = this.log('goal', s, `골! ${team.name}의 ${name}${ast ? ` (도움: ${ast.p.name})` : ''}`, { pid: m.id, ast: ast ? ast.id : null, xg: sh.xg });
+      const ev = this.log('goal', s, this.goalText(m, ast, sh), { pid: m.id, ast: ast ? ast.id : null, xg: sh.xg });
       this.goalsList.push(ev);
       this.flash = { type: 'goal', side: s, name };
       this.state = 'goal'; this.timer = 3.2;
@@ -984,8 +1000,8 @@
     if (sh.outcome === 'save') {
       const gk = sh.gk;
       if (gk) gk.s.saves++;
-      const big = sh.xg > 0.25;
-      if (big) this.log('save', 1 - s, `${name}의 결정적인 슈팅! ${gk ? gk.p.name : '골키퍼'}의 선방!`, { pid: m.id });
+      if (sh.xg > 0.13) this.log('save', 1 - s, this.pick(SAVE_BIG)(sn(m.p), gk ? sn(gk.p) : '골키퍼'), { pid: m.id });
+      else if (this.crng.chance(0.45)) this.say(s, this.pick(SAVE_SMALL)(sn(m.p), gk ? sn(gk.p) : '골키퍼'), 'savesmall');
       const r = rng.next();
       if (gk && r < 0.55) { b.x = gk.x; b.y = gk.y; this.setRestart('gkhold', 1 - s); this.timer = 1.6; }
       else if (r < 0.8) this.setRestart('corner', s, UP(s) ? LEN - 0.3 : 0.3, rng.chance(0.5) ? 0.3 : WID - 0.3);
@@ -993,13 +1009,14 @@
       return;
     }
     if (sh.outcome === 'block') {
-      if (sh.blocked) sh.blocked.s.tkl++;
+      if (sh.blocked) { sh.blocked.s.tkl++; if (this.crng.chance(0.45)) this.say(1 - s, this.pick(BLOCK)(sn(m.p), sn(sh.blocked.p)), 'block'); }
       if (rng.chance(0.4)) this.setRestart('corner', s, UP(s) ? LEN - 0.3 : 0.3, rng.chance(0.5) ? 0.3 : WID - 0.3);
       else { this.looseBall(b.x, b.y, 7); this.lastTouch = 1 - s; }
       return;
     }
     // 빗나감
-    if (sh.xg > 0.3) this.log('miss', s, `${name}, 절호의 기회를 놓칩니다!`, { pid: m.id });
+    if (sh.xg > 0.16) this.log('miss', s, this.pick(MISS_BIG)(sn(m.p)), { pid: m.id });
+    else if (this.crng.chance(0.4)) this.say(s, this.pick(MISS_SMALL)(sn(m.p), Math.round(Math.hypot(LEN - fx(s, sh.sx), 34 - fy(s, sh.sy)))), 'misssmall');
     this.setRestart('goalkick', 1 - s);
   };
 
@@ -1014,7 +1031,7 @@
       if (d > 1.8) continue;
       const OP = this.params(o.side);
       const press = OP.press;
-      const rate = (0.75 + press * 0.1) * OP.tackleRate;
+      const rate = (0.75 + press * 0.1) * OP.tackleRate * (1 + this.dLv * 0.08);
       if (!rng.chance(rate * DT)) continue;
       const pw = sigmoid((o.a.def - m.a.dri) / 22 + (o.a.phy - m.a.phy) / 60 - 0.1 + OP.tackleSkill + o.R.tackle + (m.st - o.st) * -0.8);
       if (rng.chance(pw)) {
@@ -1024,6 +1041,7 @@
         if (rng.chance(0.55)) this.giveBall(o);
         else this.looseBall(m.x, m.y, 5);
         m.stun = 0.6;
+        if (fx(m.side, m.x) > 68 && this.crng.chance(0.3)) this.say(o.side, this.pick(TACKLE)(sn(o.p), sn(m.p)), 'tackle');
         return;
       }
       // 실패 → 파울 가능
@@ -1032,6 +1050,7 @@
       if (rng.chance(foulP)) { this.foul(o, m); return; }
       o.stun = 0.9 + press * 0.25; // 무리한 압박이 실패하면 더 오래 제쳐진다
       m.s.drb++;
+      if (fx(m.side, m.x) > 60 && this.crng.chance(0.28)) this.say(m.side, this.pick(DRIBBLE)(sn(m.p), sn(o.p)), 'dribble');
       return;
     }
   };
@@ -1044,12 +1063,12 @@
     let card = null;
     const pr = rng.next();
     if (pr < 0.008 + (inBox ? 0.01 : 0)) card = 'red';
-    else if (pr < 0.15 + (f > 70 ? 0.06 : 0)) card = 'yellow';
+    else if (pr < 0.15 + (f > 70 ? 0.06 : 0) + this.dLv * 0.035) card = 'yellow';
     if (card === 'yellow') {
       o.yellow++;
       this.stats[o.side].yel++;
       if (o.yellow >= 2) card = 'red2';
-      else this.log('yellow', o.side, `${o.p.name} 경고`, { pid: o.id });
+      else this.log('yellow', o.side, this.pick(YELLOW)(sn(o.p), sn(m.p)), { pid: o.id });
     }
     if (card === 'red' || card === 'red2') {
       this.stats[o.side].red++;
@@ -1198,6 +1217,107 @@
   M.possPct = function () {
     const a = this.stats[0].poss, b = this.stats[1].poss;
     return a + b > 0 ? Math.round((a / (a + b)) * 100) : 50;
+  };
+
+  // ── 중계 멘트 ───────────────────────────────────────────────
+  const J = (w, p) => KM.josa(w, p);
+  // 해설은 성(마지막 단어)으로 부른다: '엘링 홀란' → '홀란', '손흥민'은 그대로
+  function sn(p) { const n = String(p.name || ''); const parts = n.split(' '); return parts.length > 1 ? parts[parts.length - 1] : n; }
+  const GOAL_HEAD = [(p, a) => `${a ? `${a}의 크로스, ` : ''}${p}의 헤더! 골망을 흔듭니다!`, (p, a) => `${p}, 높이 뛰어올라 머리로 꽂아 넣습니다!${a ? ` ${J(a, '이/가')} 정확히 배달했어요.` : ''}`];
+  const GOAL_LONG = [(p, a, d) => `${p}의 ${d}m 중거리 슈팅! 골키퍼가 손쓸 수 없는 원더골!`, (p, a, d) => `${J(p, '이/가')} 먼 거리에서 그대로 때립니다… 들어갑니다! ${d}m 대포알!`];
+  const GOAL_PEN = [(p) => `${p}, 침착하게 페널티킥 성공!`, (p) => `${J(p, '이/가')} 골키퍼를 속이고 반대쪽으로 차 넣습니다!`];
+  const GOAL_SOLO = [(p) => `${p}의 개인기! 수비를 홀로 무너뜨리고 마무리합니다!`, (p) => `${p}, 혼자 해냅니다! 드리블 돌파 후 깔끔한 마무리!`];
+  const GOAL_NORM = [(p, a) => `${a ? `${a}의 패스를 받은 ` : ''}${p}, 골! 깔끔하게 마무리합니다!`, (p, a) => `${p}의 슈팅이 골문 구석을 찌릅니다!${a ? ` 도움은 ${a}.` : ''}`, (p, a) => `들어갔습니다! ${p}!${a ? ` ${J(a, '과/와')}의 호흡이 완벽했어요.` : ''}`, (p, a) => `${p}, 골키퍼와 1대1에서 놓치지 않습니다!${a ? ` (도움 ${a})` : ''}`];
+  const SAVE_BIG = [(p, g) => `${p}의 결정적인 슈팅! ${g}의 슈퍼 세이브!`, (p, g) => `${g}, 믿을 수 없는 선방! ${p}의 슈팅을 막아냅니다!`, (p, g) => `${p}, 골이나 다름없는 기회… ${J(g, '이/가')} 손끝으로 쳐냅니다!`];
+  const SAVE_SMALL = [(p, g) => `${p}의 슈팅, ${J(g, '이/가')} 안정적으로 잡아냅니다.`, (p, g) => `${p}, 골문으로 향하는 슈팅! ${g} 정면입니다.`];
+  const MISS_BIG = [(p) => `${p}, 절호의 기회를 놓칩니다!`, (p) => `아! ${p}의 슈팅이 골대를 살짝 벗어납니다!`, (p) => `${p}, 이걸 놓치나요! 관중석에서 탄식이 터집니다.`, (p) => `골대를 맞고 나옵니다! ${p} 아쉬워합니다!`];
+  const MISS_SMALL = [(p, d) => `${p}의 ${d}m 슈팅, 크게 벗어납니다.`, (p) => `${p}, 과감하게 때려보지만 골문 위로 넘어갑니다.`, (p) => `${p}의 슈팅이 옆그물을 때립니다.`];
+  const BLOCK = [(p, d) => `${p}의 슈팅, ${J(d, '이/가')} 몸을 던져 막아냅니다!`, (p, d) => `${d}의 육탄 방어! ${p}의 슈팅이 막힙니다.`];
+  const THROUGH = [(p, t) => `${p}의 날카로운 침투 패스! ${J(t, '이/가')} 뒷공간으로 달려갑니다!`, (p, t) => `${p}, 수비 라인을 가르는 스루 패스! ${t} 쇄도!`];
+  const CROSS = [(p, t) => `${p}, 측면에서 크로스를 올립니다!`, (p, t) => `${p}의 얼리 크로스, ${J(t, '을/를')} 노립니다!`];
+  const TACKLE = [(d, p) => `${d}의 깔끔한 태클! ${p}의 돌파를 끊어냅니다.`, (d, p) => `${d}, 위험 지역에서 공을 따냅니다!`];
+  const DRIBBLE = [(p, d) => `${p}, ${J(d, '을/를')} 제치고 돌파합니다!`, (p, d) => `${p}의 화려한 발재간! ${J(d, '이/가')} 따라가지 못합니다.`];
+  const CORNER = [(p, t) => `코너킥입니다. ${J(p, '이/가')} 키커로 나섭니다.`, (p, t) => `${t}의 코너킥 기회. 박스 안이 붐빕니다.`];
+  const YELLOW = [(o, p) => `${o} 경고. ${p}에게 거친 태클을 했습니다.`, (o) => `주심이 옐로카드를 꺼냅니다. ${o} 경고.`, (o, p) => `${o}, ${J(p, '을/를')} 잡아끌다 경고를 받습니다.`];
+  const PEN_UP = [(p) => `${p}, 페널티킥 키커로 나섭니다.`, (p) => `${J(p, '이/가')} 공을 내려놓습니다. 경기장이 숨을 죽입니다.`];
+  M.pick = function (arr) { return arr[Math.floor(this.crng.next() * arr.length)]; };
+  // cat이 있으면 같은 종류 멘트는 약 4~5분, 모든 상황 멘트는 최소 40초 간격 (중계가 너무 수다스럽지 않게)
+  M.say = function (side, text, cat) {
+    if (!text) return;
+    if (cat) {
+      const cc = this.comCat || (this.comCat = {});
+      if (this.t - (cc[cat] ?? -999) < 60 || this.t - (this.lastCom ?? -999) < 9) return;
+      cc[cat] = this.t;
+    }
+    this.lastCom = this.t;
+    this.log('com', side, text);
+  };
+  M.intro = function (opts) {
+    const h = this.sides[0].team, a = this.sides[1].team;
+    const att = opts.attendance ? ` 관중 ${opts.attendance.toLocaleString()}명.` : '';
+    if (this.derby) this.say(-1, `${h.stadium || h.name + ' 홈구장'}, 오늘은 ${this.derby.name}입니다!${att} ${this.dLv >= 3 ? '관중석이 터질 듯한 함성으로 가득합니다.' : '양 팀 모두 물러설 수 없는 경기예요.'}`);
+    else this.say(-1, `${h.name}의 홈 ${h.stadium || '경기장'}에서 ${J(a.name, '을/를')} 맞이합니다.${att} 곧 킥오프!`);
+  };
+  M.goalText = function (m, ast, sh) {
+    const s = m.side, p = sn(m.p), a = ast ? sn(ast.p) : '';
+    const d = Math.round(sh.d || 10);
+    let line;
+    if (sh.pen) line = this.pick(GOAL_PEN)(p);
+    else if (sh.header) line = this.pick(GOAL_HEAD)(p, a);
+    else if (d >= 20) line = this.pick(GOAL_LONG)(p, a, d);
+    else if (!ast && m.s.drb >= 2 && this.crng.chance(0.6)) line = this.pick(GOAL_SOLO)(p);
+    else line = this.pick(GOAL_NORM)(p, a);
+    // 경기 상황: 동점·역전·쐐기·해트트릭·극장골 (점수는 이미 이번 골이 반영된 상태)
+    const my = this.score[s], op = this.score[1 - s], min = this.minute();
+    const tr = this.trailed || (this.trailed = [false, false]);
+    let ctx = '';
+    if (m.s.goals === 3) ctx = `해트트릭!! ${p}의 날입니다!`;
+    else if (my === op) ctx = '동점골!';
+    else if (my === op + 1 && tr[s]) ctx = '역전골!';
+    else if (my - op >= 2 && min >= 70) ctx = '쐐기골!';
+    else if (my < op) ctx = '추격골!';
+    else if (my === 1 && op === 0) ctx = '선제골!';
+    if (min >= 88 && my >= op && my - op <= 1) ctx = (ctx ? ctx + ' ' : '') + '극장골입니다!!';
+    if (this.score[0] < this.score[1]) tr[0] = true;
+    if (this.score[1] < this.score[0]) tr[1] = true;
+    return `${ctx ? ctx + ' ' : '골! '}${line}`;
+  };
+  // 공 위치·흐름에 맞춘 중간 멘트 (1.5~3분 간격)
+  M.flavor = function () {
+    this.comNext = this.t + 20 + this.crng.next() * 26;
+    if (this.state !== 'play') return;
+    const min = this.minute(), F = this.comFlags, c = this.crng;
+    const s0 = this.sides[0].team, s1 = this.sides[1].team;
+    const lead = this.score[0] - this.score[1];
+    // 시간대별 한 번씩 나오는 멘트
+    const once = (k, cond, text) => { if (!F[k] && cond) { F[k] = 1; this.say(-1, text); return true; } return false; };
+    const pp = this.possPct();
+    if (once('m25', min >= 25 && min < 40, `${min}분, 점유율 ${pp}% 대 ${100 - pp}%. ${pp >= 55 ? J(s0.name, '이/가') + ' 경기를 주도하고 있습니다.' : pp <= 45 ? J(s1.name, '이/가') + ' 공을 더 오래 가지고 있어요.' : '팽팽한 흐름입니다.'}`)) return;
+    if (once('m60', min >= 60 && min < 70, `후반 ${min}분. 슈팅 ${this.stats[0].shots}대 ${this.stats[1].shots}, xG ${this.stats[0].xg.toFixed(1)} 대 ${this.stats[1].xg.toFixed(1)}.`)) return;
+    if (min >= 80 && Math.abs(lead) <= 1 && once('m80', true, lead === 0 ? '남은 시간 10분. 양 팀 모두 결승골을 노립니다!' : `${J((lead < 0 ? s0 : s1).name, '이/가')} 마지막 총공세에 나섭니다! 관중들이 모두 일어섭니다.`)) return;
+    if (this.derby && c.chance(0.12)) { this.say(-1, this.pick([`관중석의 열기가 뜨겁습니다. 역시 ${this.derby.name}!`, `거친 몸싸움이 이어집니다. ${this.derby.name}다운 분위기예요.`, `양 팀 서포터들의 응원 대결도 치열합니다.`]), 'derby'); return; }
+    const o = this.ball.owner;
+    if (!o || c.chance(0.35)) return;
+    const s = o.side, team = this.sides[s].team, f = fx(s, o.x), p = sn(o.p);
+    const opT = this.sides[1 - s].team, OP = this.params(1 - s);
+    let lines;
+    if (OP.press === 2 && f < 50 && c.chance(0.5)) lines = [`${opT.name}의 거센 압박! ${J(p, '이/가')} 공을 지키느라 애를 먹습니다.`, `${opT.name}, 높은 곳에서부터 강하게 몰아붙입니다.`];
+    else if (f < 35) lines = [`${J(team.name, '이/가')} 후방에서 차분하게 빌드업합니다.`, `${p}, 수비 라인에서 공을 돌리며 틈을 찾습니다.`, `${team.name}, 서두르지 않고 공을 소유합니다.`];
+    else if (f < 70) lines = [`${p}, 중원에서 방향을 바꿉니다.`, `${J(team.name, '이/가')} 측면으로 공을 전개합니다.`, `${p}의 패스로 ${team.name}의 공격이 시작됩니다.`, `중원 싸움이 치열합니다. ${J(p, '이/가')} 공을 잡았어요.`];
+    else lines = [`${p}, 페널티 박스 근처까지 전진합니다!`, `${team.name}의 공격이 계속됩니다. ${J(p, '이/가')} 기회를 엿봅니다.`, `${opT.name} 수비가 바쁘게 움직입니다. ${p}의 공격!`];
+    this.say(s, this.pick(lines), 'flow');
+  };
+  M.halfLine = function () {
+    const a = this.stats[0], b = this.stats[1], pp = this.possPct();
+    const d = this.score[0] - this.score[1];
+    return `전반 기록: 점유율 ${pp}%-${100 - pp}%, 슈팅 ${a.shots}-${b.shots}, xG ${a.xg.toFixed(1)}-${b.xg.toFixed(1)}. ${d === 0 ? '승부는 후반으로 이어집니다.' : J(this.sides[d > 0 ? 0 : 1].team.name, '이/가') + ' 앞선 채 전반을 마칩니다.'}`;
+  };
+  M.endLine = function () {
+    const d = this.score[0] - this.score[1];
+    if (d === 0) return this.derby ? `${this.derby.name}는 무승부로 끝납니다. 승자는 없었지만 뜨거운 90분이었어요.` : '승점 1점씩을 나눠 갖습니다.';
+    const w = this.sides[d > 0 ? 0 : 1].team, l = this.sides[d > 0 ? 1 : 0].team;
+    if (this.derby) return `${J(w.name, '이/가')} ${this.derby.name}에서 웃습니다! ${l.name} 팬들은 고개를 떨굽니다.`;
+    return Math.abs(d) >= 3 ? `${w.name}의 완승입니다.` : `${J(w.name, '이/가')} 승리를 가져갑니다.`;
   };
 
   KM.Engine = { Match, LEN, WID, DT, HALF, CLOCK, HX, HY, threat, xgAt, fx, fy };

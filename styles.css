@@ -745,3 +745,26 @@ nav.tabs button { font-size: 11.5px; font-weight: 700; }
 .euro-hero b { color: #fff !important; }
 .euro-badge { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; background: rgba(255, 255, 255, .12); color: #ffd23a; flex: none; }
 .day.match small + b + span, .day span { white-space: nowrap; }
+
+/* ── 라이벌전 · 시상 · 중계 ───────────────────────────────── */
+.derby-tag { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-weight: 800; font-size: 13.5px; color: #ffd9a8; }
+.derby-tag i { font-style: normal; color: #ff8a3d; font-size: 11px; }
+.derby-tag span { font-weight: 600; font-size: 11.5px; color: rgba(255, 255, 255, .7); }
+.derby-tag.big { background: linear-gradient(120deg, #4a1406 0%, #2a0f22 60%, #14102e 100%); border-radius: var(--r); padding: 12px 14px; font-size: 16px; }
+.matchcard.derby .band { box-shadow: inset 0 0 0 2px rgba(255, 120, 50, .45); }
+.matchcard.derby .band::before { content: ""; position: absolute; inset: 0; background: radial-gradient(80% 60% at 50% 0%, rgba(255, 110, 40, .22), transparent 70%); pointer-events: none; }
+.awards { display: flex; flex-wrap: wrap; gap: 6px; }
+.award { font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 999px; background: color-mix(in srgb, #ffd23a 16%, var(--surface-2)); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffd23a 40%, transparent); }
+.ballon { background: linear-gradient(150deg, #2a2050 0%, #14122c 60%, #1a1430 100%); color: #f3f0ff; border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.ballon .eyebrow { color: #ffd23a; }
+.ballon .li { border-color: rgba(255, 255, 255, .1); }
+.ballon .muted { color: rgba(243, 240, 255, .65); }
+.podium { display: grid; grid-template-columns: 1fr 1.2fr 1fr; align-items: end; gap: 6px; text-align: center; }
+.pod { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.pod b { font-size: 13.5px; } .pod small { font-size: 11px; opacity: .7; }
+.pod.p1 b { font-size: 16px; color: #ffd23a; }
+.pitch-ed.totw .slot .rt { color: #ffe27a; }
+.feed .ev.com { color: var(--muted); font-size: 12.5px; }
+.feed .ev.com .x span.grow { line-height: 1.45; }
+.feed .ev.goal .x span.grow { line-height: 1.45; }
+.feed .ev.save .x, .feed .ev.miss .x { color: var(--ink); }

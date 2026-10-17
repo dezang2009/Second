@@ -352,8 +352,11 @@
         const opp = S.team(G, home ? fx.m.a : fx.m.h);
         const hT = S.team(G, fx.m.h), aT = S.team(G, fx.m.a);
         const os = opp.lineup.map((id) => G.players[id]).filter(Boolean).sort((a, b) => b.ovr - a.ovr)[0];
-        parts.push(`<section class="card matchcard" style="--hc:${hT.c1};--ac:${aT.c1}">
+        const rv = S.rivalry(G, hT.id, aT.id);
+        const rec = rv && G.h2h ? G.h2h[S.h2hKey(hT.id, aT.id)] : null;
+        parts.push(`<section class="card matchcard ${rv ? 'derby' : ''}" style="--hc:${hT.c1};--ac:${aT.c1}">
           <div class="band stack">
+            ${rv ? `<div class="derby-tag">🔥 ${esc(rv.name)}${'<i>★</i>'.repeat(rv.lvl)}${rec ? `<span>감독 부임 후 ${rec.w}승 ${rec.d}무 ${rec.l}패</span>` : ''}</div>` : ''}
             <div class="row"><span class="eyebrow" style="color:#aeb9c9">${esc(fx.label)}</span><span class="grow"></span><span class="tag" style="background:#ffffff1a;color:#fff">${home ? '홈' : '원정'} · ${esc(hT.stadium)}</span></div>
             <div class="fixture">
               <div class="tm">${logo(hT, 64)}<b>${esc(hT.name)}</b>${formHtml(hT.form)}</div>
@@ -733,6 +736,7 @@
         </div>
         <div class="shot">${bigPhoto(p)}</div>
       </div>
+      ${p.awards && p.awards.length ? `<div class="awards">${awardChips(p.awards)}</div>` : ''}
       <div class="row wrap" style="gap:6px">${statusTags(p)}${!mine ? `<button class="chip ${shortlisted ? 'on' : ''}" data-act="short" data-v="${pid}">${shortlisted ? '★ 관심 선수' : '☆ 관심 등록'}</button>` : ''}</div>
       <div class="kv"><div><small>시장 가치</small><b>${money(p.value)}</b></div><div><small>주급</small><b>${money(p.wage)}</b></div><div><small>계약</small><b>${p.teamId != null ? p.contract + '년' : '-'}</b></div></div>
       ${attrs}
@@ -745,6 +749,13 @@
     $('.sheet-bg').dataset.pid = String(pid);
   }
 
+  // 수상 내역: 같은 상은 묶어서 ×n
+  function awardChips(list) {
+    const cnt = new Map();
+    for (const a of list) { const k = a.replace(/^\d{4}[·\s]?(\d+월\s)?/, '').replace(/^\d+월\s/, ''); const e = cnt.get(k) || { n: 0, last: a }; e.n++; e.last = a; cnt.set(k, e); }
+    const icon = (k) => (/발롱도르 1위/.test(k) ? '🏆' : /발롱도르|골든/.test(k) ? '🥇' : /올해의 팀/.test(k) ? '⭐' : '🏅');
+    return [...cnt.entries()].reverse().map(([k, e]) => `<span class="award">${icon(k)} ${esc(k)}${e.n > 1 ? ` ×${e.n}` : ''}</span>`).join('');
+  }
   function bidPanel(p, d) {
     const G = UI.G, ut = S.userTeam(G);
     if (d.stage === 'contract') {
@@ -1001,11 +1012,27 @@
       const top = ps.slice().sort(key).slice(0, 10);
       return `<section class="card"><h2>${title}</h2><div class="list">${top.map((p, i) => `<div class="li tap" data-act="player" data-v="${p.id}"><span class="muted num" style="width:16px;font-weight:700">${i + 1}</span>${avatar(p, 36, G.teams[p.teamId].c1)}<div class="grow"><div class="name" style="${p.teamId === uid ? 'color:var(--brand)' : ''}">${esc(p.name)}</div><div class="sub">${esc(G.teams[p.teamId].name)}</div></div><b class="num" style="font-size:18px">${fmt(p)}</b></div>`).join('') || '<div class="empty">아직 기록이 없어요.</div>'}</div></section>`;
     };
-    return list('득점 순위', (a, b) => b.season.goals - a.season.goals || a.season.apps - b.season.apps, (p) => p.season.goals + '골')
+    return totwCard(G, li) + list('득점 순위', (a, b) => b.season.goals - a.season.goals || a.season.apps - b.season.apps, (p) => p.season.goals + '골')
       + list('도움 순위', (a, b) => b.season.assists - a.season.assists || a.season.apps - b.season.apps, (p) => p.season.assists + '도움')
       + list('평균 평점 (5경기 이상)', (a, b) => (b.season.apps >= 5) - (a.season.apps >= 5) || b.season.rsum / b.season.apps - a.season.rsum / a.season.apps, (p) => (p.season.rsum / p.season.apps).toFixed(2));
   }
 
+  // 주간 베스트 11 (4-3-3 배치)
+  function totwCard(G, li) {
+    const tw = G.totw;
+    if (!tw || li !== S.userTeam(G).league) return '';
+    const slots = D.FORMATIONS['4-3-3'];
+    // 슬롯 순서: GK, LB, CB, CB, RB, CM, DM, CM, LW, ST, RW → 기록 순서: GK, DF×4, MF×3, FW×3
+    const discs = tw.ids.map(([id, role, rating], i) => {
+      const p = G.players[id]; if (!p) return '';
+      const [l, t] = KM.Render.slotPos(slots[i]);
+      const mine = p.teamId === G.user.teamId;
+      return `<button class="slot" style="left:${l}%;top:${t}%" data-act="player" data-v="${id}">${avatar(p, 38, mine ? 'var(--fm)' : '#fff')}<span class="lbl">${esc(shortPlayerName(p.name))}</span><span class="rt">${rating.toFixed(1)}</span></button>`;
+    }).join('');
+    return `<section class="card stack"><h2 style="margin:0">${tw.r + 1}라운드 베스트 11 <small>보라 테두리 = 우리 선수</small></h2>
+      <div class="pitch-ed totw"><span class="ln" style="inset:3% 4%;border-radius:4px"></span><span class="ln" style="left:4%;right:4%;top:50%;border-width:2px 0 0"></span>
+        <span class="ln" style="left:50%;top:50%;width:26%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%"></span>${discs}</div></section>`;
+  }
   function openTeam(id) {
     const G = UI.G, t = S.team(G, id);
     const ps = sortPlayers(t.squad.map((x) => G.players[x]), 'pos');
@@ -1235,7 +1262,8 @@
       <div class="kv"><div><small>경기</small><b>${games}</b></div><div><small>승-무-패</small><b>${u.wins}-${u.draws}-${u.losses}</b></div><div><small>승률</small><b>${games ? Math.round(u.wins / games * 100) : 0}%</b></div></div>
       <div class="kv"><div><small>감독 평판</small><b>${u.rep}</b></div><div><small>시즌</small><b>${u.seasons}</b></div><div><small>트로피</small><b>${u.trophies.length}</b></div></div></section>
       <section class="card"><h2>트로피</h2><div class="list">${u.trophies.map((x) => `<div class="li"><span>🏆</span><span class="grow" style="font-weight:600">${esc(x.name)}</span><span class="muted num">${seasonLabel(x.year)}</span></div>`).join('') || '<div class="empty">첫 트로피를 향해!</div>'}</div></section>
-      <section class="card"><h2>시즌 기록</h2><div class="list">${u.history.slice().reverse().map((h) => `<div class="li"><span class="num muted" style="font-weight:700">${seasonLabel(h.year)}</span><span class="grow">${esc(h.team)} · ${esc(h.league)} ${h.pos}위</span><span class="muted" style="font-size:12px">컵 ${esc(h.cup)}</span></div>`).join('') || '<div class="empty">첫 시즌 진행 중</div>'}</div></section>
+      ${u.awards && u.awards.length ? `<section class="card"><h2>감독 수상</h2><div class="list">${u.awards.slice().reverse().map((a) => `<div class="li"><span>🏅</span><span class="grow" style="font-weight:600">${esc(a)}</span></div>`).join('')}</div></section>` : ''}
+      <section class="card"><h2>시즌 기록</h2><div class="list">${u.history.slice().reverse().map((h) => `<div class="li"><span class="num muted" style="font-weight:700">${seasonLabel(h.year)}</span><span class="grow">${esc(h.team)} · ${esc(h.league)} ${h.pos}위</span><span class="muted" style="font-size:12px">컵 ${esc(h.cup)}${h.euro ? ` · ${esc(h.euro)}` : ''}</span></div>`).join('') || '<div class="empty">첫 시즌 진행 중</div>'}</div></section>
       <section class="card"><h2>업적 <small>${Object.keys(G.ach).length}/${Object.keys(S.ACH).length}</small></h2><div class="grid2">${Object.entries(S.ACH).map(([k, [n, d]]) => {
         const on = !!G.ach[k];
         return `<div style="background:var(--surface-2);border-radius:11px;padding:9px 10px;${on ? '' : 'opacity:.45'}"><div style="font-weight:700;font-size:13px">${on ? '★' : '☆'} ${esc(n)}</div><div class="muted" style="font-size:11.5px">${esc(d)}</div></div>`;
@@ -1267,6 +1295,15 @@
       <div class="list">
         ${r.champions.map((c) => `<div class="li"><span class="grow muted" style="white-space:nowrap">${esc(c.league)} 우승</span>${logo(G.teams[c.team], 22)}<b>${esc(G.teams[c.team].name)}</b></div>`).join('')}
         ${(r.euroWinners || []).filter((c) => c.team != null && G.teams[c.team]).map((c) => `<div class="li"><span class="grow muted" style="white-space:nowrap">${esc(c.name)} 우승</span>${logo(G.teams[c.team], 22)}<b>${esc(G.teams[c.team].name)}</b></div>`).join('')}
+      </div>
+      ${r.ballon && r.ballon.length ? `<div class="ballon"><div class="eyebrow">${r.year} 발롱도르</div>
+        <div class="podium">${[1, 0, 2].map((i) => { const x = r.ballon[i]; const p = x && G.players[x.id]; return x ? `<div class="pod p${i + 1}">${p ? avatar(p, i === 0 ? 64 : 48, i === 0 ? '#ffd23a' : 'var(--line)') : ''}<b>${esc(shortPlayerName(x.name))}</b><small>${i + 1}위 · ${esc(G.teams[x.team] ? G.teams[x.team].name : '')}</small></div>` : ''; }).join('')}</div>
+        <div class="list">
+          ${r.goldenBoy ? `<div class="li"><span class="grow muted">골든보이 (21세 이하)</span><b>${esc(r.goldenBoy.name)}</b></div>` : ''}
+          ${r.goldenShoe ? `<div class="li"><span class="grow muted">유러피언 골든슈</span><b>${esc(r.goldenShoe.name)} (${r.goldenShoe.goals}골)</b></div>` : ''}
+          ${r.bestXI && r.bestXI.length ? `<div class="li" style="align-items:flex-start"><span class="muted" style="flex:none">${esc(u.league)} 올해의 팀</span><span class="grow" style="text-align:right;font-size:12.5px">${r.bestXI.map((x) => `<b style="${x.team === G.user.teamId ? 'color:var(--fm)' : ''}">${esc(shortPlayerName(x.name))}</b>`).join(', ')}</span></div>` : ''}
+        </div></div>` : ''}
+      <div class="list">
         ${r.awards.scorer ? `<div class="li"><span class="grow muted" style="white-space:nowrap">득점왕</span>${avatar(r.awards.scorer, 28)}<b>${esc(r.awards.scorer.name)} (${r.awards.scorerGoals}골)</b></div>` : ''}
         ${r.awards.mvp ? `<div class="li"><span class="grow muted" style="white-space:nowrap">시즌 MVP</span>${avatar(r.awards.mvp, 28)}<b>${esc(r.awards.mvp.name)}</b></div>` : ''}
         ${r.retired.length ? `<div class="li" style="align-items:flex-start"><span class="muted" style="flex:none;white-space:nowrap">은퇴</span><span class="grow" style="text-align:right">${r.retired.map(esc).join(', ')}</span></div>` : ''}
@@ -1301,7 +1338,7 @@
       <div class="row"><button class="btn sm ghost" data-act="closepre">← 닫기</button><span class="grow"></span><span class="eyebrow">${esc(fx.label)}</span></div>
       <div class="pre-tabs" role="tablist">${PRE_TABS.map(([, l], i) => `<button role="tab" data-act="pretab" data-v="${i}" class="${i === page ? 'on' : ''}" aria-selected="${i === page}">${l}</button>`).join('')}<i class="ink" style="--i:${page}"></i></div></div>
       <div class="pre-pages" id="pre-pages"><div class="pre-track" style="transform:translateX(${-page * 100}%)">
-      <div class="pre-page"><section class="card stack"><div class="row">${logo(opp, 56)}<div class="grow"><div class="eyebrow">${home ? '홈 경기' : '원정 경기'} 상대</div><h2 style="font-family:var(--f-display);font-size:22px">${esc(opp.name)}</h2>
+      <div class="pre-page">${(() => { const rv = S.rivalry(G, t.id, opp.id); return rv ? `<div class="derby-tag big">🔥 ${esc(rv.name)}${'<i>★</i>'.repeat(rv.lvl)}<span>이기면 사기·팬·구단주 신뢰도가 크게 오르고, 지면 크게 떨어져요.</span></div>` : ''; })()}<section class="card stack"><div class="row">${logo(opp, 56)}<div class="grow"><div class="eyebrow">${home ? '홈 경기' : '원정 경기'} 상대</div><h2 style="font-family:var(--f-display);font-size:22px">${esc(opp.name)}</h2>
         <div class="muted" style="font-size:12.5px">${opp.tactics.formation} · 전력 ${W.teamRating(G, opp)} · ${formHtml(opp.form)}</div></div></div>
         <div class="row" style="gap:6px;overflow-x:auto">${oppXI.map((p) => `<div style="text-align:center;width:62px;flex:none">${avatar(p, 44, opp.c1)}<div style="font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(shortPlayerName(p.name))}</div><div class="num" style="font-weight:700;color:var(--accent)">${p.ovr}</div></div>`).join('')}</div></section>
       ${reportCard()}
@@ -1575,7 +1612,7 @@
     if (L.tab === 'stats') { const c = $('#momchart'); if (c) drawMomentum(c, m.momentum, KM.Render.kits(m.sides[0].team, m.sides[1].team)); }
   }
   function evIcon(e) {
-    return { goal: '⚽', yellow: '🟨', red: '🟥', sub: '⇄', inj: '✚', save: '🧤', miss: '✖', pen: '❗', half: '⏸', ft: '⏹', chance: '•' }[e.type] || '•';
+    return { goal: '⚽', yellow: '🟨', red: '🟥', sub: '⇄', inj: '✚', save: '🧤', miss: '✖', pen: '❗', half: '⏸', ft: '⏹', chance: '•', talk: '🗣', com: '🎙' }[e.type] || '•';
   }
   function liveStats(m) {
     const s0 = m.stats[0], s1 = m.stats[1];

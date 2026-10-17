@@ -128,6 +128,107 @@
     return comp.rounds[5] && comp.rounds[5][0].hs != null ? '조별리그 탈락' : '조별리그';
   }
 
+  // ── 시상 ───────────────────────────────────────────────────
+  function giveAward(G, p, label, valueF, morale) {
+    p.awards = p.awards || [];
+    p.awards.push(label);
+    if (valueF) { p.value = Math.round(p.value * valueF / 25) * 25; }
+    if (morale) p.morale = clamp(p.morale + morale, 5, 100);
+  }
+  // 월간 집계: 사용자 리그 경기만
+  function trackMonth(G, m, res) {
+    const mon = G.mon || (G.mon = { pts: {}, gd: {}, pl: {} });
+    const pts = (a, b) => (a > b ? 3 : a === b ? 1 : 0);
+    mon.pts[m.h] = (mon.pts[m.h] || 0) + pts(res.hs, res.as); mon.pts[m.a] = (mon.pts[m.a] || 0) + pts(res.as, res.hs);
+    mon.gd[m.h] = (mon.gd[m.h] || 0) + res.hs - res.as; mon.gd[m.a] = (mon.gd[m.a] || 0) + res.as - res.hs;
+    for (const r of res.players) {
+      if (r.mins < 30) continue;
+      const x = mon.pl[r.p.id] || (mon.pl[r.p.id] = { n: 0, rs: 0, g: 0, a: 0 });
+      x.n++; x.rs += r.rating; x.g += r.goals; x.a += r.ast;
+    }
+  }
+  function monthlyAwards(G, month) {
+    const mon = G.mon; G.mon = null;
+    if (!mon) return;
+    const ut = userTeam(G), uid = ut.id;
+    const lg = leagueOf(G, ut);
+    const cands = Object.entries(mon.pl).map(([id, x]) => ({ p: G.players[id], ...x, sc: x.rs / x.n + x.g * 0.3 + x.a * 0.18 })).filter((x) => x.p && x.n >= 2);
+    if (!cands.length) return;
+    const best = cands.sort((a, b) => b.sc - a.sc)[0];
+    const young = cands.filter((x) => x.p.age <= 21).sort((a, b) => b.sc - a.sc)[0];
+    const mgr = Object.keys(mon.pts).map(Number).sort((a, b) => mon.pts[b] - mon.pts[a] || mon.gd[b] - mon.gd[a])[0];
+    const bt = team(G, best.p.teamId);
+    giveAward(G, best.p, `${G.year}·${month}월 이달의 선수`, 1.05, 6);
+    if (young && young.p !== best.p) giveAward(G, young.p, `${month}월 이달의 영플레이어`, 1.04, 4);
+    const mine = best.p.teamId === uid || (young && young.p.teamId === uid) || mgr === uid;
+    if (mgr === uid) { G.user.awards = G.user.awards || []; G.user.awards.push(`${G.year}년 ${month}월 이달의 감독`); G.board.conf = clamp(G.board.conf + 3, 0, 100); unlock(G, 'motm'); }
+    const body = `이달의 선수: ${best.p.name}(${bt ? bt.name : ''}) — ${best.n}경기 ${best.g}골 ${best.a}도움, 평균 평점 ${(best.rs / best.n).toFixed(2)}.`
+      + (young && young.p !== best.p ? ` 이달의 영플레이어: ${young.p.name}(${young.p.age}세).` : '')
+      + ` 이달의 감독: ${team(G, mgr).name} (${mon.pts[mgr]}점).`
+      + (mine ? ' 우리 구단이 수상했습니다! 🏆' : '');
+    news(G, 'award', `${lg.name} ${month}월 시상`, body, mine ? { pids: [best.p.id].concat(young && young.p !== best.p ? [young.p.id] : []) } : { gen: true, read: true, pids: [best.p.id] });
+  }
+  // 주간 베스트 11 (4-3-3): 사용자 리그 라운드마다
+  function teamOfWeek(G, r, results) {
+    const all = [];
+    for (const x of results) for (const pr of x.res.players) if (pr.mins >= 45) all.push(pr);
+    const grp = (role) => D.ROLE_GROUP[role];
+    const pickN = (g, n) => all.filter((x) => grp(x.role) === g).sort((a, b) => b.rating - a.rating || b.goals - a.goals).slice(0, n);
+    const xi = [].concat(pickN('GK', 1), pickN('DF', 4), pickN('MF', 3), pickN('FW', 3));
+    if (xi.length < 11) return;
+    G.totw = { r, ids: xi.map((x) => [x.p.id, x.role, x.rating]) };
+    const uid = G.user.teamId;
+    const ours = xi.filter((x) => x.p.teamId === uid);
+    for (const x of ours) x.p.morale = clamp(x.p.morale + 3, 5, 100);
+    const lg = leagueOf(G, userTeam(G));
+    news(G, 'award', `${lg.name} ${r + 1}라운드 베스트 11`, `${xi.map((x) => `${x.p.name}(${x.rating.toFixed(1)})`).join(', ')}.${ours.length ? ` 우리 선수 ${ours.length}명이 뽑혔습니다!` : ''}`,
+      ours.length ? { pids: ours.map((x) => x.p.id) } : { gen: true, read: true });
+  }
+  // 시즌 시상: 발롱도르(5대 리그+K리그 전체), 골든보이(21세 이하), 유러피언 골든슈, 리그 베스트 11
+  function seasonAwards(G, report) {
+    const champs = new Set(G.leagues.map((lg, li) => table(G, li)[0].id));
+    const euroW = G.euro ? G.euro.comps.map((c) => [c.key, c.winner]) : [];
+    const score = (p) => {
+      const st = p.season; if (st.apps < 15) return -1;
+      let sc = st.rsum / st.apps * 1.2 + st.goals * 0.05 + st.assists * 0.035 + p.ovr * 0.04;
+      if (champs.has(p.teamId)) sc += 0.5;
+      for (const [k, w] of euroW) if (w === p.teamId) sc += k === 'UCL' ? 0.8 : 0.3;
+      if (team(G, p.teamId) && team(G, p.teamId).code === 'RSK1') sc -= 1.2; // 리그 수준 보정
+      return sc;
+    };
+    const pool = Object.values(G.players).filter((p) => p.teamId != null).map((p) => ({ p, sc: score(p) })).filter((x) => x.sc > 0).sort((a, b) => b.sc - a.sc);
+    const ballon = pool.slice(0, 3).map((x) => x.p);
+    const boy = pool.filter((x) => x.p.age <= 21)[0];
+    const euroPool = Object.values(G.players).filter((p) => p.teamId != null && team(G, p.teamId).code !== 'RSK1');
+    const shoe = euroPool.sort((a, b) => b.season.goals - a.season.goals)[0];
+    ballon.forEach((p, i) => giveAward(G, p, `${G.year} 발롱도르 ${i + 1}위`, [1.15, 1.08, 1.05][i], 6));
+    if (boy) giveAward(G, boy.p, `${G.year} 골든보이`, 1.12, 6);
+    if (shoe) giveAward(G, shoe, `${G.year} 유러피언 골든슈`, 1.06, 4);
+    // 사용자 리그 베스트 11
+    const uli = userTeam(G).league;
+    const lp = Object.values(G.players).filter((p) => p.teamId != null && team(G, p.teamId).league === uli && p.season.apps >= 12);
+    const avg = (p) => p.season.rsum / p.season.apps + p.season.goals * 0.02;
+    const by = (g, n) => lp.filter((p) => p.pos === g).sort((a, b) => avg(b) - avg(a)).slice(0, n);
+    const xi = [].concat(by('GK', 1), by('DF', 4), by('MF', 3), by('FW', 3));
+    xi.forEach((p) => giveAward(G, p, `${G.year} ${G.leagues[uli].name} 올해의 팀`, 1.03, 3));
+    report.ballon = ballon.map((p) => ({ id: p.id, name: p.name, team: p.teamId }));
+    report.goldenBoy = boy ? { id: boy.p.id, name: boy.p.name, team: boy.p.teamId, age: boy.p.age } : null;
+    report.goldenShoe = shoe ? { id: shoe.id, name: shoe.name, team: shoe.teamId, goals: shoe.season.goals } : null;
+    report.bestXI = xi.map((p) => ({ id: p.id, name: p.name, pos: p.pos, team: p.teamId }));
+    const uid = G.user.teamId;
+    if (ballon[0] && ballon[0].teamId === uid) unlock(G, 'ballon');
+    news(G, 'award', `${G.year} 발롱도르: ${ballon[0] ? ballon[0].name : '-'}`, `1위 ${ballon.map((p, i) => `${i + 1}위 ${p.name}(${team(G, p.teamId).name})`).join(', ').slice(3)}.${boy ? ` 골든보이: ${boy.p.name}.` : ''}${shoe ? ` 유러피언 골든슈: ${shoe.name}(${shoe.season.goals}골).` : ''}`, { pids: ballon.map((p) => p.id) });
+  }
+
+  // ── 라이벌전 ───────────────────────────────────────────────
+  function rivalry(G, a, b) {
+    const A = team(G, a), B = team(G, b);
+    if (!A || !B) return null;
+    for (const [x, y, name, lvl] of D.RIVALS) if ((A.name === x && B.name === y) || (A.name === y && B.name === x)) return { name, lvl };
+    return null;
+  }
+  function h2hKey(a, b) { return a < b ? a + '-' + b : b + '-' + a; }
+
   function rngOf(G) { const r = new RNG(1); r.s = G.rngS; return r; }
   function saveRng(G, r) { G.rngS = r.s; }
 
@@ -391,7 +492,9 @@
     saveRng(G, rng);
     aiPrepare(G, h, a); aiPrepare(G, a, h);
     const user = fx.m.h === G.user.teamId ? 0 : 1;
-    return new KM.Engine.Match(buildSide(G, h), buildSide(G, a), { seed, user });
+    const derby = rivalry(G, h.id, a.id);
+    const attendance = Math.round(h.cap * (1 + (h.facilities.stadium - 1) * 0.15) * clamp(0.62 + h.fans / 250 + (derby ? 0.12 : 0) + (fx.euro ? 0.1 : 0), 0.3, 1));
+    return new KM.Engine.Match(buildSide(G, h), buildSide(G, a), { seed, user, derby, attendance });
   }
 
   // AI 구단: 상대와의 전력 차에 따라 전술 프리셋을 고른다
@@ -576,6 +679,7 @@
       if (g.cup) m.w = res.hs > res.as ? m.h : res.hs < res.as ? m.a : (res.pens[0] > res.pens[1] ? m.h : m.a);
       if (g.euro && m.l1) { const [x, y] = res.agg; m.agg = res.agg; m.w = x > y ? m.h : x < y ? m.a : (res.pens[0] > res.pens[1] ? m.h : m.a); }
       if (g.euro && m.fin) m.w = res.hs > res.as ? m.h : res.hs < res.as ? m.a : (res.pens[0] > res.pens[1] ? m.h : m.a);
+      if (ev.k === 'L' && g.li === ut.league) trackMonth(G, m, res);
       const item = { m, li: g.li, res, cup: !!g.cup, euro: g.euro ? g.euro.key : null };
       summary.results.push(item);
       if (isUser) summary.user = item;
@@ -583,6 +687,7 @@
     }
     if (ev.k === 'C') advanceCup(G, ev.r);
     if (ev.k === 'E') advanceEuro(G, ev.r);
+    if (ev.k === 'L') teamOfWeek(G, ev.r, summary.results.filter((x) => x.li === ut.league));
     if (summary.user) afterUserMatch(G, summary.user, ev);
     G.week++;
     saveRng(G, rng);
@@ -613,6 +718,20 @@
     const exp = W.teamRating(G, userTeam(G)) - W.teamRating(G, opp);
     const delta = r === 'W' ? 2.5 - exp * 0.05 : r === 'L' ? -2.2 - exp * 0.07 : -0.2 - exp * 0.04;
     G.board.conf = clamp(G.board.conf + delta, 0, 100);
+    // 라이벌전: 결과에 따라 선수단 사기·팬·구단주 신뢰도가 크게 움직인다
+    const rv = rivalry(G, uid, opp.id);
+    if (rv) {
+      const ut = userTeam(G), k = h2hKey(uid, opp.id);
+      G.h2h = G.h2h || {};
+      const rec = G.h2h[k] || (G.h2h[k] = { w: 0, d: 0, l: 0 });
+      rec[r === 'W' ? 'w' : r === 'L' ? 'l' : 'd']++;
+      const sw = (r === 'W' ? 4 : r === 'L' ? -4 : 0) * (rv.lvl / 3 + 0.4);
+      for (const id of ut.squad) G.players[id].morale = clamp(G.players[id].morale + sw, 5, 100);
+      ut.fans = clamp(ut.fans + (r === 'W' ? 3 : r === 'L' ? -3 : 0), 10, 100);
+      G.board.conf = clamp(G.board.conf + (r === 'W' ? 1.5 : r === 'L' ? -1.5 : 0) * rv.lvl, 0, 100);
+      if (r === 'W') unlock(G, 'derby');
+      item.derby = rv.name;
+    }
     G.unbeaten = r === 'L' ? 0 : G.unbeaten + 1;
     if (r === 'W') unlock(G, 'firstWin');
     if (G.unbeaten >= 10) unlock(G, 'unbeaten10');
@@ -621,9 +740,13 @@
     const scorers = res.players.filter((x) => x.goals > 0 && x.p.teamId === uid).map((x) => x.p.name + (x.goals > 1 ? ` ${x.goals}골` : '')).join(', ');
     const label = ev.k === 'L' ? `리그 ${ev.r + 1}R` : ev.k === 'E' ? `${(euroUserComp(G) || {}).short || '유럽'} ${EURO_ROUNDS[ev.r]}` : `${G.cup.name} ${cupRoundName(G, ev.r)}`;
     const word = r === 'W' ? '승리' : r === 'L' ? '패배' : '무승부';
-    news(G, 'match', `[${label}] ${opp.name}전 ${gf}-${ga} ${word}`, scorers ? `득점: ${scorers}` : '득점 없이 경기를 마쳤습니다.');
+    if (rv) {
+      const rec = G.h2h[h2hKey(uid, opp.id)];
+      const head = r === 'W' ? `${rv.name} 승리! ${josa(opp.name, '을/를')} ${gf}-${ga}로 꺾다` : r === 'L' ? `${rv.name} 패배… ${opp.name} 상대 ${gf}-${ga}` : `${rv.name} ${gf}-${ga} 무승부`;
+      news(G, 'match', `[${label}] ${head}`, `${scorers ? `득점: ${scorers}. ` : ''}${r === 'W' ? '팬들이 거리로 쏟아져 나왔습니다. 선수단 사기가 크게 올랐습니다.' : r === 'L' ? '라이벌에게 진 팬들의 실망이 큽니다. 선수단 분위기도 가라앉았습니다.' : '자존심 대결은 승자 없이 끝났습니다.'} 감독 부임 후 ${rv.name} 전적 ${rec.w}승 ${rec.d}무 ${rec.l}패.`);
+    } else news(G, 'match', `[${label}] ${opp.name}전 ${gf}-${ga} ${word}`, scorers ? `득점: ${scorers}` : '득점 없이 경기를 마쳤습니다.');
     const best = res.players.slice().sort((a, b) => b.rating - a.rating)[0];
-    G.lastMatch = { opp: opp.id, home, gf, ga, r, label, motm: best ? best.p.id : null, pens: res.pens, agg: res.agg ? (home ? res.agg : [res.agg[1], res.agg[0]]) : null };
+    G.lastMatch = { derby: rv ? rv.name : null, opp: opp.id, home, gf, ga, r, label, motm: best ? best.p.id : null, pens: res.pens, agg: res.agg ? (home ? res.agg : [res.agg[1], res.agg[0]]) : null };
     // 시즌 데이터: 경기별 득실과 xG (엔진 경기만)
     if (res.an) {
       const us = home ? 0 : 1;
@@ -673,6 +796,7 @@
     if (!canAdvance(G)) return out;
     const rng = rngOf(G);
     G.day++;
+    if (dateOf(G, G.day).getMonth() !== dateOf(G, G.day - 1).getMonth()) monthlyAwards(G, dateOf(G, G.day - 1).getMonth() + 1);
     dailyTick(G, rng, out.log);
     if (G.day % 7 === 6) weeklyTick(G, rng);
     saveRng(G, rng);
@@ -1017,6 +1141,7 @@
     G.euroNext = euroEntrants(G, G.leagues.map((lg, li) => table(G, li).map((r) => r.id)));
     const uq = EURO.find((c) => G.euroNext[c.key].includes(ut.id));
     report.user.euroNext = uq ? uq.name : null;
+    seasonAwards(G, report);
     G.user.history.push({ year: G.year, team: ut.name, league: G.leagues[uli].name, pos, cup: report.user.cup, euro: report.user.euro });
     if (pos === 1) { G.user.trophies.push({ year: G.year, name: G.leagues[uli].name + ' 우승' }); unlock(G, 'title'); }
     const diff = goal.pos - pos;
@@ -1153,7 +1278,7 @@
 
   // ── 소식, 업적 ─────────────────────────────────────────────
   // 받은 편지함: 소식마다 보낸 사람(스태프)이 있다
-  const SENDER = { match: '수석 코치', transfer: '단장', injury: '의료팀장', board: '구단주', cup: '대회 운영국', offer: '단장', ach: '구단 기록관', club: '구단 사무국', scout: '수석 스카우트', report: '어시스턴트 매니저', train: '피트니스 코치' };
+  const SENDER = { match: '수석 코치', transfer: '단장', injury: '의료팀장', board: '구단주', cup: '대회 운영국', offer: '단장', ach: '구단 기록관', club: '구단 사무국', scout: '수석 스카우트', report: '어시스턴트 매니저', train: '피트니스 코치', award: '리그 사무국' };
   function news(G, tag, title, body, extra) {
     G.newsId = (G.newsId || 0) + 1;
     G.news.unshift(Object.assign({ id: G.newsId, s: G.season, w: G.week, d: G.day, tag, from: SENDER[tag] || '구단 사무국', title, body, read: false }, extra || {}));
@@ -1282,6 +1407,9 @@
 
   const ACH = {
     ucl: ['유럽 정복', 'UEFA 챔피언스리그 우승'],
+    derby: ['더비의 주인', '라이벌전에서 첫 승리'],
+    motm: ['이달의 감독', '이달의 감독상 수상'],
+    ballon: ['발롱도르 배출', '우리 선수가 발롱도르 수상'],
     uel: ['유로파의 왕', 'UEFA 유로파리그 우승'],
     firstWin: ['첫 승', '감독 커리어 첫 승리'],
     firstSigning: ['첫 영입', '첫 선수를 영입'],
@@ -1306,7 +1434,7 @@
     createMatch, playWeek, endSeason, advanceDay, canAdvance, nextEventDay, dateText, dateOf, ensureDays, quickSim, buildSide, cupRoundName,
     makeBid, completeSigning, askingPrice, wageDemand, willingToJoin, acceptOffer, rejectOffer, counterOffer, releasePlayer, releaseCost,
     renew, renewDemand, upgradeFacility, facCost, FAC, jobOffers, takeJob, strengthRank,
-    EURO_ROUNDS, euroGroupTable, euroUserComp, euroStatus, setupEuro,
+    rivalry, h2hKey, EURO_ROUNDS, euroGroupTable, euroUserComp, euroStatus, setupEuro,
     pressQuestions, answerPress, unlock, ACH, news, oppReport, sendReport, aiPlan, teamTalk, TALKS, unitStrength,
   };
 })(globalThis.KM || (globalThis.KM = {}));
