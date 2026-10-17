@@ -11,7 +11,7 @@ const html = read('index.html');
 const css = read('styles.css');
 const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
 const js = 'globalThis.KM = { BUNDLE: true };\n' + scripts.map((f) => `// ── ${f}\n${read(f)}`).join('\n');
-const fonts = html.match(/<link rel="stylesheet" href="https:\/\/fonts[^>]+>/)[0];
+const fonts = html.match(/<link rel="preload" href="fonts[^>]+>/)[0]; // 글꼴 파일은 fonts/ 폴더에서 (dist에도 복사)
 const icon = 'data:image/svg+xml,' + encodeURIComponent(read('icon.svg'));
 const safeJs = js.replace(/<\/script/gi, '<\\/script');
 
@@ -48,6 +48,11 @@ ${css}
 ${artBody}
 `;
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+// 글꼴: dist/fonts, dist/app/fonts (아티팩트는 게시할 때 fonts/PretendardVariable.woff2를 함께 올린다)
+for (const dir of ['dist/fonts', 'dist/app/fonts']) {
+  fs.mkdirSync(path.join(root, dir), { recursive: true });
+  for (const f of fs.readdirSync(path.join(root, 'fonts'))) fs.copyFileSync(path.join(root, 'fonts', f), path.join(root, dir, f));
+}
 fs.writeFileSync(path.join(root, 'dist/kickoff-manager.html'), full);
 fs.writeFileSync(path.join(root, 'dist/artifact.html'), artifact);
 // 안드로이드 앱용: 완성 문서 + 스프라이트 (tools/build_apk.sh가 dist/app을 APK assets/www로 넣는다)

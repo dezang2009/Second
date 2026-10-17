@@ -1,3 +1,8 @@
+@font-face {
+  font-family: "Pretendard Variable";
+  font-weight: 45 920; font-style: normal; font-display: swap;
+  src: url("fonts/PretendardVariable.woff2") format("woff2-variations"), url("fonts/PretendardVariable.woff2") format("woff2");
+}
 /* 킥오프 매니저 — 중계 그래픽 같은 밝은 화면에 실제 선수 사진과 엠블럼이 주인공이 되는 디자인 */
 /* Layout: 모바일 앱 셸(최대 540px) — 구단 헤더, 카드 피드, 하단 탭. 경기 화면은 어두운 중계석 */
 :root {
@@ -649,3 +654,26 @@ body::before, :root[data-theme="dark"] body::before { background: var(--grad-bar
 .fixture .sc { font-size: 40px; letter-spacing: 0; }
 .pcard .nm { font-weight: 900; text-transform: none; }
 h1, h2, .h2, .eyebrow + h2 { font-family: var(--f-display); font-weight: 400; }
+
+/* ── 글꼴: Pretendard (요즘 한국 앱에서 많이 쓰는 깔끔한 글꼴) ── */
+:root {
+  --f-display: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --f-body: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --f-num: "Pretendard Variable", Pretendard, -apple-system, system-ui, sans-serif;
+}
+body { font-size: 15px; letter-spacing: -.01em; line-height: 1.5; }
+.num, .tbl td, .kv b, .ovr, .rating, .pos { font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+h1, h2, .h2, .eyebrow + h2, .card > h2, .sheet h2 { font-weight: 800; letter-spacing: -.025em; }
+.card > h2, .h2 { font-size: 18px; }
+.topbar .club b { font-weight: 800; font-size: 18px; letter-spacing: -.02em; }
+.btn { font-weight: 700; }
+.btn.big { font-family: var(--f-body); font-weight: 800; font-size: 17px; }
+.pcard .nm, .pcard .nm.ko { font-weight: 800; letter-spacing: -.03em; }
+.wordmark { font-weight: 900; letter-spacing: -.03em; }
+.li .name { font-weight: 700; font-size: 15px; }
+.li .sub, .mail .b { font-size: 13px; }
+.eyebrow { font-weight: 700; letter-spacing: 0; }
+.seg button { font-size: 13.5px; font-weight: 700; }
+.num, .ovr, .tbl td, .kv b, .fixture .sc, .scoreboard .score, .pcard .big .o { font-weight: 800; }
+.fixture .sc, .scoreboard .score { letter-spacing: -.01em; }
+nav.tabs button { font-size: 11.5px; font-weight: 700; }
