@@ -89,33 +89,9 @@
     return `background-image:url(${sheetUrl});background-size:${cols * cw * sc}px auto;background-position:-${col * cw * sc}px -${row * chh * sc}px`;
   }
   // 선수 사진: 얼굴이 잘리지 않는 3:4 세로 카드. size는 대략적인 크기(px), ring = 아래 띠 색(구단 색)
-  // 유스·자동 생성 선수: AI가 만든 가상 얼굴(실존 인물 아님)을 선수 ID로 고정 배정. 한국 이름은 동아시아 얼굴에서
-  function faceOf(p) {
-    const F = KM.FACES;
-    if (!F || !p || !p.gen || p.photo) return null;
-    const kr = p.nat === '대한민국' || /^[\uAC00-\uD7A3]{2,4}$/.test(p.name || '');
-    const pool = kr && F.asian.length ? F.asian : F.general;
-    if (!pool.length) return null;
-    let h = (p.id * 2654435761) >>> 0; h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0;
-    // 유니폼 자리는 투명이라 배경색(소속팀 메인 색)이 그대로 유니폼 색이 된다. 무소속은 회색 트레이닝복
-    const t = UI.G && p.teamId != null ? UI.G.teams[p.teamId] : null;
-    return { k: pool[h % pool.length], flip: (h >>> 7) & 1, kit: (t && t.c1) || '#5b6475' };
-  }
-  function faceHtml(fc, st, cls, alt) {
-    const fl = (fc.flip ? ';transform:scaleX(-1)' : '') + `;background-color:${fc.kit}`;
-    if (KM.PHOTOS && KM.PHOTOS.f) return `<img class="${cls}" style="${st}${fl}" src="ph/f/${fc.k}.webp" alt="${esc(alt)}" loading="lazy" decoding="async">`;
-    return null;
-  }
   function avatar(p, size, ring) {
     size = Math.round((size || 40) * 0.82);
     const st = `width:${size}px;height:${Math.round(size * 1.3)}px;--ring:${ring || 'var(--line)'}`;
-    const fc = faceOf(p);
-    if (fc) {
-      const hd = faceHtml(fc, st, 'ph', p.name);
-      if (hd) return hd;
-      const FS = KM.FACES;
-      if (FS.sheet) return `<span class="ph" style="${st};${spriteCss(FS.sheet, fc.k % FS.cols, Math.floor(fc.k / FS.cols), FS.w, FS.h, size, FS.cols)};background-color:${fc.kit}${fc.flip ? ';transform:scaleX(-1)' : ''}" role="img" aria-label="${esc(p.name)}"></span>`;
-    }
     const HD = KM.PHOTOS;
     // 앱(APK): 선수마다 고화질 사진 파일 (240×312)
     if (HD && HD.p[p.id]) return `<img class="ph" style="${st}" src="ph/p/${p.id}.webp" alt="" loading="lazy" decoding="async" data-ini="${esc(initials(p.name))}">`;
@@ -128,13 +104,6 @@
     return `<span class="ph fb" style="${st};font-size:${Math.round(size * 0.36)}px">${esc(initials(p.name))}</span>`;
   }
   function bigPhoto(p) {
-    const fc = faceOf(p);
-    if (fc) {
-      const hd = faceHtml(fc, '', '', p.name);
-      if (hd) return hd;
-      const FS = KM.FACES;
-      if (FS.sheet) return `<span class="spr" style="${spriteCss(FS.sheet, fc.k % FS.cols, Math.floor(fc.k / FS.cols), FS.w, FS.h, 146, FS.cols)};background-color:${fc.kit}${fc.flip ? ';transform:scaleX(-1)' : ''}"></span>`;
-    }
     if (KM.PHOTOS && KM.PHOTOS.p[p.id]) return `<img src="ph/p/${p.id}.webp" alt="" decoding="async">`;
     const SP = KM.SPRITES;
     if (SP && SP.p[p.id]) { const [sheet, i] = SP.p[p.id]; return `<span class="spr" style="${spriteCss(`assets/p${sheet}.webp`, i % 12, Math.floor(i / 12), SP.pw, SP.ph, 146, 12)}"></span>`; }
