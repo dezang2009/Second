@@ -207,15 +207,16 @@
     const t = S.userTeam(G);
     const ev = S.currentEvent(G);
     const lg = S.leagueOf(G, t);
-    const weekText = ev ? `${esc(lg.name)} · ${seasonLabel(G.year)} · ${G.week + 1}/${G.calendar.length}주` : `${seasonLabel(G.year)} 시즌 종료`;
-    const win = S.windowOpen(G) ? ' · <span class="open">이적시장 열림</span>' : '';
+    void lg;
+    const dateText = ev ? esc(S.dateText(G, G.day)) : `${seasonLabel(G.year)} 시즌 종료`;
+    const win = S.windowOpen(G) ? '<span class="open">이적시장</span>' : '';
+    // FM처럼 오른쪽 위에 '계속' 버튼. 날짜와 잔고는 구단 이름 아래에
     app().innerHTML = `
       <header class="topbar">
-        <div class="club">${logo(t, 36)}<div style="min-width:0"><b>${esc(t.name)}</b><div class="meta">${weekText}${win}</div></div></div>
-        <div class="bal"><small>구단 잔고</small><span class="num">${money(t.balance)}</span></div>
+        <div class="club">${logo(t, 36)}<div style="min-width:0"><b>${esc(t.name)}</b><div class="meta"><span>${dateText}</span><span class="num money">${money(t.balance)}</span>${win}</div></div></div>
+        ${contBtn(G)}
       </header>
       <main class="view" id="view">${viewHtml()}</main>
-      ${contBtn(G)}
       <nav class="tabs" aria-label="메뉴"><div class="in">
         ${[['home', '홈'], ['squad', '선수단'], ['league', '리그'], ['transfer', '이적'], ['club', '구단']].map(([k, l]) =>
           `<button data-act="tab" data-v="${k}" class="${UI.tab === k ? 'on' : ''}" aria-current="${UI.tab === k}">${ICON[k]}${l}${k === 'transfer' && G.offers.length ? '<span class="dot"></span>' : ''}${k === 'home' && G.news.some((n) => n.read === false && !n.gen) ? '<span class="dot"></span>' : ''}</button>`).join('')}
@@ -228,7 +229,7 @@
     if (!ev) { label = '시즌 결산'; sub = '시즌 종료'; }
     else if (S.userFixture(G) && ev.day <= G.day) { label = '경기 준비'; sub = '오늘 경기'; }
     else { const d = S.userFixture(G) ? ev.day - G.day : 0; sub = d ? `경기까지 ${d}일` : '다음 날'; }
-    return `<button class="cont" data-act="cont"><span><b>${label}</b><small>${sub}</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l8 7-8 7"/></svg></button>`;
+    return `<button class="cont ${label === '경기 준비' ? 'match' : ''}" data-act="cont"><span><b>${label}</b><small>${sub}</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l8 7-8 7"/></svg></button>`;
   }
   function rerenderView() {
     const v = $('#view');
@@ -1208,7 +1209,7 @@
     const h = m.sides[0].team, a = m.sides[1].team;
     const kit = KM.Render.kits(h, a);
     el.innerHTML = `<div class="in">
-      <div class="scoreboard"><div class="tm">${logo(h, 34)}<b>${esc(h.short)}</b></div><div class="mid"><div class="score" id="lv-score">0 - 0</div><div class="clock" id="lv-clock">00:00</div></div><div class="tm away">${logo(a, 34)}<b>${esc(a.short)}</b></div></div>
+      <div class="scoreboard" style="--hc:${kit[0].fill};--ac:${kit[1].fill}"><div class="tm">${logo(h, 34)}<b>${esc(h.short)}</b></div><div class="mid"><div class="score" id="lv-score">0 - 0</div><div class="clock" id="lv-clock">00:00</div></div><div class="tm away">${logo(a, 34)}<b>${esc(a.short)}</b></div></div>
       <div class="possbar" aria-hidden="true"><i id="lv-ph" style="background:${kit[0].fill};width:50%"></i><i style="background:${kit[1].fill};flex:1"></i></div>
       <div class="pitch-wrap"><canvas class="pitch" id="lv-canvas" aria-label="경기 화면"></canvas><div class="owner" id="lv-owner"></div><div id="lv-flash"></div><div id="lv-ht" class="ht-wrap" hidden></div></div>
       <div class="ctrl"><button class="btn" data-act="lvpause" id="lv-pause">일시정지</button><button class="btn" data-act="lvspeed" id="lv-speed">${speedLabel(UI.live.speed)}</button><button class="btn" data-act="lvskip">결과로</button></div>
@@ -1454,7 +1455,7 @@
       ${res.pens ? `<div class="muted" style="text-align:center;font-weight:700">승부차기 ${res.pens[0]} - ${res.pens[1]}</div>` : ''}
       ${goals.length ? `<div class="stack" style="gap:4px;font-size:13px">${goals.map((g) => `<div style="text-align:${g.side === 0 ? 'left' : 'right'}">⚽ <b>${esc(G.players[g.pid] ? G.players[g.pid].name : '')}</b> <span class="muted num" style="font-size:15px">${g.min}'</span></div>`).join('')}</div>` : ''}
       <div class="kv"><div><small>점유율</small><b>${pp} : ${100 - pp}</b></div><div><small>슈팅</small><b>${m.stats[0].shots} : ${m.stats[1].shots}</b></div><div><small>xG</small><b>${m.stats[0].xg.toFixed(1)} : ${m.stats[1].xg.toFixed(1)}</b></div></div>
-      ${motm ? `<div class="row" style="background:color-mix(in srgb,var(--accent) 25%,var(--surface));border-radius:14px;padding:10px">${avatar(motm.p, 48, 'var(--accent)')}<div class="grow"><div class="eyebrow">경기 최우수 선수</div><b style="font-size:16px">${esc(motm.p.name)}</b></div><span class="rating hi" style="font-size:20px">${motm.rating.toFixed(1)}</span></div>` : ''}
+      ${motm ? `<div class="row" class="motm">${avatar(motm.p, 48, 'var(--fm)')}<div class="grow"><div class="eyebrow">경기 최우수 선수</div><b style="font-size:16px">${esc(motm.p.name)}</b></div><span class="rating hi" style="font-size:20px">${motm.rating.toFixed(1)}</span></div>` : ''}
       <div><div class="eyebrow" style="margin-bottom:4px">우리 선수 평점</div><div class="list">${mine.map((x) => `<div class="li">${avatar(x.p, 34)}<span class="grow name" style="font-weight:600">${esc(x.p.name)} ${x.goals ? '⚽'.repeat(x.goals) : ''}${x.ast ? ' 🅰'.repeat(x.ast) : ''}</span><span class="pos ${D.ROLE_GROUP[x.role]}">${x.role}</span><span class="muted num" style="font-size:14px">${x.mins}'</span><span class="rating ${ratingCls(x.rating)}">${x.rating.toFixed(1)}</span></div>`).join('')}</div></div>
       ${others.length ? `<div><div class="eyebrow" style="margin-bottom:4px">같은 날 다른 경기</div><div class="list">${others.slice(0, 10).map((x) => matchLine(G, x.m)).join('')}</div></div>` : ''}
       <button class="btn primary" data-act="closesheet">확인</button>`, () => afterWeek(summary));

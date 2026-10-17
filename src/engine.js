@@ -1139,13 +1139,14 @@
       for (const m of this.mp[s]) {
         const mins = Math.round(((m.endT ?? this.t) - m.startT) * CLOCK / 60);
         const st = m.s;
-        let r = 6.0 + st.passOk * 0.012 - (st.pass - st.passOk) * 0.045 + st.goals * 0.9 + st.ast * 0.55 + st.key * 0.12
+        let r = 6.0 + st.passOk * 0.012 - (st.pass - st.passOk) * 0.045 + st.goals * 0.75 + st.ast * 0.45 + st.key * 0.12
           + st.tkl * 0.07 + st.int * 0.06 + st.drb * 0.012 - st.lost * 0.03 + st.sot * 0.08 + st.saves * 0;
-        if (m.grp === 'GK') r += st.saves * 0.3 - conceded * 0.3 + (conceded === 0 ? 0.5 : 0);
+        if (m.grp === 'GK') r += st.saves * 0.18 - conceded * 0.3 + (conceded === 0 ? 0.5 : 0);
         if (m.grp === 'DF') r += (conceded === 0 ? 0.5 : -conceded * 0.15);
         r += won ? 0.3 : lost ? -0.3 : 0;
         if (m.red) r -= 1.5;
         if (mins < 20) r = 6 + (r - 6) * 0.5;
+        if (r > 8) r = 8 + (r - 8) * 0.55; // 10점은 정말 특별한 경기에서만
         m.rating = clamp(Math.round(r * 10) / 10, 3, 10);
         m.mins = Math.max(1, Math.min(90, mins));
         out.push(m);

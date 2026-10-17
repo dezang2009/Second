@@ -551,3 +551,52 @@ main.view { padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
 .pre-foot { flex: none; width: 100%; max-width: 540px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; padding: 10px 16px max(12px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid #263245; }
 .pre-foot .btn { padding-block: 12px; }
 .swipe-hint { margin: 2px 0 0; text-align: center; font-size: 12px; color: #8e9bb0; }
+
+/* ── 디자인 다듬기 (v1.7) ─────────────────────────────────── */
+/* 상단 바: 날짜·잔고 + 오른쪽 위 '계속' */
+.topbar .meta { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
+.topbar .meta .money { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.topbar .meta .money::before { content: "·"; margin-right: 6px; color: var(--muted); font-family: var(--f-body); }
+.topbar .meta .open { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--brand) 18%, transparent); }
+.cont { position: static; flex: none; padding: 7px 8px 7px 14px; box-shadow: 0 4px 14px color-mix(in srgb, var(--fm) 35%, transparent); }
+.cont b { font-size: 14px; }
+.cont small { font-size: 10px; }
+.cont svg { width: 18px; height: 18px; }
+.cont.match { background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 14px rgba(255, 210, 58, .3); }
+main.view { padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+
+/* 능력치 배지: 꽉 찬 초록 블록 대신 등급별 은은한 색 */
+.ovr { font-size: 17px; width: 36px; height: 30px; border-radius: 8px; }
+.ovr.t1 { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.ovr.t2 { background: color-mix(in srgb, var(--win) 16%, var(--surface)); color: var(--win); }
+.ovr.t3 { background: var(--surface-2); color: var(--ink); }
+.ovr.t4 { background: var(--surface-2); color: var(--muted); }
+:root:not([data-theme="dark"]) .ovr.t1 { color: #8a6500; }
+:root:not([data-theme="dark"]) .ovr.t2 { color: #0b7a43; }
+.li .bar { height: 3px; }
+.li { padding-block: 8px; }
+
+/* 우리 구단 줄·최우수 선수: 테마 보라색 */
+.tbl tr.me td { background: color-mix(in srgb, var(--fm) 20%, var(--surface)); }
+.motm { display: flex; align-items: center; gap: 10px; border-radius: 14px; padding: 10px; background: color-mix(in srgb, var(--fm) 22%, var(--surface)); }
+.rating.hi { color: #04170d; }
+
+/* 경기 화면: 앱 다크 테마와 같은 색 */
+.match-screen { --board: #070914; --ink: #eef0fa; --muted: #9097b8; --line: #272c4d; --surface: #14172b; --surface-2: #1d2140; background: var(--board); }
+.match-screen .card { background: var(--surface); }
+.match-screen .seg, .match-screen select.sel { background: var(--surface-2); border-color: var(--line); }
+.match-screen .seg button { color: var(--muted); }
+.match-screen .seg button.on { background: var(--fm); color: #fff; }
+.match-screen .btn { background: var(--surface-2); }
+.match-screen .btn.ghost { box-shadow: inset 0 0 0 1px var(--line); }
+.match-screen .li { border-color: var(--line); }
+.match-screen .bar, .match-screen .dual, .match-screen .tag { background: #232847; }
+.match-screen .chip { box-shadow: inset 0 0 0 1px var(--line); }
+.pre-tabs, .pre-foot { border-color: var(--line); }
+.pre-tabs button { color: var(--muted); }
+.scoreboard { background: linear-gradient(100deg, color-mix(in srgb, var(--hc, #333) 38%, #0b0d1a) 0%, #0b0d1a 38%, #0b0d1a 62%, color-mix(in srgb, var(--ac, #333) 38%, #0b0d1a) 100%); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); }
+.ht-card { background: #14172b; }
+.talk-opts .btn { background: #1d2140; }
+
+/* 타이틀 화면 슬롯 */
+.title-screen .card { box-shadow: inset 0 0 0 1px var(--line); }
