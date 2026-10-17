@@ -266,10 +266,23 @@
     return G;
   }
 
+  // 새 감독은 구단이 쓰던 전술(실제 감독 스타일)을 물려받는다
+  function inheritTactics(G, t) {
+    const st = D.CLUB_STYLE[t.name];
+    const preset = D.TACTIC_PRESETS.find((x) => x[0] === (st ? st[0] : 'balance'));
+    const formation = st ? st[1] : t.tactics.formation;
+    Object.assign(t.tactics, preset[3], st && st[2] ? st[2] : {}, { formation, formationOP: '' });
+    D.normTactics(t.tactics);
+    t.fam = {}; t.fam[formation] = 85;
+    W.autoLineup(G, t);
+    W.autoRoles(G, t);
+    t.benchManual = false;
+  }
   function startCareer(G, teamId, name) {
     G.user.teamId = teamId;
     G.user.name = name || '감독';
     G.news = [];
+    inheritTactics(G, userTeam(G));
     setupSeason(G);
     const t = userTeam(G);
     news(G, 'board', `${G.user.name} 감독 부임`, `${josa(t.name, '이/가')} ${G.user.name} 감독을 새 사령탑으로 선임했습니다. 구단주의 목표는 '${G.board.goal.text}'입니다.`);
@@ -494,17 +507,26 @@
     const user = fx.m.h === G.user.teamId ? 0 : 1;
     const derby = rivalry(G, h.id, a.id);
     const attendance = Math.round(h.cap * (1 + (h.facilities.stadium - 1) * 0.15) * clamp(0.62 + h.fans / 250 + (derby ? 0.12 : 0) + (fx.euro ? 0.1 : 0), 0.3, 1));
-    return new KM.Engine.Match(buildSide(G, h), buildSide(G, a), { seed, user, derby, attendance });
+    const fill = attendance / Math.max(1, h.cap * (1 + (h.facilities.stadium - 1) * 0.15));
+    return new KM.Engine.Match(buildSide(G, h), buildSide(G, a), { seed, user, derby, attendance, fill, neutral: !!fx.m.fin });
   }
 
   // AI 구단: 상대와의 전력 차에 따라 전술 프리셋을 고른다
   function aiPrepare(G, t, opp) {
     D.normTactics(t.tactics);
     if (t.id === G.user.teamId) return;
+    const st = D.CLUB_STYLE[t.name];
+    if (st && t.tactics.formation !== st[1]) t.tactics.formation = st[1];
     W.autoLineup(G, t);
     const key = aiPlan(G, t, opp);
     const preset = D.TACTIC_PRESETS.find((x) => x[0] === key);
     Object.assign(t.tactics, preset[3]);
+    if (st) {
+      if (st[2]) Object.assign(t.tactics, st[2]);
+      const diff = W.teamRating(G, t) - W.teamRating(G, opp);
+      if (diff < -7) { t.tactics.mentality = Math.max(0, t.tactics.mentality - 1); t.tactics.block = Math.max(0, t.tactics.block - 1); }
+      else if (diff > 7) t.tactics.mentality = Math.min(4, t.tactics.mentality + 1);
+    }
     D.normTactics(t.tactics);
     // 수비 시 포메이션: 내려앉는 팀은 측면 미드필더까지 내려 두 줄 수비
     const f = t.tactics.formation;
@@ -593,7 +615,9 @@
     for (const m of rated) {
       res.players.push({
         p: m.p, role: m.role, mins: m.mins, goals: m.s.goals, ast: m.s.ast,
-        yel: m.yellow ? 1 : 0, red: !!m.red, inj: m.injured ? m.injWeeks : 0, rating: m.rating, endSt: m.st,
+        // 경기 후 컨디션: 엔진의 순간 체력 소모를 그대로 쓰면 빠른 시뮬레이션(90분 약 -28)보다 훨씬 지쳐서
+        // 매 경기 엔진으로 뛰는 사용자 팀만 불리해진다. 같은 척도로 맞춘다.
+        yel: m.yellow ? 1 : 0, red: !!m.red, inj: m.injured ? m.injWeeks : 0, rating: m.rating, endSt: clamp(m.p.cond / 100 - Math.max(0, m.p.cond / 100 - m.st) * 0.6, 0.3, 1),
         cs: match.score[1 - m.side] === 0 && (m.grp === 'GK' || m.grp === 'DF') && m.mins >= 60,
       });
     }
@@ -1243,6 +1267,7 @@
     G.user.sacked = false;
     G.board.conf = 60;
     const t = userTeam(G);
+    inheritTactics(G, t);
     // 다른 리그로 옮기면 그 리그 일정으로 새 시즌을 시작
     if (t.league !== prevLeague || G.week >= G.calendar.length) setupSeason(G);
     G.board.goal = boardGoal(G);
@@ -1287,7 +1312,13 @@
   }
 
   // ── 상대 분석 (AI 전술 선택과 어시스턴트 보고서가 같은 판단을 쓴다) ──
+  // AI 전술: 실제 감독 스타일이 있는 구단은 그 스타일을 쓰고, 전력 차가 크면 공격 성향만 조절한다
   function aiPlan(G, t, opp) {
+    const st = D.CLUB_STYLE[t.name];
+    if (st) return st[0];
+    return aiPlanByRating(G, t, opp);
+  }
+  function aiPlanByRating(G, t, opp) {
     const diff = W.teamRating(G, t) - W.teamRating(G, opp);
     if (diff > 6) return t.rep >= 85 ? (t.id % 2 ? 'gegen' : 'tiki') : 'vtiki';
     if (diff > 2) return t.id % 3 === 0 ? 'wing' : t.id % 3 === 1 ? 'gegen' : 'balance';
@@ -1322,6 +1353,9 @@
     if (key === 'wing') tips.push('상대는 측면 크로스가 주무기예요. 공격 폭을 좁히고 수비 라인을 깊게 두는 것도 방법이에요.');
     if (fast && fast.attr.pac >= 78) tips.push(`${fast.name}의 스피드가 위협적이에요. 높은 수비 라인은 뒷공간을 내줄 수 있어요.`);
     if (them[weak] + 2 < us[weak === 'DF' ? 'FW' : weak === 'FW' ? 'DF' : 'MF']) tips.push(`상대 ${NAME[weak]}이 약점이에요.`);
+    const st = D.CLUB_STYLE[opp.name];
+    if (st && st[1] !== opp.tactics.formation) { opp.tactics.formation = st[1]; W.autoLineup(G, opp); }
+    if (st) tips.unshift(`${josa(opp.name, '은/는')} 감독의 확고한 스타일(${preset[1]}, ${st[1]})로 나올 거예요.`);
     return { opp, key, presetName: preset[1], formation: opp.tactics.formation, stars, weak: NAME[weak], strong: NAME[strong], tips, diff, label: fx.label, day: fx.ev.day };
   }
   function sendReport(G) {

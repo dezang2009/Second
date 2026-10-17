@@ -4,6 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
 const tm = JSON.parse(fs.readFileSync(path.join(root, 'data/transfermarkt.json'), 'utf8'));
+// 지난 시즌 실제 기록 (python3 tools/fetch_tm_stats.py): [출전, 골, 도움, 경고, 퇴장, 출전시간(분), 경기당 승점]
+let STATS = { season: null, players: {} };
+try { STATS = JSON.parse(fs.readFileSync(path.join(root, 'data/tm_stats.json'), 'utf8')); } catch (e) { /* 없음 */ }
 // 한글 이름: ① 트랜스퍼마크트 프로필의 본국 이름(한국 선수) ② 위키데이터 한국어 표기 ③ 직접 음역한 목록
 const KO = {};
 try { Object.assign(KO, JSON.parse(fs.readFileSync(path.join(root, 'data/names_wikidata.json'), 'utf8'))); } catch (e) { /* 없음 */ }
@@ -50,7 +53,8 @@ const leagues = tm.leagues.map((lg) => {
           const ageF = p.age <= 19 ? 0.6 : p.age >= 33 ? 0.5 : 0.8;
           const value = p.value > 0 ? p.value : Math.round((floor * ageF) / 25000) * 25000;
           const photo = (p.photo || '').replace(/^.*\/portrait\/medium\//, '').replace(/\.jpg$/, '');
-          return [p.id, p.ko || KO[p.id] || p.name, p.pos, p.num, p.age, p.nat, p.h, p.foot, p.until, value, photo, p.name];
+          const st = STATS.players[String(p.id)];
+          return [p.id, p.ko || KO[p.id] || p.name, p.pos, p.num, p.age, p.nat, p.h, p.foot, p.until, value, photo, p.name, st ? st.slice(0, 6) : 0];
         }),
       };
     }),
@@ -61,8 +65,8 @@ const out = `// 자동 생성 파일: node tools/build_data.js
 // 출처: ${tm.source} (수집일 ${tm.fetched}). 선수 사진·구단 로고는 트랜스퍼마크트 CDN에서 불러온다.
 (function (KM) {
   'use strict';
-  const RAW = ${JSON.stringify({ season: tm.season, fetched: tm.fetched, colors, leagues })};
-  const F = ['id', 'name', 'pos', 'num', 'age', 'nat', 'h', 'foot', 'until', 'value', 'photo', 'en'];
+  const RAW = ${JSON.stringify({ season: tm.season, fetched: tm.fetched, statsSeason: STATS.season, colors, leagues })};
+  const F = ['id', 'name', 'pos', 'num', 'age', 'nat', 'h', 'foot', 'until', 'value', 'photo', 'en', 'st'];
   for (const lg of RAW.leagues) for (const c of lg.clubs) {
     c.players = c.players.map((row) => { const o = {}; F.forEach((k, i) => { o[k] = row[i]; }); return o; });
   }

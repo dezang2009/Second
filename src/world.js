@@ -77,11 +77,11 @@
   }
 
   // 능력치 생성: 세부 포지션 성향 + 선수별 고정 난수 → OVR이 목표에 맞도록 보정
-  function makeAttrs(rng, role, target, height) {
+  function makeAttrs(rng, role, target, height, bias) {
     const pos = D.ROLE_GROUP[role];
     const t = TEMPLATE[role];
     const attr = {};
-    for (const k of ATTRS) attr[k] = rng.gauss(target + t[k], 5.5);
+    for (const k of ATTRS) attr[k] = rng.gauss(target + t[k], 5.5) + ((bias && bias[k]) || 0);
     if (height >= 188) { attr.phy += 4; attr.pac -= 2; attr.dri -= 2; }
     else if (height && height <= 172) { attr.dri += 3; attr.pac += 2; attr.phy -= 5; }
     for (let i = 0; i < 3; i++) {
@@ -102,6 +102,22 @@
     };
   }
 
+  // 지난 시즌 실제 기록으로 능력치 성향 보정 (OVR은 그대로, 장단점만 바뀐다)
+  // 포지션별 평균 대비 90분당 골·도움이 많으면 슈팅·패스, 카드가 많으면 몸싸움(적극성)이 오른다
+  const STAT_BASE = { ST: [0.42, 0.14], LW: [0.28, 0.19], RW: [0.28, 0.19], AM: [0.24, 0.22], LM: [0.15, 0.16], RM: [0.15, 0.16], CM: [0.09, 0.12], DM: [0.05, 0.08], LB: [0.04, 0.12], RB: [0.04, 0.12], CB: [0.05, 0.03], GK: [0, 0] };
+  function statBias(p, role, st) {
+    if (!st || !st[5]) return null;
+    const [apps, g, a, y, r, min] = st;
+    p.last = { apps, g, a, y, r, min };
+    if (min < 450 || role === 'GK') return null;
+    const w = Math.min(1, min / 1800);
+    const [bg, ba] = STAT_BASE[role] || [0.1, 0.1];
+    const g90 = g * 90 / min, a90 = a * 90 / min, c90 = (y + r * 2) * 90 / min;
+    const kg = clamp(Math.log2((g90 + 0.04) / (bg + 0.04)), -1.6, 1.6), ka = clamp(Math.log2((a90 + 0.04) / (ba + 0.04)), -1.6, 1.6);
+    p.agg = clamp((c90 - 0.2) * 12, -3, 4) * w;
+    return { sho: 4.5 * kg * w, pas: 3 * ka * w, dri: 1.5 * ka * w, phy: clamp((c90 - 0.2) * 8, -2, 3) * w };
+  }
+
   // 트랜스퍼마크트 선수 → 게임 선수
   function createRealPlayer(G, raw, seasonYear) {
     const role = D.ROLE_KO[raw.pos] || 'CM';
@@ -112,7 +128,8 @@
     p.num = raw.num || 0;
     p.value = Math.max(25, Math.round((raw.value || 50000) / 1000));
     const target = ovrFromValue(p.value, p.age);
-    p.attr = makeAttrs(rng, role, target, h);
+    const bias = statBias(p, role, raw.st);
+    p.attr = makeAttrs(rng, role, target, h, bias);
     p.ovr = ovrOf(p.attr, p.pos);
     p.vOvr = p.ovr;
     const growth = p.age <= 19 ? rng.int(10, 22) : p.age <= 21 ? rng.int(6, 16) : p.age <= 23 ? rng.int(3, 10) : p.age <= 26 ? rng.int(0, 4) : 0;
@@ -295,7 +312,7 @@
     mental: ['정신', [
       ['시야', { pas: 0.8, dri: 0.2 }], ['판단력', { pas: 0.4, def: 0.3, sho: 0.3 }], ['침착성', { sho: 0.5, pas: 0.3, dri: 0.2 }],
       ['오프 더 볼', { sho: 0.6, pac: 0.4 }], ['위치 선정', { def: 0.9, phy: 0.1 }], ['활동량', { phy: 0.6, pac: 0.2, def: 0.2 }],
-      ['팀워크', { pas: 0.5, def: 0.5 }], ['집중력', { def: 0.6, pas: 0.4 }], ['적극성', { phy: 0.6, def: 0.4 }], ['리더십', { phy: 0.3, def: 0.3, pas: 0.4 }, 'age']]],
+      ['팀워크', { pas: 0.5, def: 0.5 }], ['집중력', { def: 0.6, pas: 0.4 }], ['적극성', { phy: 0.6, def: 0.4 }, 'agg'], ['리더십', { phy: 0.3, def: 0.3, pas: 0.4 }, 'age']]],
     phys: ['신체', [
       ['가속도', { pac: 1 }], ['주력', { pac: 1 }], ['민첩성', { dri: 0.6, pac: 0.4 }], ['밸런스', { dri: 0.5, phy: 0.5 }],
       ['점프', { phy: 1 }, 'h'], ['근력', { phy: 1 }, 'h'], ['지구력', { phy: 0.7, pac: 0.3 }, 'young']]],
@@ -313,6 +330,7 @@
     if (extra === 'h' && p.h) v += clamp((p.h - 181) * 0.7, -9, 9);
     if (extra === 'age') v += clamp((p.age - 25) * 1.6, -10, 12);
     if (extra === 'young') v += clamp((27 - p.age) * 0.8, -8, 5);
+    if (extra === 'agg') v += (p.agg || 0) * 3;
     v += (hash01(p.id, i) - 0.5) * 16;
     return Math.round(clamp((v - 18) / 4.1, 1, 20));
   }
@@ -356,7 +374,7 @@
       for (const k of D.rolesFor(sl[0])) {
         if (k === 'wcb' && slots.filter((x) => x[0] === 'CB').length < 3) continue;
         if (k === 'reg' || k === 'tq' || k === 'eng' || k === 'rmd' || k === 'lib') { if (roleScore(p, k, dm) < 15) continue; }
-        const v = roleScore(p, k, dm) + (lean[k] || 0) + (k === D.DEFAULT_ROLE[sl[0]][0] ? 0.6 : 0);
+        const v = roleScore(p, k, dm) + (lean[k] || 0) + (k === D.DEFAULT_ROLE[sl[0]][0] ? 0.6 : 0) + footBonus(p, sl, k);
         if (v > bv) { bv = v; best = k; }
       }
       const def = D.ROLES[best];
@@ -366,6 +384,15 @@
       return [best, duty];
     });
     return team.roles;
+  }
+  // 주발: 반대발 측면 선수는 안으로 파고드는 역할, 같은 발은 터치라인을 타는 역할이 잘 맞는다
+  const INSIDE = new Set(['if', 'iw', 'iwb', 'wp']), OUTSIDE = new Set(['w', 'wb', 'cwb', 'wm']);
+  function footBonus(p, sl, k) {
+    if (!p.foot || p.foot === 'both' || (sl[2] > 0.3 && sl[2] < 0.7)) return 0;
+    const left = sl[2] < 0.5, natural = (p.foot === 'left') === left;
+    if (INSIDE.has(k)) return natural ? -0.6 : 1.4;
+    if (OUTSIDE.has(k)) return natural ? 1.0 : -0.6;
+    return 0;
   }
   // 포메이션 숙련도: 오래 쓴 포메이션일수록 선수들이 자리를 잘 잡는다
   function famOf(team, f) {

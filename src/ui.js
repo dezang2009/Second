@@ -743,6 +743,7 @@
       <div class="kv"><div><small>컨디션</small><b style="color:${condColor(p.cond)}">${p.cond}%</b></div><div><small>사기</small><b>${moraleText(p.morale)}</b></div><div><small>폼</small><b>${p.ratings.length ? p.form.toFixed(1) : '-'}</b></div></div>
       <div class="kv"><div><small>시즌 출전</small><b>${st.apps}</b></div><div><small>골 / 도움</small><b>${st.goals} / ${st.assists}</b></div><div><small>평균 평점</small><b>${avg}</b></div></div>
       <div class="muted" style="font-size:12px">통산 ${p.career.apps}경기 ${p.career.goals}골 ${p.career.assists}도움${p.gen ? ' · 가상 선수(유스/자유계약)' : ''}</div>
+      ${p.last ? `<div class="real-st"><span class="eyebrow">실제 ${KM.REAL.statsSeason ? `${KM.REAL.statsSeason}/${String(KM.REAL.statsSeason + 1).slice(2)}` : '지난'} 시즌 기록 (전 대회)</span><div><b>${p.last.apps}</b>경기 <b>${p.last.g}</b>골 <b>${p.last.a}</b>도움 · ${p.last.min.toLocaleString()}분${p.last.y ? ` · 경고 ${p.last.y}` : ''}${p.last.r ? ` · 퇴장 ${p.last.r}` : ''}</div>${p.foot ? `<small>주발: ${{ right: '오른발', left: '왼발', both: '양발' }[p.foot] || p.foot}</small>` : ''}</div>` : ''}
       ${actions}`;
     const same = $('.sheet-bg') && $('.sheet-bg').dataset.pid === String(pid);
     sheet(html, () => { UI.draft = null; }, { update: same });
@@ -1422,7 +1423,7 @@
     const m = S.createMatch(G, fx);
     const userSide = fx.m.h === t.id ? 0 : 1;
     UI.prematch = false;
-    if (quick) { m.runToEnd(); return finishMatch(m); }
+    if (quick) { m.user = -1; m.runToEnd(); return finishMatch(m); } // 결과만 보기: 교체는 코치진이 알아서
     UI.live = { m, fx, userSide, speed: G.settings.speed || 1, talk: null, paused: false, acc: 0, evShown: 0, tab: 'feed', selOut: null, last: 0, owner: null };
     let el = $('.match-screen');
     if (!el) { el = document.createElement('div'); document.body.appendChild(el); lockScroll(); }
@@ -1612,7 +1613,7 @@
     if (L.tab === 'stats') { const c = $('#momchart'); if (c) drawMomentum(c, m.momentum, KM.Render.kits(m.sides[0].team, m.sides[1].team)); }
   }
   function evIcon(e) {
-    return { goal: '⚽', yellow: '🟨', red: '🟥', sub: '⇄', inj: '✚', save: '🧤', miss: '✖', pen: '❗', half: '⏸', ft: '⏹', chance: '•', talk: '🗣', com: '🎙' }[e.type] || '•';
+    return { goal: '⚽', yellow: '🟨', red: '🟥', sub: '⇄', inj: '✚', save: '🧤', miss: '✖', pen: '❗', half: '⏸', ft: '⏹', chance: '•', talk: '🗣', com: '🎙', off: '🚩' }[e.type] || '•';
   }
   function liveStats(m) {
     const s0 = m.stats[0], s1 = m.stats[1];
@@ -1623,7 +1624,7 @@
       return `<div class="statrow"><span class="num">${fmt ? fmt(a) : a}</span><div><div class="mid">${label}</div><div class="dual"><i style="flex:${a / tot};background:${kit[0].fill}"></i><i style="flex:${b / tot};background:${kit[1].fill}"></i></div></div><span class="num">${fmt ? fmt(b) : b}</span></div>`;
     };
     return `${row('점유율', pp, 100 - pp, (v) => v + '%')}${row('슈팅', s0.shots, s1.shots)}${row('유효 슈팅', s0.sot, s1.sot)}${row('기대 득점(xG)', s0.xg, s1.xg, (v) => v.toFixed(2))}
-      ${row('패스 성공', s0.passOk, s1.passOk)}${row('태클', s0.tkl, s1.tkl)}${row('코너킥', s0.corners, s1.corners)}${row('파울', s0.fouls, s1.fouls)}${row('경고', s0.yel, s1.yel)}
+      ${row('패스 성공', s0.passOk, s1.passOk)}${row('태클', s0.tkl, s1.tkl)}${row('코너킥', s0.corners, s1.corners)}${row('오프사이드', s0.off || 0, s1.off || 0)}${row('파울', s0.fouls, s1.fouls)}${row('경고', s0.yel, s1.yel)}
       <div class="eyebrow" style="margin-top:10px">경기 흐름 (위 ${esc(m.sides[0].team.short)} · 아래 ${esc(m.sides[1].team.short)})</div><canvas class="mom" id="momchart"></canvas>`;
   }
   function drawMomentum(c, data, kit) {
@@ -1676,7 +1677,7 @@
       <div class="fixture"><div class="tm">${logo(h, 64)}<b>${esc(h.name)}</b></div><div class="sc num">${m.score[0]} - ${m.score[1]}</div><div class="tm">${logo(a, 64)}<b>${esc(a.name)}</b></div></div>
       ${res.agg || res.pens ? `<div class="muted" style="text-align:center;font-weight:700">${res.agg ? `합계 ${res.agg[0]} - ${res.agg[1]}` : ''}${res.agg && res.pens ? ' · ' : ''}${res.pens ? `승부차기 ${res.pens[0]} - ${res.pens[1]}` : ''}</div>` : ''}
       ${summary.user.res.an ? '<button class="btn an-btn" data-act="analysis">📊 경기 분석 보기</button>' : ''}
-      ${goals.length ? `<div class="stack" style="gap:4px;font-size:13px">${goals.map((g) => `<div style="text-align:${g.side === 0 ? 'left' : 'right'}">⚽ <b>${esc(G.players[g.pid] ? G.players[g.pid].name : '')}</b> <span class="muted num" style="font-size:15px">${g.min}'</span></div>`).join('')}</div>` : ''}
+      ${goals.length ? `<div class="stack" style="gap:4px;font-size:13px">${goals.map((g) => `<div style="text-align:${g.side === 0 ? 'left' : 'right'}">⚽ <b>${esc(G.players[g.pid] ? G.players[g.pid].name : '')}${g.og ? ' (자책골)' : ''}</b> <span class="muted num" style="font-size:15px">${g.min}'</span></div>`).join('')}</div>` : ''}
       <div class="kv"><div><small>점유율</small><b>${pp} : ${100 - pp}</b></div><div><small>슈팅</small><b>${m.stats[0].shots} : ${m.stats[1].shots}</b></div><div><small>xG</small><b>${m.stats[0].xg.toFixed(1)} : ${m.stats[1].xg.toFixed(1)}</b></div></div>
       ${motm ? `<div class="row" class="motm">${avatar(motm.p, 48, 'var(--fm)')}<div class="grow"><div class="eyebrow">경기 최우수 선수</div><b style="font-size:16px">${esc(motm.p.name)}</b></div><span class="rating hi" style="font-size:20px">${motm.rating.toFixed(1)}</span></div>` : ''}
       <div><div class="eyebrow" style="margin-bottom:4px">우리 선수 평점</div><div class="list">${mine.map((x) => `<div class="li">${avatar(x.p, 34)}<span class="grow name" style="font-weight:600">${esc(x.p.name)} ${x.goals ? '⚽'.repeat(x.goals) : ''}${x.ast ? ' 🅰'.repeat(x.ast) : ''}</span><span class="pos ${D.ROLE_GROUP[x.role]}">${x.role}</span><span class="muted num" style="font-size:14px">${x.mins}'</span><span class="rating ${ratingCls(x.rating)}">${x.rating.toFixed(1)}</span></div>`).join('')}</div></div>

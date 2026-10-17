@@ -46,7 +46,7 @@
     o = o || {};
     // 역할 적합도에 따른 능력치 보정 + 포메이션 숙련도
     const fam = o.fam == null ? 90 : o.fam;
-    this.base = base || 62; this.fam = fam;
+    this.base = base || 62; this.fam = fam; this.hb = o.hb || 0;
     this.p = p; this.role = role;
     const a = this.calcA(morale);
     this.p = p; this.id = p.id; this.side = side; this.role = role; this.grp = roleGroup(role);
@@ -71,9 +71,9 @@
   // 능력치: 역할 적합도·사기·포메이션 숙련도 반영 후, 차이를 완만하게 압축해 약팀도 이변을 낼 수 있게 함
   MP.prototype.calcA = function (morale) {
     const p = this.p, role = this.role;
-    const f = Math.pow(D.fit(role, p), 0.7) * (0.94 + 0.12 * (morale / 100)) * (0.95 + 0.05 * this.fam / 100);
+    const f = Math.pow(D.fit(role, p), 0.7) * (0.94 + 0.12 * (morale / 100)) * (0.95 + 0.05 * this.fam / 100) * (1 + this.hb);
     const a = {};
-    for (const k in p.attr) a[k] = 62 + (p.attr[k] * f - this.base) * 0.45;
+    for (const k in p.attr) a[k] = 62 + (p.attr[k] * f - this.base) * 0.55;
     if (role === 'GK' && p.pos !== 'GK') a.gk = p.attr.gk * 0.5;
     return a;
   };
@@ -94,6 +94,8 @@
     this.subsLeft = [5, 5];
     this.used = new Set();
     for (const sd of this.sides) D.normTactics(sd.tactics);
+    // 홈 어드밴티지: 관중이 꽉 찰수록 홈팀 경기력이 조금 오른다 (중립 경기는 없음)
+    this.homeAdv = opts.neutral ? 0 : 0.03 + 0.03 * clamp(opts.fill == null ? 0.8 : opts.fill, 0, 1);
     this.wonT = [-99, -99]; this.lostT = [-99, -99];
     this.P = [null, null];
     // 경기 수준 기준점: 두 팀 선발의 평균 OVR. 리그 수준과 상관없이 두 팀의 '차이'가 경기를 좌우한다
@@ -102,12 +104,12 @@
     this.base = cnt ? sum / cnt : 62;
     for (let s = 0; s < 2; s++) {
       const sd = this.sides[s];
-      sd.starters.forEach((st) => this.mp[s].push(new MP(st.p, s, st.role, st.slot, st.p.cond, st.p.morale, this.rng.next() * 6.28, this.base, { r: st.r, op: st.op, fam: sd.fam })));
+      sd.starters.forEach((st) => this.mp[s].push(new MP(st.p, s, st.role, st.slot, st.p.cond, st.p.morale, this.rng.next() * 6.28, this.base, { r: st.r, op: st.op, fam: sd.fam, hb: s === 0 ? this.homeAdv : 0 })));
     }
     this.ball = { x: 52.5, y: 34, vx: 0, vy: 0, owner: null, mode: 'held', z: 0 };
     this.t = 0;
     this.half = 1;
-    this.added = [this.rng.int(0, 3) * 60 / CLOCK, this.rng.int(1, 6) * 60 / CLOCK];
+    this.added = [0, 0]; this.addSet = [false, false]; // 추가시간은 각 하프 45분이 되면 그동안의 골·교체·부상·카드로 정한다
     this.score = [0, 0];
     this.state = 'kickoff';
     this.timer = 1.2;
@@ -147,7 +149,7 @@
   }
 
   function blankStats() {
-    return { poss: 0, shots: 0, sot: 0, xg: 0, pass: 0, passOk: 0, fouls: 0, corners: 0, yel: 0, red: 0, tkl: 0 };
+    return { poss: 0, shots: 0, sot: 0, xg: 0, pass: 0, passOk: 0, fouls: 0, corners: 0, yel: 0, red: 0, tkl: 0, off: 0 };
   }
 
   const M = Match.prototype;
@@ -186,7 +188,7 @@
   };
 
   M.log = function (type, side, text, extra) {
-    const ev = Object.assign({ min: this.minute(), clock: this.clockText(), type, side, text }, extra || {});
+    const ev = Object.assign({ min: this.minute(), clock: this.clockText(), type, side, text, h: this.half }, extra || {});
     this.events.push(ev);
     return ev;
   };
@@ -218,6 +220,7 @@
     b.owner = m; b.mode = 'held'; b.vx = b.vy = 0; b.z = 0;
     if (this.poss !== m.side && this.state === 'play') {
       this.wonT[m.side] = this.t; this.lostT[1 - m.side] = this.t;
+      this.fromRestart = null;
       // 공수 전환: 공보다 앞에 올라가 있던 선수는 돌아서는 데 시간이 걸린다 (공격적일수록 더 많이 올라가 있다)
       const ls = 1 - m.side, LP = this.params(ls), bf = fx(ls, m.x);
       for (const o of this.onPitch(ls)) {
@@ -336,6 +339,8 @@
   };
 
   M.checkClock = function () {
+    if (this.half === 1 && !this.addSet[0] && this.t >= HALF) this.setAdded(0);
+    if (this.half === 2 && !this.addSet[1] && this.t >= HALF * 2 + this.added[0]) this.setAdded(1);
     const endHalf1 = HALF + this.added[0];
     const endFull = HALF * 2 + this.added[0] + this.added[1];
     if (this.half === 1 && this.t >= endHalf1 && this.ballSafe()) {
@@ -351,6 +356,15 @@
     } else if (this.half === 2 && this.t >= endFull && this.ballSafe()) {
       this.finish();
     }
+  };
+  M.setAdded = function (h) {
+    this.addSet[h] = true;
+    const ev = this.events.filter((e) => e.h === h + 1);
+    const c = (t) => ev.filter((e) => e.type === t).length;
+    let n = (h ? 1.6 : 0.8) + c('goal') * 0.4 + c('sub') * 0.22 + c('inj') * 1.2 + (c('yellow') + c('red')) * 0.2 + this.rng.next();
+    n = clamp(Math.round(n), h ? 2 : 1, h ? 9 : 6);
+    this.added[h] = n * 60 / CLOCK;
+    this.say(-1, `추가시간 ${n}분이 주어집니다.`);
   };
   M.ballSafe = function () {
     // 슈팅 중이면 끝날 때까지 기다림
@@ -435,7 +449,8 @@
             if (P.finalThird === 3 && (m.role === 'LW' || m.role === 'RW' || m.role === 'LM' || m.role === 'RM')) ty = lerp(ty, m.by < 0.5 ? 5 : WID - 5, 0.5);
             // 크로스 위주: 공이 측면 깊숙이 오면 스트라이커와 공격형 미드필더가 박스로 쇄도
             if (P.finalThird === 3 && bF > 68 && (m.role === 'ST' || m.role === 'AM')) { tf = 95 + (m.phase % 1) * 5; ty = 28 + ((m.phase * 7) % 12); }
-            if (m.grp !== 'GK') tf = Math.min(tf, offLine);
+            // 침투 타이밍: 오프 더 볼이 약할수록 가끔 라인을 넘어선다 (→ 오프사이드)
+            if (m.grp !== 'GK') tf = Math.min(tf, offLine + (m.grp === 'FW' || R.run > 0 ? Math.max(0, Math.sin(this.t * 0.55 + m.phase * 2.3)) ** 2 * Math.max(0.25, 1.7 - (m.a.sho + m.a.pac) / 110) : 0));
             // 세트피스: 공격수와 장신 수비수가 박스로
             if (this.setPiece && this.setPiece.side === s && (m.grp === 'FW' || m.role === 'CB' || m.role === 'AM')) {
               tf = 93 + (m.phase % 1) * 6; ty = 28 + ((m.phase * 7) % 12);
@@ -550,7 +565,7 @@
       m.y = clamp(m.y + m.vy * DT, -1, WID + 1);
       const r = Math.hypot(m.vx, m.vy) / m.maxSpd;
       const press = this.tac(m.side).press + (this.params(m.side).counterPress ? 1 : 0);
-      const drain = (0.00011 + 0.00042 * r * r * (m.chase ? 1 + press * 1.1 : 1)) * (1.25 - (m.a.phy / 100) * 0.5) * (1 + this.tac(m.side).press * 0.2) * (1 + m.R.press * 0.12 + (m.R.key === 'b2b' || m.R.key === 'cwb' ? 0.12 : 0));
+      const drain = (0.00011 + 0.00042 * r * r * (m.chase ? 1 + press * 1.2 : 1)) * (1.25 - (m.a.phy / 100) * 0.5) * (1 + this.tac(m.side).press * 0.24) * (1 + m.R.press * 0.12 + (m.R.key === 'b2b' || m.R.key === 'cwb' ? 0.12 : 0));
       m.st = Math.max(0.05, m.st - drain * DT);
     }
     if (b.owner) {
@@ -765,8 +780,28 @@
   }
   function segDist(px, py, ax, ay, bx, by) { return segDistT(px, py, ax, ay, bx, by).d; }
 
+  // 오프사이드: 패스 순간 받는 선수가 상대 진영에서 공과 뒤에서 두 번째 수비수보다 앞에 있으면
+  M.offsideCheck = function (m, t) {
+    const s = m.side;
+    if (this.fromRestart) return false; // 스로인·코너킥·골킥은 오프사이드 없음
+    const tf = fx(s, t.x);
+    if (tf <= LEN / 2) return false;
+    const fs = this.onPitch(1 - s).map((o) => fx(s, o.x)).sort((a, b) => b - a);
+    let line = fs[1] != null ? fs[1] : LEN;
+    if (this.params(1 - s).line === 1) line -= 0.6; // 높은 라인은 한 발 먼저 올라가 함정을 판다
+    return tf > Math.max(line, fx(s, m.x)) + 0.75;
+  };
+  M.callOffside = function (m, t) {
+    const s = m.side;
+    this.stats[s].off++;
+    this.log('off', s, `오프사이드! ${sn(t.p)}의 침투가 한 발 빨랐습니다.`, { pid: t.id });
+    this.setRestart('fk', 1 - s, t.x, t.y);
+    this.restart.taker = this.onPitch(1 - s).sort((a, b) => dist(a.x, a.y, t.x, t.y) - dist(b.x, b.y, t.x, t.y))[0];
+  };
   M.doPass = function (m, o) {
     const rng = this.rng;
+    if (o.t && o.t.side === m.side && this.offsideCheck(m, o.t)) { m.s.pass++; this.stats[m.side].pass++; this.lastTouch = m.side; this.callOffside(m, o.t); return; }
+    this.fromRestart = null;
     const err = (0.035 + (1 - m.a.pas / 100) * 0.11) * (1 + o.L / 40) * (1 + Math.max(0, 0.8 - m.st) * 1.2);
     const ang = Math.atan2(o.tY - m.y, o.tX - m.x) + rng.gauss(0, err);
     const L = o.L * (1 + rng.gauss(0, err * 0.6));
@@ -793,8 +828,8 @@
     const skill = header ? (m.a.phy * 0.6 + m.a.sho * 0.4) * (1 + m.R.aerial * 0.25) : m.a.sho;
     const gkSkill = gk ? gk.a.gk : 30;
     let pGoal = xg * (0.55 + skill / 110) * (1.45 - gkSkill / 110);
-    pGoal = clamp(pGoal * 0.54, 0.005, 0.9);
-    xg = Math.min(0.95, xg * 0.55); // 표시용 xG: 실제 득점 확률 수준으로 보정
+    pGoal = clamp(pGoal * 0.43, 0.005, 0.9);
+    xg = Math.min(0.95, xg * 0.42); // 표시용 xG: 실제 득점 확률 수준으로 보정
     const f = fx(s, m.x), y = fy(s, m.y);
     const d = Math.hypot(LEN - f, 34 - y);
     const pOn = clamp(0.32 + skill / 250 - d * 0.006, 0.18, 0.75);
@@ -857,6 +892,8 @@
             let pi = 0.22 + o.a.def / 260 + (p.speed < 15 ? 0.1 : 0) + (this.params(o.side).tight ? 0.05 : 0) + (this.params(o.side).block === 0 && fx(o.side, o.x) < 35 ? 0.08 : 0) + (this.params(o.side).line === -1 && fx(o.side, o.x) < 30 ? 0.06 : 0) + (this.params(o.side).men < 0 && fx(o.side, o.x) < 35 ? 0.05 * -this.params(o.side).men : 0);
             if (o.grp === 'GK') pi = 0.35 + o.a.gk / 200;
             if (p.cross && o.grp === 'DF') pi += 0.04;
+            // 문전 크로스를 걷어내려다 자책골
+            if (p.cross && o.grp !== 'GK' && fx(o.side, o.x) < 7 && Math.abs(fy(o.side, o.y) - 34) < 10 && rng.chance(0.07)) { this.pass = null; this.ownGoal(o, p.from.side); return; }
             if (rng.chance(pi)) {
               o.s.int++;
               this.pass = null;
@@ -911,6 +948,15 @@
     }
   };
 
+  M.ownGoal = function (o, s) {
+    this.score[s]++;
+    const ev = this.log('goal', s, `자책골! ${J(sn(o.p), '이/가')} 걷어낸 공이 자기 골문으로 들어갑니다!`, { pid: o.id, og: true });
+    this.goalsList.push(ev);
+    this.flash = { type: 'goal', side: s, name: o.p.name + ' (자책골)' };
+    this.state = 'goal'; this.timer = 3.2;
+    this.kickSide = 1 - s;
+    const b = this.ball; b.mode = 'dead'; b.owner = null;
+  };
   M.looseBall = function (x, y, v) {
     const b = this.ball, a = this.rng.next() * Math.PI * 2;
     b.owner = null; b.mode = 'free'; b.x = x; b.y = y; b.vx = Math.cos(a) * v; b.vy = Math.sin(a) * v;
@@ -974,6 +1020,24 @@
       this.doShot(r.taker, 1.4);
       return;
     }
+    // 프리킥: 골문 정면 17~32m면 전담 키커가 직접 노리고, 측면이면 박스로 크로스
+    if (r.kind === 'fk') {
+      const s = r.side, f = fx(s, r.x), y = fy(s, r.y), d = Math.hypot(LEN - f, 34 - y);
+      if (f > 60) {
+        const kick = this.onPitch(s).filter((m) => m.grp !== 'GK').sort((a, b) => (b.a.sho + b.a.pas) - (a.a.sho + a.a.pas))[0] || r.taker;
+        kick.x = r.x; kick.y = r.y;
+        if (d >= 17 && d <= 32 && Math.abs(y - 34) < 17 && this.rng.chance(0.3)) {
+          this.giveBall(kick, 0);
+          this.say(s, `프리킥, ${J(sn(kick.p), '이/가')} 직접 노립니다. 거리 ${Math.round(d)}m.`);
+          this.doShot(kick, 0.13 * (0.6 + kick.a.sho / 160));
+          return;
+        }
+        this.giveBall(kick, 0.4);
+        this.setPiece = { side: s };
+        return;
+      }
+    }
+    this.fromRestart = r.kind === 'throw' || r.kind === 'corner' || r.kind === 'goalkick' || r.kind === 'gkhold' ? r.kind : null;
     this.giveBall(r.taker, r.kind === 'corner' ? 0.05 : r.kind === 'goalkick' ? 0.8 : 0.2);
     if (r.kind === 'corner') this.setPiece = { side: r.side };
   };
@@ -1048,7 +1112,7 @@
       const mf = fx(m.side, m.x), inBox = mf > LEN - 16.5 && Math.abs(fy(m.side, m.y) - 34) < 20;
       const foulP = (0.16 + (press === 2 ? 0.04 : 0) + (o.a.def < 50 ? 0.05 : 0)) * OP.foulF * (inBox ? 0.05 : 1);
       if (rng.chance(foulP)) { this.foul(o, m); return; }
-      o.stun = 0.9 + press * 0.25; // 무리한 압박이 실패하면 더 오래 제쳐진다
+      o.stun = 0.9 + press * 0.3; // 무리한 압박이 실패하면 더 오래 제쳐진다
       m.s.drb++;
       if (fx(m.side, m.x) > 60 && this.crng.chance(0.28)) this.say(m.side, this.pick(DRIBBLE)(sn(m.p), sn(o.p)), 'dribble');
       return;
@@ -1099,7 +1163,8 @@
       const all = this.all().filter((m) => !m.injured);
       const m = rng.pick(all);
       m.injured = true;
-      m.injWeeks = rng.int(1, 6);
+      const sv = rng.next();
+      m.injWeeks = sv < 0.6 ? rng.int(1, 2) : sv < 0.9 ? rng.int(3, 6) : rng.int(8, 16); // 경미 60% · 중간 30% · 장기 10%
       this.log('inj', m.side, `${m.p.name} 부상으로 쓰러집니다.`, { pid: m.id });
     }
     if (this.t >= this.nextAiCheck) {
@@ -1136,7 +1201,7 @@
 
   M.substitute = function (s, out, p) {
     if (this.subsLeft[s] <= 0 || !out.on || this.used.has(p.id)) return false;
-    const nm = new MP(p, s, out.role, [out.role, out.bx, out.by], p.cond, p.morale, this.rng.next() * 6.28, this.base, { r: [out.R.key, out.R.duty], op: [out.role, out.obx, out.oby], fam: out.fam });
+    const nm = new MP(p, s, out.role, [out.role, out.bx, out.by], p.cond, p.morale, this.rng.next() * 6.28, this.base, { r: [out.R.key, out.R.duty], op: [out.role, out.obx, out.oby], fam: out.fam, hb: out.hb });
     nm.x = out.x; nm.y = out.y; nm.startT = this.t;
     out.on = false; out.endT = this.t; out.subbed = true;
     if (this.ball.owner === out) this.giveBall(nm);

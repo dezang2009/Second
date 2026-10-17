@@ -223,6 +223,30 @@
     ['레알 마드리드', '바이에른 뮌헨', '유럽의 클라시코', 2], ['바르셀로나', '파리 생제르맹', '유럽 빅매치', 2], ['리버풀', '레알 마드리드', '유럽 빅매치', 2],
   ];
 
+
+  // ── 구단별 실제 전술 성향 (2025/26 시즌 감독 스타일을 참고한 근사치) ──
+  // [프리셋, 주 포메이션, 덧붙일 지시]
+  const CLUB_STYLE = {
+    '맨체스터 시티': ['tiki', '4-3-3'], '아스널': ['vtiki', '4-3-3', { approach: 3 }], '리버풀': ['vtiki', '4-2-3-1'], '첼시': ['tiki', '4-2-3-1'],
+    '맨체스터 유나이티드': ['balance', '3-4-3', { approach: 3 }], '토트넘 홋스퍼': ['direct', '4-2-3-1'], '뉴캐슬 유나이티드': ['gegen', '4-3-3'],
+    '브라이턴 & 호브 앨비언': ['tiki', '4-2-3-1'], '브렌트퍼드': ['direct', '4-3-3'], '애스턴 빌라': ['balance', '4-2-3-1', { line: 2 }],
+    '본머스': ['gegen', '4-2-3-1'], '크리스털 팰리스': ['counter', '3-4-3'], '노팅엄 포리스트': ['counter', '4-2-3-1'], '에버턴': ['direct', '4-2-3-1'],
+    '풀럼': ['balance', '4-2-3-1'], '리즈 유나이티드': ['gegen', '4-3-3'], '선덜랜드': ['counter', '4-2-3-1'],
+    '바르셀로나': ['gegen', '4-2-3-1', { passing: 1, line: 2 }], '레알 마드리드': ['balance', '4-3-3', { dribble: 2 }], '아틀레티코 마드리드': ['counter', '4-4-2', { tackle: 2 }],
+    '아틀레틱 빌바오': ['gegen', '4-2-3-1'], '레알 소시에다드': ['tiki', '4-3-3'], '레알 베티스': ['tiki', '4-2-3-1'], '비야레알': ['balance', '4-4-2'],
+    '셀타 비고': ['tiki', '3-4-3'], '세비야': ['balance', '4-2-3-1'], '헤타페': ['direct', '4-4-2', { tackle: 2, block: 0 }], '라요 바예카노': ['gegen', '4-3-3'],
+    '오사수나': ['direct', '4-4-2'], '발렌시아': ['counter', '4-4-2'], '에스파뇰': ['counter', '4-4-2'],
+    '바이에른 뮌헨': ['gegen', '4-2-3-1', { mentality: 4 }], '바이어 레버쿠젠': ['tiki', '3-4-3'], '도르트문트': ['balance', '3-4-3'], '라이프치히': ['gegen', '4-4-2', { onWin: 2 }],
+    '슈투트가르트': ['vtiki', '4-2-3-1'], '프랑크푸르트': ['vtiki', '4-2-3-1'], '프라이부르크': ['balance', '4-2-3-1'], '우니온 베를린': ['bus', '5-3-2', { passing: 4 }],
+    '호펜하임': ['gegen', '4-2-3-1'], '마인츠': ['gegen', '3-4-3'], '묀헨글라트바흐': ['balance', '4-2-3-1'],
+    '인테르': ['balance', '3-5-2', { approach: 3 }], '나폴리': ['balance', '4-3-3'], '유벤투스': ['balance', '3-4-3'], 'AC 밀란': ['counter', '3-5-2'],
+    '아탈란타': ['gegen', '3-4-3', { marking: 1 }], 'AS 로마': ['gegen', '3-4-3', { marking: 1 }], '라치오': ['tiki', '4-3-3'], '코모': ['tiki', '4-2-3-1'],
+    '볼로냐': ['gegen', '4-2-3-1'], '피오렌티나': ['balance', '3-5-2'], '토리노': ['direct', '3-5-2'],
+    '파리 생제르맹': ['gegen', '4-3-3', { passing: 1 }], '마르세유': ['tiki', '4-2-3-1'], 'AS 모나코': ['gegen', '4-2-3-1'], '릴': ['tiki', '4-2-3-1'],
+    '랑스': ['gegen', '3-4-3'], '올랭피크 리옹': ['balance', '4-2-3-1'], '니스': ['balance', '3-4-3'], '스트라스부르': ['vtiki', '4-2-3-1'], '스타드 렌': ['balance', '3-5-2'],
+    '전북 현대 모터스': ['gegen', '4-3-3'], '울산 HD': ['balance', '4-2-3-1'], '포항 스틸러스': ['counter', '4-2-3-1'], '서울': ['tiki', '4-4-2'], '강원': ['gegen', '4-4-2'],
+  };
+
   // 역할 → 포지션 그룹 적합도
   const ROLE_FIT = {
     GK: { GK: 1, DF: 0.3, MF: 0.3, FW: 0.3 },
@@ -295,5 +319,5 @@
     return t;
   }
 
-  KM.DATA = { RIVALS, ROLE_AB, DUTY, ROLES, DEFAULT_ROLE, rolesFor, validRole, roleMods, shapeMap, TACTIC_GROUPS, TACTIC_DEFAULT, TACTIC_PRESETS, normTactics, SURNAMES, GIVEN_A, GIVEN_B, FORMATIONS, ROLE_FIT, POS_KO, TACTIC_LABELS, ROLE_KO, ROLE_NAME, ROLE_GROUP, fit, LEAGUE_ECON, CLUB_KO };
+  KM.DATA = { CLUB_STYLE, RIVALS, ROLE_AB, DUTY, ROLES, DEFAULT_ROLE, rolesFor, validRole, roleMods, shapeMap, TACTIC_GROUPS, TACTIC_DEFAULT, TACTIC_PRESETS, normTactics, SURNAMES, GIVEN_A, GIVEN_B, FORMATIONS, ROLE_FIT, POS_KO, TACTIC_LABELS, ROLE_KO, ROLE_NAME, ROLE_GROUP, fit, LEAGUE_ECON, CLUB_KO };
 })(globalThis.KM || (globalThis.KM = {}));
