@@ -499,12 +499,13 @@
     const uid = G.user.teamId;
     const n = G.leagues[li].teams.length;
     const euro = G.leagues[li].code !== 'RSK1';
-    return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>#</th><th style="text-align:left">구단</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr></thead><tbody>
+    // 프리미어리그 중계 순위표 스타일: 보라색 머리줄, 구단 색 띠, 장체 숫자, 승점 칸 강조
+    return `<div class="tbl-wrap"><table class="tbl pltbl"><thead><tr><th></th><th>#</th><th style="text-align:left">구단</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr></thead><tbody>
       ${rows.map((r, i) => {
         const k = offset + i + 1;
         const zone = k <= (euro ? 4 : 3) ? 'up' : k > n - 3 ? 'down' : '';
         const t = G.teams[r.id];
-        return `<tr class="${r.id === uid ? 'me' : ''}" data-act="teamsheet" data-v="${r.id}" style="cursor:pointer"><td class="zone ${zone}"></td><td>${k}</td><td class="tn"><span class="row" style="gap:7px">${logo(t, 20)}${esc(t.name)}</span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td></tr>`;
+        return `<tr class="${r.id === uid ? 'me' : ''} ${zone}" data-act="teamsheet" data-v="${r.id}" style="cursor:pointer;--tc:${t.c1 || '#555'}"><td class="zone ${zone}"></td><td class="pos-n">${k}</td><td class="tn"><span class="row" style="gap:7px"><span class="cr">${logo(t, 18)}</span><span class="nm">${esc(t.name)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td></tr>`;
       }).join('')}</tbody></table></div>`;
   }
 
@@ -855,7 +856,8 @@
         const home = m.h === t.id; const opp = S.team(G, home ? m.a : m.h);
         let res = '<span class="muted" style="font-size:12px">예정</span>';
         if (m.hs != null) { const gf = home ? m.hs : m.as, ga = home ? m.as : m.hs; const r = gf > ga ? 'W' : gf < ga ? 'L' : 'D'; res = `<span class="form"><i class="${r}">${r === 'W' ? '승' : r === 'D' ? '무' : '패'}</i></span> <b class="num" style="font-size:16px">${gf}-${ga}</b>`; }
-        return `<div class="li"><span class="muted num" style="width:30px;font-weight:700">${i + 1}R</span>${logo(opp, 24)}<span class="grow name" style="font-weight:600">${home ? '' : '@ '}${esc(opp.name)}</span>${res}</div>`;
+        const hT = S.team(G, m.h), aT = S.team(G, m.a);
+        return `<div class="fxline mine"><span class="rd">${i + 1}R</span>${miniBug(hT, aT, m.hs != null ? [m.hs, m.as] : null)}${m.hs != null ? res.replace(/ <b[^]*$/, '') : '<span class="form"><i class="N">·</i></span>'}</div>`;
       }).join('')}</div></section>`;
     }
     return mineHtml + `<section class="card"><div class="row" style="margin-bottom:8px"><h2 class="grow" style="margin:0">라운드 결과</h2>
@@ -869,9 +871,18 @@
     }
     const h = S.team(G, m.h), a = S.team(G, m.a), uid = G.user.teamId;
     const me = m.h === uid || m.a === uid;
-    return `<div class="li" style="${me ? 'background:color-mix(in srgb,var(--accent) 22%,transparent);border-radius:8px' : ''}"><span class="grow" style="text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600">${esc(h.name)}</span>${logo(h, 22)}
-      <b class="num" style="width:54px;text-align:center;font-size:17px">${m.hs != null ? m.hs + ' - ' + m.as : 'vs'}</b>${logo(a, 22)}<span class="grow" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600">${esc(a.name)}</span></div>
-      ${m.agg || m.pens ? `<div class="muted" style="font-size:11.5px;text-align:center;margin-top:-4px;padding-bottom:6px">${m.agg ? `합계 ${m.agg[0]}-${m.agg[1]}` : ''}${m.agg && m.pens ? ' · ' : ''}${m.pens ? `승부차기 ${m.pens[0]}-${m.pens[1]}` : ''}</div>` : ''}`;
+    const note = m.agg || m.pens ? `${m.agg ? `합계 ${m.agg[0]}-${m.agg[1]}` : ''}${m.agg && m.pens ? ' · ' : ''}${m.pens ? `승부차기 ${m.pens[0]}-${m.pens[1]}` : ''}` : '';
+    return `<div class="fxline ${me ? 'me' : ''}">${miniBug(h, a, m.hs != null ? [m.hs, m.as] : null, note)}</div>`;
+  }
+  // 일정·결과용 작은 스코어 버그: 경기 전이면 점수 칸에 VS
+  function miniBug(h, a, sc, note) {
+    return `<div class="plbug mini" style="${bugVars(h, 'h')};${bugVars(a, 'a')}" title="${esc(h.name)} vs ${esc(a.name)}">
+      <div class="plbug-row">
+        <div class="plbug-side home"><b>${esc(h.short)}</b><span class="cr">${logo(h, 18)}</span></div>
+        <div class="plbug-sc ${sc ? '' : 'vs'}">${sc ? `<i>${sc[0]}</i><i>${sc[1]}</i>` : '<i>VS</i>'}</div>
+        <div class="plbug-side away"><span class="cr">${logo(a, 18)}</span><b>${esc(a.short)}</b></div>
+      </div>${note ? `<div class="plbug-clock"><span>${note}</span></div>` : ''}
+    </div>`;
   }
   // ── 경기 분석 (데이터 허브) ────────────────────────────────
   // an: 엔진 기록 요약 (슈팅·패스 연결·위치 표본), us: 우리 팀 쪽(0/1). 우리 팀은 항상 오른쪽으로 공격하게 그린다
@@ -1029,8 +1040,8 @@
     const played = comp.rounds.filter((r) => r && r.length && r[0].hs != null).length;
     const groups = comp.groups.map((g, gi) => {
       const tb = S.euroGroupTable(comp, gi);
-      return `<section class="card"><h2>${'ABCD'[gi]}조</h2><div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th style="text-align:left">구단</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr></thead><tbody>
-        ${tb.map((r, i) => { const t = G.teams[r.id]; return `<tr class="${r.id === uid ? 'me' : ''}" data-act="teamsheet" data-v="${r.id}" style="cursor:pointer"><td class="zone ${i < 2 ? 'up' : ''}"></td><td class="tn"><span class="row" style="gap:7px">${logo(t, 20)}${esc(t.name)}</span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td></tr>`; }).join('')}</tbody></table></div></section>`;
+      return `<section class="card"><h2>${'ABCD'[gi]}조</h2><div class="tbl-wrap"><table class="tbl pltbl"><thead><tr><th></th><th style="text-align:left">구단</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr></thead><tbody>
+        ${tb.map((r, i) => { const t = G.teams[r.id]; return `<tr class="${r.id === uid ? 'me' : ''}" data-act="teamsheet" data-v="${r.id}" style="cursor:pointer;--tc:${t.c1 || '#555'}"><td class="zone ${i < 2 ? 'up' : ''}"></td><td class="tn"><span class="row" style="gap:7px"><span class="cr">${logo(t, 18)}</span><span class="nm">${esc(t.name)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td></tr>`; }).join('')}</tbody></table></div></section>`;
     }).join('');
     const ko = [[6, 7, '8강'], [8, 9, '4강'], [10, null, '결승']].map(([a, b, name]) => {
       const rd = comp.rounds[b != null ? b : a] || comp.rounds[a];
@@ -1590,11 +1601,13 @@
     const n = parseInt(m[1], 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   }
-  // 판 색 위에서 읽히는 글자색: 보조색이 충분히 대비되면 보조색, 아니면 흰색/진보라
+  // 판 색 위에서 읽히는 글자색: 흰색/진보라 중 대비가 큰 쪽, 둘 다 약하면 보조색
   function inkOn(bg, alt) {
     const L = lum(bg), ratio = (x, y) => (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
-    if (alt && ratio(L, lum(alt)) >= 3.2) return alt;
-    return ratio(L, 1) >= ratio(L, lum(PL_PURPLE)) ? '#ffffff' : PL_PURPLE;
+    const w = ratio(L, 1), p = ratio(L, lum(PL_PURPLE));
+    if (Math.max(w, p) >= 3.5) return w >= p ? '#ffffff' : PL_PURPLE;  // 중계 그래픽처럼 흰색/진보라 우선
+    if (alt && ratio(L, lum(alt)) > Math.max(w, p)) return alt;
+    return w >= p ? '#ffffff' : PL_PURPLE;
   }
   function bugVars(t, k) { return `--${k}:${t.c1 || '#444'};--${k}i:${inkOn(t.c1 || '#444', t.c2)}`; }
   function scoreBug(h, a, fin) {

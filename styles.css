@@ -985,3 +985,48 @@ select.sel, input.txt { background: color-mix(in srgb, var(--ink) 5%, transparen
 .flash.scorer small { font-size: 11px; font-weight: 800; color: var(--pl-green); text-shadow: none; letter-spacing: .04em; }
 .flash.scorer b { font-size: 17px; font-weight: 800; color: #fff; }
 @keyframes scorerIn { 0% { opacity: 0; transform: translate(-50%, -30%); } 12% { opacity: 1; transform: translate(-50%, -50%); } 85% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -50%); } }
+
+/* ── 일정·결과: 작은 스코어 버그 ── */
+.fxline { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.fxline .plbug { flex: 1; min-width: 0; }
+.fxline.me .plbug-row { box-shadow: 0 0 0 2px var(--pl-green); }
+.fxline .rd { flex: none; width: 30px; font-family: var(--f-bug); font-weight: 800; font-size: 15px; color: var(--muted); }
+.fxline .form { flex: none; }
+.form i.N { background: var(--surface-2); color: var(--muted); }
+.plbug.mini { filter: none; }
+.plbug.mini .plbug-row { height: 32px; border-radius: 5px; }
+.plbug.mini .plbug-side { font-size: 18px; }
+.plbug.mini .plbug-side b { padding: 0 8px; }
+.plbug.mini .plbug-side.home { clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 50%, 100% 100%, 0 100%); padding-right: 10px; }
+.plbug.mini .plbug-side.away { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 10px 50%); padding-left: 10px; }
+.plbug.mini .plbug-side .cr { width: 24px; height: 24px; }
+.plbug.mini .plbug-sc { padding: 0 4px; }
+.plbug.mini .plbug-sc i { font-size: 22px; min-width: 20px; }
+.plbug.mini .plbug-sc.vs i { font-size: 15px; color: #8a6d92; min-width: 34px; letter-spacing: .06em; }
+.plbug.mini .plbug-clock { font-size: 12px; }
+.plbug.mini .plbug-clock span { padding: 3px 10px 4px; font-family: var(--f-body); font-weight: 700; }
+
+/* ── 순위표: 프리미어리그 중계 순위표 스타일 ── */
+table.pltbl { border-collapse: separate; border-spacing: 0 3px; margin-top: -3px; }
+.pltbl thead th { background: var(--pl-purple); color: #fff; font-family: var(--f-bug); font-weight: 800; font-size: 13px; letter-spacing: .04em; padding: 7px 3px; border: 0; }
+.pltbl thead th:first-child { border-radius: 6px 0 0 6px; } .pltbl thead th:last-child { border-radius: 0 6px 6px 0; background: var(--pl-green); color: var(--pl-purple); }
+.pltbl td { border: 0; background: var(--surface-2); font-family: var(--f-bug); font-weight: 800; font-size: 17px; padding: 6px 3px; }
+.pltbl td.zone { width: 5px; background: var(--tc); border-radius: 5px 0 0 5px; }
+.pltbl td.zone.up { box-shadow: inset 0 3px 0 var(--pl-cyan), inset 0 -3px 0 var(--pl-cyan); }
+.pltbl td.zone.down { box-shadow: inset 0 3px 0 var(--pl-magenta), inset 0 -3px 0 var(--pl-magenta); }
+.pltbl td.pos-n { width: 26px; color: var(--muted); }
+:root { --pl-up-ink: #00838f; --pl-dn-ink: #c8003f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pl-up-ink: var(--pl-cyan); --pl-dn-ink: #ff4d8a; } }
+:root[data-theme="dark"] { --pl-up-ink: var(--pl-cyan); --pl-dn-ink: #ff4d8a; }
+.pltbl tr.up td.pos-n { color: var(--pl-up-ink); }
+.pltbl tr.down td.pos-n { color: var(--pl-dn-ink); }
+.pltbl td.tn { font-family: var(--f-body); font-size: 13px; font-weight: 700; }
+.pltbl td.tn .cr { flex: none; width: 24px; height: 24px; display: grid; place-items: center; background: #fff; border-radius: 50%; }
+.pltbl td.tn .cr .logo { background: none; padding: 0; }
+.pltbl td.tn .nm { overflow: hidden; text-overflow: ellipsis; }
+.pltbl td.pts { background: var(--pl-purple); color: #fff; font-size: 18px; border-radius: 0 5px 5px 0; min-width: 34px; }
+.pltbl tr.me td { background: color-mix(in srgb, var(--tc) 30%, var(--surface-2)); }
+.pltbl tr.me td.zone { background: var(--tc); box-shadow: none; }
+.pltbl tr.me td.zone.up { box-shadow: inset 0 3px 0 var(--pl-cyan), inset 0 -3px 0 var(--pl-cyan); }
+.pltbl tr.me td.zone.down { box-shadow: inset 0 3px 0 var(--pl-magenta), inset 0 -3px 0 var(--pl-magenta); }
+.pltbl tr.me td.pts { background: var(--pl-green); color: var(--pl-purple); }
