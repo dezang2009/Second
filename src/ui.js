@@ -1585,7 +1585,7 @@
       const rowTop = (st) => (lv.length > 1 ? 1 + rowOf(st.slot[1]) * (80 / (lv.length - 1)) : 40);
       const cards = sd.starters.map((st, k) => {
         const p = st.p, nm = splitName(p.name);
-        const left = 9 + st.slot[2] * 82;
+        const left = 10 + st.slot[2] * 80;
         return `<div class="lu-card ${st.role === 'GK' ? 'gk' : ''}" style="left:${left}%;top:${rowTop(st)}%;animation-delay:${0.08 + k * 0.06}s">
           <em class="no">${p.num || ''}</em>${avatar(p, 58)}
           <span class="fl">${flagOf(p.nat)}</span>

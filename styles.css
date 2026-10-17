@@ -1095,3 +1095,11 @@ table.pltbl { border-spacing: 0 2px; margin-top: -2px; }
 .pltbl td.zone.up, .pltbl tr.me td.zone.up { background: var(--pl-up-ink); }
 .pltbl td.zone.down, .pltbl tr.me td.zone.down { background: var(--pl-dn-ink); }
 .pltbl tr.me td { background: color-mix(in srgb, var(--fm) 18%, var(--surface-2)); }
+
+/* 라인업 카드: 등번호가 사진에 가리지 않게 — 왼쪽 번호 칸을 따로 두고 사진은 오른쪽에 */
+.lu-card { width: 80px; }
+.lu-card .no { left: 4px; top: 2px; font-size: 27px; letter-spacing: -.03em; color: var(--ti); -webkit-text-stroke: 0; text-shadow: 0 1px 2px rgba(0, 0, 0, .25); z-index: 4; }
+.lu-card .ph { width: 44px !important; height: 54px !important; -webkit-mask-image: none; mask-image: none; }
+.lu-card .fl { top: 34px; }
+.lu-card.gk .no { color: #fff; }
+.lu-card { width: 76px; } .lu-card .ph { width: 42px !important; }
