@@ -35,6 +35,8 @@ npm start            # http://localhost:8080
 
 ## 안드로이드 APK
 
+앱에는 선수마다 고화질 사진(트랜스퍼마크트 portrait/big → 240×312 webp)과 160px 로고가 들어갑니다. `python3 tools/build_assets.py --photos`로 `dist/photos`를 만든 뒤 `node tools/build.js`를 실행하면 `dist/app`에 포함됩니다 (없으면 스프라이트 사진 사용).
+
 ```bash
 python3 tools/build_assets.py --sprites && node tools/build.js
 ANDROID_BUILD_TOOLS=<build-tools 35 경로> ANDROID_JAR=<platforms/android-34/android.jar> tools/build_apk.sh

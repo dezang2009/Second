@@ -3,6 +3,8 @@
 
   python3 tools/build_assets.py            → data/club_colors.json
   python3 tools/build_assets.py --sprites  → dist/assets/*.webp + data/sprites.json
+  python3 tools/build_assets.py --photos   → dist/photos/p/{id}.webp (240×312 고화질 사진), dist/photos/l/{id}.webp (로고 160px)
+                                            + data/photos.json (안드로이드 앱이 개별 고화질 사진을 쓴다)
 
 이미지 원본은 트랜스퍼마크트 CDN에서 받아 .tm-cache/img 에 캐시한다.
 사진과 로고의 저작권은 각 권리자에게 있으므로 공개 배포 시 사용 허가를 확인할 것.
@@ -84,6 +86,39 @@ def main():
     print('colors', len(colors), file=sys.stderr)
     if '--sprites' in sys.argv:
         sprites(data, clubs, logos)
+    if '--photos' in sys.argv:
+        photos(data, clubs)
+
+
+def photos(data, clubs):
+    """선수마다 고화질 사진 한 장(트랜스퍼마크트 portrait/big 300×390 → 240×312 webp), 로고는 wappen/big 180px → 160px"""
+    os.makedirs('dist/photos/p', exist_ok=True)
+    os.makedirs('dist/photos/l', exist_ok=True)
+    players = [p for c in clubs for p in c['players'] if p.get('photo')]
+    paths = [p['photo'].split('transfermarkt.technology')[-1].replace('/portrait/medium/', '/portrait/big/') for p in players]
+    with ThreadPoolExecutor(6) as ex:
+        imgs = list(ex.map(fetch, paths))
+    idx = {'p': [], 'l': []}
+    for p, b in zip(players, imgs):
+        if not b:
+            continue
+        try:
+            im = Image.open(io.BytesIO(b)).convert('RGB').resize((240, 312), Image.LANCZOS)
+        except Exception:
+            continue
+        im.save(f"dist/photos/p/{p['id']}.webp", 'WEBP', quality=82, method=6)
+        idx['p'].append(p['id'])
+    with ThreadPoolExecutor(4) as ex:
+        logos = list(ex.map(lambda c: fetch(f"/wappen/big/{c['id']}.png"), clubs))
+    for c, b in zip(clubs, logos):
+        if not b:
+            continue
+        im = Image.open(io.BytesIO(b)).convert('RGBA')
+        im.thumbnail((160, 160), Image.LANCZOS)
+        im.save(f"dist/photos/l/{c['id']}.webp", 'WEBP', quality=90, method=6)
+        idx['l'].append(c['id'])
+    json.dump(idx, open('data/photos.json', 'w'), separators=(',', ':'))
+    print('photos', len(idx['p']), 'players,', len(idx['l']), 'logos', file=sys.stderr)
 
 
 def sprites(data, clubs, logos):

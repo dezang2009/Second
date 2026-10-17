@@ -91,15 +91,19 @@
   function avatar(p, size, ring) {
     size = Math.round((size || 40) * 0.82);
     const st = `width:${size}px;height:${Math.round(size * 1.3)}px;--ring:${ring || 'var(--line)'}`;
+    const HD = KM.PHOTOS;
+    // 앱(APK): 선수마다 고화질 사진 파일 (240×312)
+    if (HD && HD.p[p.id]) return `<img class="ph" style="${st}" src="ph/p/${p.id}.webp" alt="" loading="lazy" decoding="async" data-ini="${esc(initials(p.name))}">`;
     const SP = KM.SPRITES;
     if (SP && SP.p[p.id]) {
       const [sheet, i] = SP.p[p.id];
       return `<span class="ph" style="${st};${spriteCss(`assets/p${sheet}.webp`, i % 12, Math.floor(i / 12), SP.pw, SP.ph, size, 12)}" role="img" aria-label="${esc(p.name)}"></span>`;
     }
-    if (p.photo && !SP) return `<img class="ph" style="${st}" src="${IMG}/portrait/medium/${p.photo}.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" data-ini="${esc(initials(p.name))}">`;
+    if (p.photo && !SP) return `<img class="ph" style="${st}" src="${IMG}/portrait/big/${p.photo}.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" data-ini="${esc(initials(p.name))}">`;
     return `<span class="ph fb" style="${st};font-size:${Math.round(size * 0.36)}px">${esc(initials(p.name))}</span>`;
   }
   function bigPhoto(p) {
+    if (KM.PHOTOS && KM.PHOTOS.p[p.id]) return `<img src="ph/p/${p.id}.webp" alt="" decoding="async">`;
     const SP = KM.SPRITES;
     if (SP && SP.p[p.id]) { const [sheet, i] = SP.p[p.id]; return `<span class="spr" style="${spriteCss(`assets/p${sheet}.webp`, i % 12, Math.floor(i / 12), SP.pw, SP.ph, 128, 12)}"></span>`; }
     if (p.photo && !SP) return `<img src="${IMG}/portrait/big/${p.photo}.jpg" alt="" referrerpolicy="no-referrer">`;
@@ -107,12 +111,13 @@
   }
   function logo(t, size) {
     size = size || 32;
+    if (KM.PHOTOS && KM.PHOTOS.l[t.tm]) return `<img class="logo" style="width:${size}px;height:${size}px" src="ph/l/${t.tm}.webp" alt="" decoding="async" data-ini="${esc(t.short)}" data-c="${t.c1}">`;
     const SP = KM.SPRITES;
     if (SP && SP.l[t.tm] != null) {
       const i = SP.l[t.tm];
       return `<span class="logo" style="width:${size}px;height:${size}px;${spriteCss('assets/logos.webp', i % 12, Math.floor(i / 12), SP.lw, SP.lw, size, 12)}" role="img" aria-label="${esc(t.name)}"></span>`;
     }
-    if (!SP && t.tm) return `<img class="logo" style="width:${size}px;height:${size}px" src="${IMG}/wappen/head/${t.tm}.png" alt="" referrerpolicy="no-referrer" data-ini="${esc(t.short)}" data-c="${t.c1}">`;
+    if (!SP && t.tm) return `<img class="logo" style="width:${size}px;height:${size}px" src="${IMG}/wappen/big/${t.tm}.png" alt="" referrerpolicy="no-referrer" data-ini="${esc(t.short)}" data-c="${t.c1}">`;
     return `<span class="logo fb" style="width:${size}px;height:${size}px;--fb-bg:${t.c1};--fb-ink:${KM.Render.contrast(t.c1)}">${esc(t.short)}</span>`;
   }
   // 이미지를 못 불러오면 이니셜로 대체

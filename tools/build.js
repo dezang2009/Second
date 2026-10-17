@@ -58,7 +58,20 @@ fs.writeFileSync(path.join(root, 'dist/artifact.html'), artifact);
 // 안드로이드 앱용: 완성 문서 + 스프라이트 (tools/build_apk.sh가 dist/app을 APK assets/www로 넣는다)
 if (sprites) {
   fs.mkdirSync(path.join(root, 'dist/app/assets'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'dist/app/index.html'), full.replace(body, artBody));
+  // 고화질 개별 사진이 있으면 (python3 tools/build_assets.py --photos) 앱은 그것을 먼저 쓴다
+  let appBody = artBody;
+  try {
+    const ph = JSON.parse(fs.readFileSync(path.join(root, 'data/photos.json'), 'utf8'));
+    const map = (ids) => Object.fromEntries(ids.map((id) => [id, 1]));
+    appBody = artBody.replace('globalThis.KM = { BUNDLE: true,', `globalThis.KM = { BUNDLE: true, PHOTOS: ${JSON.stringify({ p: map(ph.p), l: map(ph.l) })},`);
+    for (const sub of ['p', 'l']) {
+      const src = path.join(root, 'dist/photos', sub), dst = path.join(root, 'dist/app/ph', sub);
+      fs.mkdirSync(dst, { recursive: true });
+      for (const f of fs.readdirSync(src)) fs.copyFileSync(path.join(src, f), path.join(dst, f));
+    }
+    console.log('고화질 사진', ph.p.length, '명, 로고', ph.l.length, '개');
+  } catch (e) { /* 고화질 사진 없음: 스프라이트 사용 */ }
+  fs.writeFileSync(path.join(root, 'dist/app/index.html'), full.replace(body, appBody));
   for (const f of fs.readdirSync(path.join(root, 'dist/assets'))) fs.copyFileSync(path.join(root, 'dist/assets', f), path.join(root, 'dist/app/assets', f));
 }
 console.log('dist/kickoff-manager.html', (full.length / 1024).toFixed(0) + 'KB');
