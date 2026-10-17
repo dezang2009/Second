@@ -219,7 +219,7 @@
     // 오른쪽 아래에 떠 있는 '계속' 버튼 (엄지로 누르기 편하게)
     app().innerHTML = `
       <header class="topbar">
-        <div class="club">${logo(t, 36)}<div style="min-width:0"><b>${esc(t.name)}</b><div class="meta"><span>${dateText}</span>${win}</div></div></div>
+        <div class="club"><span class="crest">${logo(t, 30)}</span><div style="min-width:0"><b>${esc(t.name)}</b><div class="meta"><span>${dateText}</span>${win}</div></div></div>
         <div class="bal"><small>구단 잔고</small><span class="num">${money(t.balance)}</span></div>
       </header>
       <main class="view" id="view">${viewHtml()}</main>
@@ -301,7 +301,7 @@
           <div class="lobby-top"><span class="pill">${KM.REAL.season ? `${seasonLabel(+KM.REAL.season)} 시즌` : '2026/27 시즌'} · 6개 리그 · 108개 구단</span></div>
           <h1 class="logo-type"><span>KICK-OFF</span><em>MANAGER</em></h1>
           <p class="tagline">실제 선수단으로 펼치는 나만의 감독 커리어</p>
-          <div class="stars">${heroStars()}</div>
+          <div class="lobby-stars">${heroStars()}</div>
           ${crestStrip()}
           <div class="lobby-actions">
             ${lastCard}
@@ -320,25 +320,30 @@
     const li = ng.league || 0;
     const ids = G.leagues[li].teams.slice().sort((a, b) => W.squadOvr(G, G.teams[b]) - W.squadOvr(G, G.teams[a]) || G.teams[b].rep - G.teams[a].rep);
     const sel = ng.team;
+    const lg = G.leagues[li];
     app().innerHTML = `
-      <div class="title-screen">
-        <div class="row"><button class="btn sm ghost" data-act="ngback">← 뒤로</button></div>
-        <h1 style="font-family:var(--f-display);font-size:28px">새 커리어</h1>
-        <label class="stack" style="gap:6px"><span class="eyebrow">감독 이름</span>
-          <input class="txt" id="ng-name" maxlength="10" value="${esc(ng.name || '')}" placeholder="예: 김감독" autocomplete="off"></label>
-        <div class="stack" style="gap:8px"><span class="eyebrow">리그</span>
-          <div class="chips">${G.leagues.map((l, i) => `<button class="chip ${li === i ? 'on' : ''}" data-act="nglg" data-v="${i}">${esc(l.name)}</button>`).join('')}</div></div>
-        <div class="card" style="padding-block:4px"><div class="list">
+      <div class="lobby ng">
+        <div class="lobby-in" style="align-items:stretch">
+          <div class="row"><button class="btn sm ng-back" data-act="ngback">← 뒤로</button><span class="grow"></span><span class="pill">새 커리어</span></div>
+          <h1 class="ng-title">어느 구단을<br>맡으시겠어요?</h1>
+          <label class="ng-name"><span>감독 이름</span><input class="txt" id="ng-name" maxlength="10" value="${esc(ng.name || '')}" placeholder="예: 김감독" autocomplete="off"></label>
+          <div class="chips ng-lg">${G.leagues.map((l, i) => `<button class="chip ${li === i ? 'on' : ''}" data-act="nglg" data-v="${i}">${esc(l.name)}</button>`).join('')}</div>
+          <div class="ng-sub">${esc(lg.name)} · ${ids.length}개 구단 · 전력순</div>
+          <div class="ng-list">
           ${ids.map((id, rank) => {
             const t = G.teams[id];
             const n = ids.length;
             const exp = rank < 2 ? '우승 후보' : rank < 5 ? '상위권' : rank < n / 2 + 1 ? '중위권' : '잔류 경쟁';
             const star = t.squad.map((x) => G.players[x]).sort((a, b) => b.value - a.value)[0];
-            return `<div class="li tap" data-act="ngteam" data-v="${id}" style="${sel === id ? 'background:color-mix(in srgb,var(--accent) 30%,var(--surface));border-radius:12px;padding-inline:8px' : ''}">
-              ${logo(t, 38)}<div class="grow"><div class="name">${esc(t.name)}</div><div class="sub">${exp} · 예산 ${money(t.balance)} · 핵심 ${esc(star.name)}</div></div>${ovrBadge(W.squadOvr(G, t))}</div>`;
+            const st = D.CLUB_STYLE[t.name];
+            return `<button class="ng-team ${sel === id ? 'on' : ''}" data-act="ngteam" data-v="${id}" style="--tc:${t.c1}">
+              <span class="crestd">${logo(t, 36)}</span>
+              <span class="grow"><b>${esc(t.name)}</b><small><i class="exp e${rank < 2 ? 1 : rank < 5 ? 2 : rank < n / 2 + 1 ? 3 : 4}">${exp}</i> 예산 ${money(t.balance)}${st ? ` · ${esc(D.TACTIC_PRESETS.find((x) => x[0] === st[0])[1])}` : ''}</small></span>
+              ${star ? `<span class="ng-star">${avatar(star, 34)}</span>` : ''}${ovrBadge(W.squadOvr(G, t))}</button>`;
           }).join('')}
-        </div></div>
-        <div style="position:sticky;bottom:calc(10px + env(safe-area-inset-bottom, 0px))"><button class="btn primary big block" data-act="ngstart" ${sel == null ? 'disabled' : ''}>${sel == null ? '구단을 고르세요' : esc(G.teams[sel].name) + ' 감독으로 시작'}</button></div>
+          </div>
+          <div class="ng-cta"><button class="btn big new-career" data-act="ngstart" ${sel == null ? 'disabled' : ''}>${sel == null ? '구단을 고르세요' : esc(G.teams[sel].name) + ' 감독으로 시작'}</button></div>
+        </div>
       </div>`;
   }
 
@@ -348,7 +353,7 @@
     app().innerHTML = `
       <div class="title-screen">
         <section class="hero"><h1 style="font-family:var(--f-display);font-size:30px">해임 통보</h1>
-        <p style="margin:0;opacity:.85">구단주가 성적 부진을 이유로 ${esc(G.user.name)} 감독과의 계약을 해지했습니다. 몇몇 구단이 관심을 보이고 있어요.</p></section>
+        <p style="margin:0;opacity:.85">구단주가 성적 부진을 이유로 ${esc(mgrName(G.user.name))}과의 계약을 해지했습니다. 몇몇 구단이 관심을 보이고 있어요.</p></section>
         <div class="card"><h2>새 구단 제의</h2><div class="list">
           ${offers.map((id) => { const t = G.teams[id]; return `<div class="li">${logo(t, 36)}<div class="grow"><div class="name">${esc(t.name)}</div><div class="sub">${esc(G.leagues[t.league].name)} · 선수단 OVR ${W.squadOvr(G, t)}</div></div><button class="btn sm primary" data-act="takejob" data-v="${id}">수락</button></div>`; }).join('') || '<div class="empty">제의가 없습니다.</div>'}
         </div></div>
@@ -1249,7 +1254,7 @@
   function clubInfoView() {
     const G = UI.G, t = S.userTeam(G);
     const conf = Math.round(G.board.conf);
-    return `<section class="card stack"><div class="row">${logo(t, 72)}<div class="grow"><h2 style="font-family:var(--f-display);font-size:24px">${esc(t.name)}</h2><div class="muted" style="font-size:12.5px">${esc(S.leagueOf(G, t).name)} · 감독 ${esc(G.user.name)}</div></div></div>
+    return `<section class="card stack"><div class="row club-hero" style="--tc:${t.c1}"><span class="crest-lg">${logo(t, 60)}</span><div class="grow"><h2 style="font-size:24px;font-weight:900">${esc(t.name)}</h2><div class="muted" style="font-size:12.5px">${esc(S.leagueOf(G, t).name)} · ${esc(mgrName(G.user.name))}</div></div></div>
       <div class="kv"><div><small>홈구장</small><b style="font-size:14px">${esc(t.stadium)}</b></div><div><small>수용 인원</small><b>${Math.round(t.cap * (1 + (t.facilities.stadium - 1) * 0.15)).toLocaleString('ko-KR')}</b></div><div><small>팬 열기</small><b>${Math.round(t.fans)}</b></div></div>
       <div class="kv"><div><small>구단 평판</small><b>${t.rep}</b></div><div><small>선수단 OVR</small><b>${W.squadOvr(G, t)}</b></div><div><small>리그 순위</small><b>${S.position(G, t.id)}위</b></div></div></section>
       <section class="card stack"><h2 style="margin:0">구단주</h2><div class="meter"><i style="width:${conf}%;background:${conf >= 60 ? 'var(--win)' : conf >= 35 ? 'var(--draw)' : 'var(--loss)'}"></i></div>
