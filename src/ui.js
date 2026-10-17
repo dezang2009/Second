@@ -159,6 +159,11 @@
   function teamOf(p) { return p.teamId != null ? UI.G.teams[p.teamId] : null; }
   function seasonLabel(y) { return `${y}/${String(y + 1).slice(2)}`; }
 
+  // 기기에서만 나는 오류를 사용자가 볼 수 있게 화면에 띄운다
+  if (typeof window !== 'undefined') {
+    window.addEventListener('error', (e) => { try { toast('오류: ' + (e.message || e.error || '알 수 없음')); } catch (x) { /* 무시 */ } });
+    window.addEventListener('unhandledrejection', (e) => { try { toast('오류: ' + ((e.reason && e.reason.message) || e.reason)); } catch (x) { /* 무시 */ } });
+  }
   function toast(msg) {
     const old = $('.toast'); if (old) old.remove();
     const el = document.createElement('div');
@@ -624,7 +629,14 @@
   }
 
   // 선수 역할·임무 (FM식): 행을 누르면 그 자리에서 고를 수 있는 역할이 펼쳐진다
+  // 역할 카드가 기기에서 비어 보이는 문제 추적용: 실패하면 빈칸 대신 오류 내용을 보여 준다
+  function errCard(title, e) {
+    return `<section class="card stack"><h2 class="h2" style="margin:0">${title}</h2><div class="muted" style="font-size:12px;word-break:break-all">표시 중 오류가 났어요. 이 화면을 캡처해 보내 주세요.<br>${esc(String(e && (e.stack || e.message) || e)).slice(0, 400)}</div></section>`;
+  }
   function rolesCard(entries, scope) {
+    try { return rolesCardHtml(entries, scope); } catch (e) { return errCard('역할과 임무', e); }
+  }
+  function rolesCardHtml(entries, scope) {
     const open = UI.roleOpen;
     return `<section class="card stack roles-card">
       <div class="row"><h2 class="grow h2" style="margin:0">역할과 임무</h2>${scope === 'team' ? '<button class="btn sm ghost" data-act="autoroles">자동 배정</button>' : ''}</div>
@@ -724,11 +736,14 @@
       attrs = `<div class="attrs">${(p.pos === 'GK' ? ['gk', 'pas', 'phy', 'pac'] : ['pac', 'sho', 'pas', 'dri', 'def', 'phy']).map((k) =>
         `<div class="attr"><span class="muted" style="font-weight:600">${W.ATTR_KO[k]}</span><div class="bar"><i style="width:${p.attr[k]}%;background:${p.attr[k] >= 78 ? 'var(--win)' : p.attr[k] >= 62 ? 'var(--draw)' : 'var(--loss)'}"></i></div><span class="num">${p.attr[k]}</span></div>`).join('')}</div>`;
     } else if (ptab === 'role') {
+      try {
       const dm = W.detailMap(p);
       let keys = Object.keys(D.ROLES).filter((k) => D.ROLES[k].pos.includes(p.role) || (D.ROLES[k].pos.some((x) => D.fit(x, p) >= 0.93)));
       if (!keys.length) keys = D.rolesFor(p.pos || p.role || 'CM');
       const list = keys.map((k) => [k, W.roleScore(p, k, dm)]).sort((a, b) => b[1] - a[1]).slice(0, 6);
       attrs = `<div class="list">${list.map(([k, v]) => `<div class="li"><div class="grow"><div class="name">${D.ROLES[k].n} <span class="muted num" style="font-size:12px">${D.ROLE_AB[k]}</span></div><div class="sub">${esc(D.ROLES[k].desc)}</div></div><span class="stars">${stars5(v)}</span></div>`).join('')}</div>`;
+      if (!list.length) attrs = '<div class="empty">표시할 역할이 없어요.</div>';
+      } catch (e) { attrs = errCard('역할 적합도', e); }
     } else {
       // 세부 능력치 1~20: 지금 맡은 역할의 핵심 능력치는 강조
       const ut = S.userTeam(G);
