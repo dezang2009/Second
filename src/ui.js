@@ -1552,6 +1552,21 @@
     const fav = W.teamRating(UI.G, m.sides[s].team) - W.teamRating(UI.G, m.sides[1 - s].team);
     return { fav, gd: m.score[s] - m.score[1 - s], xgd: m.stats[s].xg - m.stats[1 - s].xg };
   }
+  // 이름 → [이름(작게), 성(크게)]
+  function splitName(n) {
+    const w = String(n || '').trim().split(/\s+/);
+    if (w.length < 2) return ['', w[0] || ''];
+    const last = w.pop();
+    return [w.join(' '), last];
+  }
+  const FLAGS = { 스페인: 'ES', 프랑스: 'FR', 대한민국: 'KR', 독일: 'DE', 이탈리아: 'IT', 브라질: 'BR', 네덜란드: 'NL', 아르헨티나: 'AR', 벨기에: 'BE', 포르투갈: 'PT', 모로코: 'MA', 세네갈: 'SN', 코트디부아르: 'CI', 덴마크: 'DK', 스위스: 'CH', 오스트리아: 'AT', 스웨덴: 'SE', 일본: 'JP', 크로아티아: 'HR', 알제리: 'DZ', 미국: 'US', 나이지리아: 'NG', 폴란드: 'PL', 가나: 'GH', 노르웨이: 'NO', 세르비아: 'RS', 튀르키예: 'TR', 카메룬: 'CM', 우루과이: 'UY', '콩고 민주 공화국': 'CD', 아일랜드: 'IE', 콜롬비아: 'CO', 그리스: 'GR', 캐나다: 'CA', '보스니아 헤르체고비나': 'BA', 조지아: 'GE', 에콰도르: 'EC', 체코: 'CZ', 슬로베니아: 'SI', 알바니아: 'AL', 아이슬란드: 'IS', 코소보: 'XK', 우크라이나: 'UA', 기니: 'GN', 슬로바키아: 'SK', 불가리아: 'BG', 헝가리: 'HU', 부르키나파소: 'BF', 호주: 'AU', 기니비사우: 'GW', 몬테네그로: 'ME', 자메이카: 'JM', 멕시코: 'MX', 루마니아: 'RO', 핀란드: 'FI', 이집트: 'EG', 파라과이: 'PY', 이스라엘: 'IL', 칠레: 'CL', 모리타니: 'MR', 베네수엘라: 'VE', 가봉: 'GA', 인도네시아: 'ID', 앙골라: 'AO', 튀니지: 'TN', 감비아: 'GM', 아이티: 'HT', 러시아: 'RU', 수리남: 'SR', 리투아니아: 'LT', '도미니카 공화국': 'DO', 북마케도니아: 'MK', 베냉: 'BJ', 잠비아: 'ZM', 니제르: 'NE', 요르단: 'JO', 콩고: 'CG', 우즈베키스탄: 'UZ', 뉴질랜드: 'NZ', 모잠비크: 'MZ', 카보베르데: 'CV', 케냐: 'KE', 말레이시아: 'MY', 룩셈부르크: 'LU', 시에라리온: 'SL', 페루: 'PE', 에스토니아: 'EE', 태국: 'TH', 필리핀: 'PH', 아르메니아: 'AM', 라트비아: 'LV', 코스타리카: 'CR', 사우디아라비아: 'SA', 중국: 'CN', 탄자니아: 'TZ', 아제르바이잔: 'AZ', 북한: 'KP' };
+  const UK_FLAG = { 잉글랜드: 'gbeng', 스코틀랜드: 'gbsct', 웨일스: 'gbwls' };
+  function flagOf(nat) {
+    if (UK_FLAG[nat]) return '\u{1F3F4}' + [...UK_FLAG[nat]].map((c) => String.fromCodePoint(0xE0000 + c.charCodeAt(0))).join('') + '\u{E007F}';
+    if (nat === '북아일랜드') return '\u{1F1EC}\u{1F1E7}';
+    const c = FLAGS[nat];
+    return c ? [...c].map((x) => String.fromCodePoint(0x1F1A5 + x.charCodeAt(0))).join('') : '';
+  }
   // 킥오프 전 선발 라인업 소개 (프리미어리그 중계 그래픽 스타일): 홈 → 원정, 화면을 누르면 다음
   function lineupIntro(done) {
     const L = UI.live, m = L.m;
@@ -1563,25 +1578,30 @@
     const page = (s) => {
       const sd = m.sides[s], t = sd.team;
       const form = (sd.tactics && sd.tactics.formation) || '';
-      const dots = sd.starters.map((st) => {
-        const [l] = KM.Render.slotPos(st.slot);
-        const tp = st.role === 'GK' ? 92 : 81 - st.slot[1] * 72;  // 골키퍼와 수비 사이를 넉넉히
-        return `<div class="lu-dot" style="left:${l}%;top:${tp}%"><i>${st.p.num || ''}</i><span>${esc(last(st.p.name))}</span></div>`;
+      // 줄(세로 위치)을 같은 높이끼리 묶어 고르게 배치: 겹치지 않게
+      const lv = [];  // 비슷한 높이(0.09 이내)는 한 줄로
+      for (const y of sd.starters.map((st) => st.slot[1]).sort((x, y) => y - x)) if (!lv.length || lv[lv.length - 1] - y > 0.09) lv.push(y);
+      const rowOf = (y) => lv.findIndex((v, i) => i === lv.length - 1 || y > (v + lv[i + 1]) / 2);
+      const rowTop = (st) => (lv.length > 1 ? 1 + rowOf(st.slot[1]) * (80 / (lv.length - 1)) : 40);
+      const cards = sd.starters.map((st, k) => {
+        const p = st.p, nm = splitName(p.name);
+        const left = 9 + st.slot[2] * 82;
+        return `<div class="lu-card ${st.role === 'GK' ? 'gk' : ''}" style="left:${left}%;top:${rowTop(st)}%;animation-delay:${0.08 + k * 0.06}s">
+          <em class="no">${p.num || ''}</em>${avatar(p, 58)}
+          <span class="fl">${flagOf(p.nat)}</span>
+          <span class="nm">${nm[0] ? `<small>${esc(nm[0])}</small>` : ''}<b>${esc(nm[1])}</b></span></div>`;
       }).join('');
-      const list = sd.starters.slice().sort((a, b) => (a.p.num || 99) - (b.p.num || 99)).map((st) =>
-        `<li><b>${st.p.num || ''}</b><span>${esc(st.p.name)}</span><em>${st.role}</em></li>`).join('');
-      const bench = sd.bench.map((p) => `${p.num ? p.num + ' ' : ''}${esc(last(p.name))}`).join(' · ');
-      return `<div class="lu-page" style="--tc:${t.c1 || '#444'};--ti:${inkOn(t.c1 || '#444', t.c2)}">
-        <div class="lu-head"><span class="cr">${logo(t, 40)}</span><div class="grow"><small>${s === 0 ? 'HOME' : 'AWAY'} · 선발 라인업</small><b>${esc(t.name)}</b></div>${form ? `<span class="lu-form">${form}</span>` : ''}</div>
-        <div class="lu-pitch"><span class="ln c"></span><span class="ln h"></span><span class="ln b"></span>${dots}</div>
-        <ol class="lu-list">${list}</ol>
-        ${bench ? `<div class="lu-bench"><small>교체 명단</small>${bench}</div>` : ''}
+      const bench = sd.bench.map((p) => esc(splitName(p.name)[1])).join(', ');
+      return `<div class="lu-page" style="--tc:${t.c1 || '#444'};--ti:${inkOn(t.c1 || '#444', t.c2)};--t2:${t.c2 || '#fff'}">
+        <div class="lu-head"><div class="grow"><small>${s === 0 ? 'HOME' : 'AWAY'}</small><h3>STARTING XI</h3><b>${esc(t.name)}${form ? ` · ${form}` : ''}</b></div><span class="cr">${logo(t, 46)}</span></div>
+        <div class="lu-field"><div class="lu-turf"><span class="ln h"></span><span class="ln c"></span><span class="ln b"></span></div>${cards}</div>
+        ${bench ? `<div class="lu-subs"><b>SUBS</b><span>${bench}</span></div>` : ''}
       </div>`;
     };
     let i = 0, timer = null;
     const show = () => {
       box.innerHTML = `<div class="lu-top"><div class="lu-dots">${[0, 1].map((k) => `<i class="${k < i ? 'done' : k === i ? 'on' : ''}"></i>`).join('')}</div><button class="lu-skip" data-lu="skip">건너뛰기</button></div>${page(i)}<div class="lu-hint">화면을 누르면 다음으로</div>`;
-      clearTimeout(timer); timer = setTimeout(next, 5200);
+      clearTimeout(timer); timer = setTimeout(next, 6500);
     };
     const finish = () => { clearTimeout(timer); box.classList.add('out'); setTimeout(() => box.remove(), 260); done(); };
     const next = () => { if (i >= 1) finish(); else { i++; show(); } };
