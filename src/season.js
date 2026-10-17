@@ -7,6 +7,127 @@
 
   const CUP_NAMES = ['1라운드', '32강', '16강', '8강', '준결승', '결승'];
 
+  // ── 유럽 대항전 (챔피언스리그 · 유로파리그) ─────────────────
+  // 리그별 출전권: 챔스 16팀, 유로파 16팀. 조별리그(4개 조, 6경기) → 8강·4강(홈 앤드 어웨이) → 결승(단판)
+  const EURO = [
+    { key: 'UCL', name: 'UEFA 챔피언스리그', short: '챔스', quota: { GB1: 4, ES1: 4, IT1: 3, L1: 3, FR1: 2 },
+      prize: { join: 18000, win: 2100, draw: 700, qf: 10000, sf: 12000, f: 15000, champ: 20000 } },
+    { key: 'UEL', name: 'UEFA 유로파리그', short: '유로파', quota: { GB1: 3, ES1: 3, IT1: 3, L1: 3, FR1: 4 },
+      prize: { join: 4000, win: 600, draw: 200, qf: 2000, sf: 3000, f: 4500, champ: 8000 } },
+  ];
+  const EURO_ROUNDS = ['조별리그 1차전', '조별리그 2차전', '조별리그 3차전', '조별리그 4차전', '조별리그 5차전', '조별리그 6차전', '8강 1차전', '8강 2차전', '4강 1차전', '4강 2차전', '결승'];
+  const EURO_AT = [0.1, 0.16, 0.22, 0.3, 0.36, 0.42, 0.58, 0.63, 0.74, 0.79, 0.94]; // 리그 일정 진행률 기준 위치
+  const GROUP_MD = [[[0, 1], [2, 3]], [[0, 2], [3, 1]], [[3, 0], [1, 2]], [[1, 0], [3, 2]], [[2, 0], [1, 3]], [[0, 3], [2, 1]]];
+  // 출전 구단: 지난 시즌 순위(첫 시즌은 전력 순)
+  function euroEntrants(G, ranked) {
+    const out = {};
+    for (const c of EURO) out[c.key] = [];
+    G.leagues.forEach((lg, li) => {
+      const order = ranked ? ranked[li] : lg.teams.slice().sort((a, b) => W.squadOvr(G, team(G, b)) - W.squadOvr(G, team(G, a)) || team(G, b).rep - team(G, a).rep);
+      if (!order) return;
+      let at = 0;
+      for (const c of EURO) { const q = c.quota[lg.code] || 0; out[c.key].push(...order.slice(at, at + q)); at += q; }
+    });
+    return out;
+  }
+  function setupEuro(G, rng) {
+    const ent = G.euroNext || euroEntrants(G, null);
+    G.euroNext = null;
+    G.euro = { comps: EURO.map((c) => {
+      const ids = (ent[c.key] || []).filter((id) => G.teams[id]).slice(0, 16);
+      if (ids.length < 16) return null;
+      // 포트 추첨: 전력순으로 4개 포트, 같은 리그는 가능하면 다른 조
+      const sorted = ids.slice().sort((a, b) => W.squadOvr(G, team(G, b)) - W.squadOvr(G, team(G, a)));
+      const groups = [[], [], [], []];
+      for (let pot = 0; pot < 4; pot++) {
+        const potIds = rng.shuffle(sorted.slice(pot * 4, pot * 4 + 4));
+        const free = [0, 1, 2, 3];
+        for (const id of potIds) {
+          const lgId = team(G, id).league;
+          let gi = free.find((g) => !groups[g].some((x) => team(G, x).league === lgId));
+          if (gi == null) gi = free[0];
+          groups[gi].push(id); free.splice(free.indexOf(gi), 1);
+        }
+      }
+      const rounds = GROUP_MD.map((md) => groups.flatMap((g, gi) => md.map(([a, b]) => ({ h: g[a], a: g[b], hs: null, as: null, g: gi }))));
+      if (ids.includes(G.user.teamId)) news(G, 'cup', `${c.name} 출전`, `${c.name} 조별리그 ${'ABCD'[groups.findIndex((g) => g.includes(G.user.teamId))]}조에 배정됐습니다. 첫 경기 때 출전 상금 ${money(c.prize.join)}을 받아요.`);
+      return { key: c.key, name: c.name, short: c.short, groups, rounds, winner: null };
+    }).filter(Boolean) };
+  }
+  function euroGroupTable(comp, gi) {
+    const rows = {};
+    for (const id of comp.groups[gi]) rows[id] = { id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 };
+    for (let r = 0; r < 6; r++) for (const m of comp.rounds[r] || []) {
+      if (m.g !== gi || m.hs == null) continue;
+      const h = rows[m.h], a = rows[m.a];
+      h.p++; a.p++; h.gf += m.hs; h.ga += m.as; a.gf += m.as; a.ga += m.hs;
+      if (m.hs > m.as) { h.w++; a.l++; h.pts += 3; } else if (m.hs < m.as) { a.w++; h.l++; a.pts += 3; } else { h.d++; a.d++; h.pts++; a.pts++; }
+    }
+    return Object.values(rows).sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf);
+  }
+  function euroCfg(key) { return EURO.find((c) => c.key === key); }
+  // 라운드가 끝나면 다음 라운드 대진을 만든다
+  function advanceEuro(G, r) {
+    for (const comp of G.euro.comps) {
+      const P = euroCfg(comp.key).prize;
+      const pay = (id, amt, label) => { const t = team(G, id); t.balance += amt; if (id === G.user.teamId) addFin(G, '상금', amt); };
+      if (r === 0) for (const g of comp.groups) for (const id of g) pay(id, P.join);
+      if (r < 6) for (const m of comp.rounds[r]) {
+        if (m.hs > m.as) pay(m.h, P.win); else if (m.hs < m.as) pay(m.a, P.win); else { pay(m.h, P.draw); pay(m.a, P.draw); }
+      }
+      if (r === 5) {
+        const tb = [0, 1, 2, 3].map((gi) => euroGroupTable(comp, gi));
+        const W1 = tb.map((t) => t[0].id), R2 = tb.map((t) => t[1].id);
+        // 8강: 조 1위 vs 다른 조 2위, 1차전은 2위 팀 홈
+        const pairs = [[W1[0], R2[1]], [W1[1], R2[0]], [W1[2], R2[3]], [W1[3], R2[2]]];
+        comp.rounds[6] = pairs.map(([w, ru], i) => ({ h: ru, a: w, hs: null, as: null, tie: i }));
+        for (const id of W1.concat(R2)) pay(id, P.qf);
+        const uid = G.user.teamId;
+        if (comp.groups.some((g) => g.includes(uid))) {
+          const ok = W1.includes(uid) || R2.includes(uid);
+          news(G, 'cup', ok ? `${comp.name} 8강 진출!` : `${comp.name} 조별리그 탈락`, ok ? `조 ${W1.includes(uid) ? '1위' : '2위'}로 토너먼트에 올랐습니다. 상금 ${money(P.qf)}.` : '아쉽게 조 3위 이하로 대회를 마쳤습니다.');
+        }
+      }
+      if (r === 6) comp.rounds[7] = comp.rounds[6].map((m) => ({ h: m.a, a: m.h, hs: null, as: null, tie: m.tie, l1: [m.hs, m.as] }));
+      if (r === 7) {
+        const w = comp.rounds[7].map((m) => m.w);
+        for (const id of w) pay(id, P.sf);
+        comp.rounds[8] = [{ h: w[1], a: w[0], hs: null, as: null, tie: 0 }, { h: w[3], a: w[2], hs: null, as: null, tie: 1 }];
+      }
+      if (r === 8) comp.rounds[9] = comp.rounds[8].map((m) => ({ h: m.a, a: m.h, hs: null, as: null, tie: m.tie, l1: [m.hs, m.as] }));
+      if (r === 9) {
+        const w = comp.rounds[9].map((m) => m.w);
+        for (const id of w) pay(id, P.f);
+        comp.rounds[10] = [{ h: w[0], a: w[1], hs: null, as: null, fin: true }];
+      }
+      if (r === 10) {
+        const m = comp.rounds[10][0];
+        comp.winner = m.w;
+        pay(m.w, P.champ);
+        const t = team(G, m.w);
+        t.rep = clamp(t.rep + (comp.key === 'UCL' ? 3 : 1), 35, 96);
+        news(G, 'cup', `${t.name}, ${comp.name} 우승!`, `${josa(t.name, '이/가')} 결승에서 ${team(G, m.w === m.h ? m.a : m.h).name}을(를) 꺾고 유럽 정상에 올랐습니다.`);
+        if (m.w === G.user.teamId) { G.user.trophies.push({ year: G.year, name: comp.name }); unlock(G, comp.key === 'UCL' ? 'ucl' : 'uel'); G.board.conf = clamp(G.board.conf + (comp.key === 'UCL' ? 25 : 12), 0, 100); }
+      }
+    }
+  }
+  function euroUserComp(G) {
+    if (!G.euro) return null;
+    return G.euro.comps.find((c) => c.groups.some((g) => g.includes(G.user.teamId))) || null;
+  }
+  function euroStatus(G, comp) {
+    // 사용자 구단의 이번 시즌 유럽 대항전 성적 문자열
+    const uid = G.user.teamId;
+    if (!comp) return '-';
+    if (comp.winner === uid) return '우승';
+    for (let r = 10; r >= 6; r--) {
+      const rd = comp.rounds[r]; if (!rd) continue;
+      const m = rd.find((x) => x.h === uid || x.a === uid);
+      if (m) return m.w == null ? EURO_ROUNDS[r].replace(/ \d차전/, '') + ' 진행 중' : m.w === uid ? (r === 10 ? '우승' : EURO_ROUNDS[r].replace(/ \d차전/, '') + ' 통과') : EURO_ROUNDS[r].replace(/ \d차전/, '') + ' 탈락';
+    }
+    return comp.rounds[5] && comp.rounds[5][0].hs != null ? '조별리그 탈락' : '조별리그';
+  }
+
   function rngOf(G) { const r = new RNG(1); r.s = G.rngS; return r; }
   function saveRng(G, r) { G.rngS = r.s; }
 
@@ -110,10 +231,14 @@
     const cupRounds = Math.log2(size);
     const cupAfter = [];
     for (let c = 0; c < cupRounds; c++) cupAfter.push(Math.round(((c + 1) * R) / (cupRounds + 1)) - 1);
+    setupEuro(G, rng);
+    const euroAfter = [];
+    if (G.euro.comps.length) { let prev = -1; for (const f of EURO_AT) { prev = Math.min(R - 1, Math.max(prev + 1, Math.round(f * R) - 1)); euroAfter.push(prev); } }
     G.calendar = [];
-    let c = 0;
+    let c = 0, e = 0;
     for (let r = 0; r < R; r++) {
       G.calendar.push({ k: 'L', r });
+      while (e < euroAfter.length && euroAfter[e] === r) { G.calendar.push({ k: 'E', r: e }); e++; }
       while (c < cupAfter.length && cupAfter[c] === r) { G.calendar.push({ k: 'C', r: c }); c++; }
     }
     assignDays(G);
@@ -137,6 +262,7 @@
     let lastL = 0;
     for (const ev of G.calendar) {
       if (ev.k === 'L') { ev.day = ev.r * 7 + 5; lastL = ev.day; }
+      else if (ev.k === 'E') ev.day = lastL + 3; // 유럽 대항전: 화요일
       else ev.day = lastL + 4;
     }
   }
@@ -220,6 +346,14 @@
     if (ev.k === 'L') {
       const m = ul.fixtures[ev.r].find((x) => x.h === uid || x.a === uid);
       return m ? { ev, m, comp: '리그', label: `${ul.name} ${ev.r + 1}라운드` } : null;
+    }
+    if (ev.k === 'E') {
+      if (!G.euro) return null;
+      for (const comp of G.euro.comps) {
+        const m = (comp.rounds[ev.r] || []).find((x) => x.h === uid || x.a === uid);
+        if (m) return { ev, m, comp: comp.short, euro: comp, label: `${comp.name} ${EURO_ROUNDS[ev.r]}` };
+      }
+      return null;
     }
     const round = G.cup.rounds[ev.r];
     if (!round) return null;
@@ -350,7 +484,9 @@
 
   function engineResult(G, match) {
     const res = { hs: match.score[0], as: match.score[1], pens: null, players: [], engine: true };
-    for (const m of match.ratings()) {
+    const rated = match.ratings();
+    res.an = match.analysis();
+    for (const m of rated) {
       res.players.push({
         p: m.p, role: m.role, mins: m.mins, goals: m.s.goals, ast: m.s.ast,
         yel: m.yellow ? 1 : 0, red: !!m.red, inj: m.injured ? m.injWeeks : 0, rating: m.rating, endSt: m.st,
@@ -412,6 +548,8 @@
         const target = li === ut.league ? ev.r + 1 : Math.round(((ev.r + 1) * lg.fixtures.length) / R);
         while (lg.played < target) { for (const m of lg.fixtures[lg.played]) games.push({ m, li }); lg.played++; }
       });
+    } else if (ev.k === 'E') {
+      for (const comp of (G.euro ? G.euro.comps : [])) for (const m of comp.rounds[ev.r] || []) games.push({ m, li: team(G, m.h).league, euro: comp, ko: ev.r >= 6 });
     } else {
       for (const m of G.cup.rounds[ev.r]) games.push({ m, li: ut.league, cup: true });
     }
@@ -424,17 +562,27 @@
         res = engineResult(G, userMatch);
         if (g.cup && res.hs === res.as) res.pens = shootout(rng);
       } else {
-        res = quickSim(G, team(G, m.h), team(G, m.a), rng, !!g.cup);
+        res = quickSim(G, team(G, m.h), team(G, m.a), rng, !!g.cup || !!m.fin);
       }
+      // 유럽 대항전 2차전: 합산 동점이면 승부차기
+      if (g.euro && m.l1) {
+        const aggH = res.hs + m.l1[1], aggA = res.as + m.l1[0];
+        res.pens = aggH === aggA ? shootout(rng) : null;
+        res.agg = [aggH, aggA];
+      } else if (g.euro && m.fin && res.hs === res.as && !res.pens) res.pens = shootout(rng);
+      else if (g.euro && !m.fin) res.pens = null;
       for (const tid of [m.h, m.a]) for (const id of team(G, tid).squad) { const p = G.players[id]; if (p.sus > 0 && !res.players.some((r) => r.p === p)) p.sus--; }
       applyResult(G, m, res);
       if (g.cup) m.w = res.hs > res.as ? m.h : res.hs < res.as ? m.a : (res.pens[0] > res.pens[1] ? m.h : m.a);
-      const item = { m, li: g.li, res, cup: !!g.cup };
+      if (g.euro && m.l1) { const [x, y] = res.agg; m.agg = res.agg; m.w = x > y ? m.h : x < y ? m.a : (res.pens[0] > res.pens[1] ? m.h : m.a); }
+      if (g.euro && m.fin) m.w = res.hs > res.as ? m.h : res.hs < res.as ? m.a : (res.pens[0] > res.pens[1] ? m.h : m.a);
+      const item = { m, li: g.li, res, cup: !!g.cup, euro: g.euro ? g.euro.key : null };
       summary.results.push(item);
       if (isUser) summary.user = item;
-      gateIncome(G, team(G, m.h), !!g.cup, rng);
+      gateIncome(G, team(G, m.h), !!g.cup || !!g.euro, rng);
     }
     if (ev.k === 'C') advanceCup(G, ev.r);
+    if (ev.k === 'E') advanceEuro(G, ev.r);
     if (summary.user) afterUserMatch(G, summary.user, ev);
     G.week++;
     saveRng(G, rng);
@@ -471,11 +619,19 @@
     if (gf - ga >= 4) unlock(G, 'thrash');
     if (r === 'W' && W.squadOvr(G, opp) - W.squadOvr(G, userTeam(G)) >= 5) unlock(G, 'giant');
     const scorers = res.players.filter((x) => x.goals > 0 && x.p.teamId === uid).map((x) => x.p.name + (x.goals > 1 ? ` ${x.goals}골` : '')).join(', ');
-    const label = ev.k === 'L' ? `리그 ${ev.r + 1}R` : `${G.cup.name} ${cupRoundName(G, ev.r)}`;
+    const label = ev.k === 'L' ? `리그 ${ev.r + 1}R` : ev.k === 'E' ? `${(euroUserComp(G) || {}).short || '유럽'} ${EURO_ROUNDS[ev.r]}` : `${G.cup.name} ${cupRoundName(G, ev.r)}`;
     const word = r === 'W' ? '승리' : r === 'L' ? '패배' : '무승부';
     news(G, 'match', `[${label}] ${opp.name}전 ${gf}-${ga} ${word}`, scorers ? `득점: ${scorers}` : '득점 없이 경기를 마쳤습니다.');
     const best = res.players.slice().sort((a, b) => b.rating - a.rating)[0];
-    G.lastMatch = { opp: opp.id, home, gf, ga, r, label, motm: best ? best.p.id : null, pens: res.pens };
+    G.lastMatch = { opp: opp.id, home, gf, ga, r, label, motm: best ? best.p.id : null, pens: res.pens, agg: res.agg ? (home ? res.agg : [res.agg[1], res.agg[0]]) : null };
+    // 시즌 데이터: 경기별 득실과 xG (엔진 경기만)
+    if (res.an) {
+      const us = home ? 0 : 1;
+      G.lastMatch.an = res.an; G.lastMatch.us = us;
+      G.xgLog = G.xgLog || [];
+      G.xgLog.push({ s: G.season, label, opp: opp.id, gf, ga, xf: Math.round(res.an.sides[us].st.xg * 100) / 100, xa: Math.round(res.an.sides[1 - us].st.xg * 100) / 100, poss: res.an.sides[us].poss, sh: res.an.sides[us].st.shots, sha: res.an.sides[1 - us].st.shots });
+      if (G.xgLog.length > 120) G.xgLog.shift();
+    }
     for (const x of res.players) {
       if (x.inj && x.p.teamId === uid) news(G, 'injury', `${x.p.name} 부상`, `${josa(x.p.name, '이/가')} 부상으로 약 ${x.inj}주간 결장합니다.`);
     }
@@ -854,7 +1010,14 @@
     report.user = { pos, league: G.leagues[uli].name, goal, met: pos <= goal.pos, n };
     const lastRound = G.cup.rounds.findIndex((rd) => rd.some((m) => (m.h === ut.id || m.a === ut.id) && m.w != null && m.w !== ut.id));
     report.user.cup = G.cup.winner === ut.id ? '우승' : lastRound >= 0 ? cupRoundName(G, lastRound) + ' 탈락' : '-';
-    G.user.history.push({ year: G.year, team: ut.name, league: G.leagues[uli].name, pos, cup: report.user.cup });
+    const ec = euroUserComp(G);
+    report.user.euro = ec ? `${ec.short} ${euroStatus(G, ec)}` : null;
+    report.euroWinners = G.euro ? G.euro.comps.map((c) => ({ name: c.name, team: c.winner })) : [];
+    // 다음 시즌 유럽 대항전 출전권: 리그 최종 순위
+    G.euroNext = euroEntrants(G, G.leagues.map((lg, li) => table(G, li).map((r) => r.id)));
+    const uq = EURO.find((c) => G.euroNext[c.key].includes(ut.id));
+    report.user.euroNext = uq ? uq.name : null;
+    G.user.history.push({ year: G.year, team: ut.name, league: G.leagues[uli].name, pos, cup: report.user.cup, euro: report.user.euro });
     if (pos === 1) { G.user.trophies.push({ year: G.year, name: G.leagues[uli].name + ' 우승' }); unlock(G, 'title'); }
     const diff = goal.pos - pos;
     G.board.conf = clamp(G.board.conf + diff * 5 + (report.user.met ? 10 : -10), 0, 100);
@@ -1118,6 +1281,8 @@
 
 
   const ACH = {
+    ucl: ['유럽 정복', 'UEFA 챔피언스리그 우승'],
+    uel: ['유로파의 왕', 'UEFA 유로파리그 우승'],
     firstWin: ['첫 승', '감독 커리어 첫 승리'],
     firstSigning: ['첫 영입', '첫 선수를 영입'],
     unbeaten10: ['무패 행진', '10경기 연속 무패'],
@@ -1141,6 +1306,7 @@
     createMatch, playWeek, endSeason, advanceDay, canAdvance, nextEventDay, dateText, dateOf, ensureDays, quickSim, buildSide, cupRoundName,
     makeBid, completeSigning, askingPrice, wageDemand, willingToJoin, acceptOffer, rejectOffer, counterOffer, releasePlayer, releaseCost,
     renew, renewDemand, upgradeFacility, facCost, FAC, jobOffers, takeJob, strengthRank,
+    EURO_ROUNDS, euroGroupTable, euroUserComp, euroStatus, setupEuro,
     pressQuestions, answerPress, unlock, ACH, news, oppReport, sendReport, aiPlan, teamTalk, TALKS, unitStrength,
   };
 })(globalThis.KM || (globalThis.KM = {}));

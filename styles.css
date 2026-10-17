@@ -678,3 +678,70 @@ h1, h2, .h2, .eyebrow + h2, .card > h2, .sheet h2 { font-weight: 800; letter-spa
 .fixture .sc, .scoreboard .score { letter-spacing: -.01em; }
 nav.tabs button { font-size: 11.5px; font-weight: 700; }
 .pcard .shot { width: 146px; } .pcard .shot img, .pcard .shot .spr { width: 146px; height: 190px; }
+
+/* ── 경기 분석 (데이터 허브) ───────────────────────────────── */
+:root { --c-us: #6a4cf0; --c-them: #d0700a; --pitch-f: #eef1f6; --pitch-l: rgba(40, 50, 80, .28); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --c-us: #8b6cff; --c-them: #c86f1f; --pitch-f: #171a33; --pitch-l: rgba(200, 205, 240, .22); } }
+:root[data-theme="dark"] { --c-us: #8b6cff; --c-them: #c86f1f; --pitch-f: #171a33; --pitch-l: rgba(200, 205, 240, .22); }
+.an { display: flex; flex-direction: column; gap: 12px; }
+.an-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.an-sum div { background: var(--surface-2); border-radius: 12px; padding: 8px 10px; min-width: 0; }
+.an-sum small { display: block; color: var(--muted); font-size: 11px; font-weight: 700; }
+.an-sum b { font-size: 16px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.an-sum b span { color: var(--muted); font-weight: 600; }
+.an-tabs { overflow-x: auto; }
+.an-tabs button { flex: none; padding-inline: 12px; }
+.seg.sm button { padding-block: 5px; font-size: 12.5px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.sw.us { background: var(--c-us); } .sw.them { background: var(--c-them); }
+.an-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); align-items: center; }
+.an-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.an-legend.sm { font-size: 11.5px; }
+.mk { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.mk.goal { background: var(--muted); box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--muted); }
+.mk.on { background: color-mix(in srgb, var(--muted) 55%, transparent); }
+.mk.off { background: transparent; }
+.ramp { display: inline-block; width: 70px; height: 9px; border-radius: 3px; background: linear-gradient(90deg, color-mix(in srgb, var(--c-us) 8%, var(--pitch-f)), var(--c-us)); }
+.an-pitch { width: 100%; height: auto; display: block; border-radius: 12px; overflow: hidden; }
+.an-pitch .pf { fill: var(--pitch-f); }
+.an-pitch .pl rect, .an-pitch .pl line, .an-pitch .pl circle { fill: none; stroke: var(--pitch-l); stroke-width: 0.35; }
+.an-pitch .dir line { stroke: var(--pitch-l); stroke-width: 0.5; } .an-pitch .dir path { fill: var(--pitch-l); }
+.an-pitch .shot { stroke: var(--pitch-f); stroke-width: 0.35; cursor: pointer; }
+.an-pitch .shot.us { fill: var(--c-us); } .an-pitch .shot.them { fill: var(--c-them); }
+.an-pitch .shot.on { fill-opacity: .55; }
+.an-pitch .shot.off { fill-opacity: .14; stroke-width: 0.45; }
+.an-pitch .shot.off.us { stroke: var(--c-us); } .an-pitch .shot.off.them { stroke: var(--c-them); }
+.an-pitch .shot.goal { stroke: var(--pitch-f); stroke-width: 0.35; }
+.an-pitch .ring { fill: none; stroke: var(--ink); stroke-width: 0.45; pointer-events: none; }
+.an-pitch .edge { stroke-linecap: round; cursor: pointer; }
+.an-pitch .edge.us { stroke: var(--c-us); } .an-pitch .edge.them { stroke: var(--c-them); }
+.an-pitch .node { cursor: pointer; }
+.an-pitch .node circle { stroke: var(--pitch-f); stroke-width: 0.5; }
+.an-pitch .node.us circle { fill: var(--c-us); } .an-pitch .node.them circle { fill: var(--c-them); }
+.an-pitch .node.dim { opacity: .45; }
+.an-pitch .node text { font: 800 2.4px var(--f-num); fill: #fff; text-anchor: middle; pointer-events: none; }
+.an-pitch .hc { fill: var(--c-us); cursor: pointer; }
+.an-pitch .avg { fill: #fff; stroke: var(--c-us); stroke-width: 0.6; }
+.an .sel-mark { stroke: var(--ink) !important; stroke-width: 0.9 !important; }
+.an-trend .sel-mark .xb { stroke: var(--ink); stroke-width: 1.5; }
+.an-cap { font-size: 13px; color: var(--ink); background: var(--surface-2); border-radius: 10px; padding: 8px 12px; min-height: 36px; }
+.an-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.an-tiles div { background: var(--surface-2); border-radius: 12px; padding: 10px 12px; }
+.an-tiles small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.an-tiles b { font-size: 24px; }
+.an-trend { width: 100%; height: auto; display: block; }
+.an-trend .base { stroke: var(--line); stroke-width: 1; }
+.an-trend .xb.us { fill: var(--c-us); } .an-trend .xb.them { fill: var(--c-them); }
+.an-trend text.res { font: 700 9px var(--f-body); text-anchor: middle; fill: var(--muted); }
+.an-trend text.res.W { fill: var(--win); } .an-trend text.res.L { fill: var(--loss); }
+.an-trend g { cursor: pointer; }
+.an-tbl th, .an-tbl td { white-space: nowrap; padding-inline: 6px; }
+.an-tbl .tn { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+.an-btn { width: 100%; background: color-mix(in srgb, var(--fm) 16%, var(--surface-2)); color: var(--ink); }
+/* 유럽 대항전 */
+.euro-hero { background: linear-gradient(135deg, #10184a 0%, #1b1060 55%, #0b2a52 100%); color: #eef0fa; }
+.euro-hero.uel { background: linear-gradient(135deg, #3a1a05 0%, #5a2a08 50%, #20140c 100%); }
+.euro-hero .muted, .euro-hero .eyebrow { color: rgba(238, 240, 250, .72); }
+.euro-hero b { color: #fff !important; }
+.euro-badge { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; background: rgba(255, 255, 255, .12); color: #ffd23a; flex: none; }
+.day.match small + b + span, .day span { white-space: nowrap; }

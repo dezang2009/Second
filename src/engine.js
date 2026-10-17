@@ -11,6 +11,7 @@
   const HALF = 600;              // 전반 플레이 시간(엔진 초)
   const CLOCK = 2700 / HALF;     // 엔진 초 → 실제 경기 초 환산 (45분 = 600 엔진 초)
   const GOAL_Y0 = 34 - 3.66, GOAL_Y1 = 34 + 3.66;
+  const HX = 12, HY = 8; // 히트맵 격자 (공격 방향 기준)
 
   function roleGroup(role) {
     if (role === 'GK') return 'GK';
@@ -62,6 +63,7 @@
     this.s = { pass: 0, passOk: 0, key: 0, shots: 0, sot: 0, goals: 0, ast: 0, tkl: 0, int: 0, saves: 0, fouls: 0, drb: 0, lost: 0, mins: 0 };
     this.startT = 0; this.endT = null;
     this.hold = 0; this.protect = 0; this.chase = false; this.blocked = false; this.lag = 0;
+    this.heat = new Uint16Array(HX * HY); this.ax = 0; this.ay = 0; this.an = 0; this.touch = 0;
     this.dx = null; this.dy = null; this.recvCross = false; this.injWeeks = 0;
     this.red = false; this.subbed = false; this.rating = 6; this.mins = 0;
   }
@@ -129,6 +131,10 @@
     this.nextAiCheck = 0;
     this.tick = 0;
     this.goalsList = [];
+    // 경기 분석용 기록: 슈팅 위치, 패스 연결, 선수 위치 표본
+    this.shotLog = [];
+    this.passNet = [{}, {}];
+    this.sampleT = 0;
     SWAP = 0;
     this.placeKickoff();
   }
@@ -294,7 +300,31 @@
     this.tackles();
     this.randomIncidents();
     this.accumulate();
+    this.sample();
     this.checkClock();
+  };
+  // 1초마다 선수 위치를 기록 (평균 위치·히트맵)
+  M.sample = function () {
+    if (this.t < this.sampleT) return;
+    this.sampleT = this.t + 1;
+    for (const m of this.all()) {
+      const f = fx(m.side, m.x), y = fy(m.side, m.y);
+      m.ax += f; m.ay += y; m.an++;
+      const i = clamp(Math.floor(f / LEN * HX), 0, HX - 1), j = clamp(Math.floor(y / WID * HY), 0, HY - 1);
+      m.heat[j * HX + i]++;
+    }
+    const o = this.ball.owner; if (o) o.touch++;
+  };
+  // 경기 분석 요약 (저장용으로 작게)
+  M.analysis = function () {
+    const out = { shots: this.shotLog.map((x) => [x.s, Math.round(x.x * 10) / 10, Math.round(x.y * 10) / 10, Math.round(x.xg * 100) / 100, x.o, x.min, x.pid, x.h]), sides: [] };
+    for (let s = 0; s < 2; s++) {
+      const pl = this.mp[s].filter((m) => m.an > 20).map((m) => ({ id: m.id, role: m.role, mins: m.mins || 0, ax: Math.round(m.ax / m.an * 10) / 10, ay: Math.round(m.ay / m.an * 10) / 10, heat: Array.from(m.heat), n: m.an, rating: m.rating, t: m.touch, s: { pass: m.s.pass, ok: m.s.passOk, key: m.s.key, sh: m.s.shots, sot: m.s.sot, g: m.s.goals, a: m.s.ast, tkl: m.s.tkl, int: m.s.int, drb: m.s.drb, sv: m.s.saves } }));
+      const links = Object.entries(this.passNet[s]).map(([k, v]) => { const [a, b] = k.split('>').map(Number); return [a, b, v]; }).filter((x) => x[2] >= 2);
+      out.sides.push({ pl, links, poss: s === 0 ? this.possPct() : 100 - this.possPct(), st: Object.assign({}, this.stats[s]) });
+    }
+    out.mom = this.momentum.map((x) => [x.min, Math.round(x.v * 1000) / 1000]);
+    return out;
   };
 
   M.checkClock = function () {
@@ -693,6 +723,14 @@
       const u = Math.log(threat(df, dy) * (1 - pr) + eps) + Math.log(1 - pr * 0.6 * Math.max(0, 1 - f / 60) + 1e-6) - 0.08 + P.dribble + (P.counter ? 0.2 : 0) + m.R.drb;
       options.push({ k: 'dribble', u });
     }
+    // 고를 수 있는 선택지가 없으면(드문 경우: 골키퍼 배급 제한) 가장 가까운 동료에게 걷어낸다
+    if (!options.length) {
+      const mates = this.onPitch(s).filter((t) => t !== m && !t.injured);
+      const t = mates.sort((a, b) => dist(m.x, m.y, a.x, a.y) - dist(m.x, m.y, b.x, b.y))[0];
+      if (!t) { m.hold = 0.5; return; }
+      const L = dist(m.x, m.y, t.x, t.y);
+      options.push({ k: 'pass', u: 0, t, tX: t.x, tY: t.y, L: Math.max(4, L), lofted: L > 26 });
+    }
     // 소프트맥스 선택
     const T = (0.22 + (1 - m.a.pas / 100) * 0.25) * P.temp * (1 + (1 - m.st) * 0.6);
     let mx = -1e9;
@@ -767,6 +805,7 @@
     this.shot.L = Math.max(1, dist(m.x, m.y, this.shot.tx, this.shot.ty));
     const b = this.ball; b.owner = null; b.mode = 'shot';
     m.s.shots++; this.stats[s].shots++; this.stats[s].xg += xg;
+    this.shotLog.push({ s, x: fx(s, m.x), y: fy(s, m.y), xg, o: outcome, min: this.minute(), pid: m.id, h: header ? 1 : 0 });
     if (outcome === 'goal' || outcome === 'save') { m.s.sot++; this.stats[s].sot++; }
     this.shotAssist = this.lastPasser && this.lastPasser.side === s && this.lastPasser !== m ? this.lastPasser : null;
     if (this.shotAssist) this.shotAssist.s.key++;
@@ -820,6 +859,7 @@
       if (r.on && !airborne && dist(r.x, r.y, b.x, b.y) < 1.5) {
         const fail = 0.03 + (1 - r.a.dri / 100) * 0.05 + (p.lofted ? 0.06 : 0);
         p.from.s.passOk++; this.stats[p.from.side].passOk++;
+        if (p.from !== r && r.side === p.from.side) { const k = p.from.id + '>' + r.id, pn = this.passNet[r.side]; pn[k] = (pn[k] || 0) + 1; }
         if (rng.chance(fail)) { this.pass = null; this.looseBall(r.x, r.y, 4); this.lastTouch = r.side; return; }
         // 압박이 벗겨짐: 공을 쫓던 상대 선수들은 방향을 바꾸느라 늦는다
         const opPress = this.tac(1 - r.side).press;
@@ -1160,5 +1200,5 @@
     return a + b > 0 ? Math.round((a / (a + b)) * 100) : 50;
   };
 
-  KM.Engine = { Match, LEN, WID, DT, HALF, CLOCK, threat, xgAt, fx, fy };
+  KM.Engine = { Match, LEN, WID, DT, HALF, CLOCK, HX, HY, threat, xgAt, fx, fy };
 })(globalThis.KM || (globalThis.KM = {}));
