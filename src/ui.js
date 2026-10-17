@@ -1583,10 +1583,19 @@
       for (const y of sd.starters.map((st) => st.slot[1]).sort((x, y) => y - x)) if (!lv.length || lv[lv.length - 1] - y > 0.09) lv.push(y);
       const rowOf = (y) => lv.findIndex((v, i) => i === lv.length - 1 || y > (v + lv[i + 1]) / 2);
       const rowTop = (st) => (lv.length > 1 ? 1 + rowOf(st.slot[1]) * (80 / (lv.length - 1)) : 40);
+      // 줄마다 카드 수에 맞춰 고르게 벌리고, 5명 줄(파이브백 등)은 작은 카드로 → 서로 가리지 않게
+      const rows = {};
+      sd.starters.forEach((st) => { (rows[rowOf(st.slot[1])] = rows[rowOf(st.slot[1])] || []).push(st); });
+      const STEP = [0, 0, 26, 31, 24.5, 19.6, 16.4];
+      const place = new Map();
+      for (const r of Object.values(rows)) {
+        r.sort((x, y) => x.slot[2] - y.slot[2]);
+        const n = r.length, step = STEP[Math.min(n, 6)];
+        r.forEach((st, i) => place.set(st, { left: 50 + (i - (n - 1) / 2) * step, small: n >= 5 }));
+      }
       const cards = sd.starters.map((st, k) => {
-        const p = st.p, nm = splitName(p.name);
-        const left = 10 + st.slot[2] * 80;
-        return `<div class="lu-card ${st.role === 'GK' ? 'gk' : ''}" style="left:${left}%;top:${rowTop(st)}%;animation-delay:${0.08 + k * 0.06}s">
+        const p = st.p, nm = splitName(p.name), pl = place.get(st);
+        return `<div class="lu-card ${st.role === 'GK' ? 'gk' : ''} ${pl.small ? 'sm' : ''}" style="left:${pl.left}%;top:${rowTop(st)}%;animation-delay:${0.08 + k * 0.06}s">
           <em class="no">${p.num || ''}</em>${avatar(p, 58)}
           <span class="fl">${flagOf(p.nat)}</span>
           <span class="nm">${nm[0] ? `<small>${esc(nm[0])}</small>` : ''}<b>${esc(nm[1])}</b></span></div>`;

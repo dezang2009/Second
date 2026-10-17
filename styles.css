@@ -1103,3 +1103,11 @@ table.pltbl { border-spacing: 0 2px; margin-top: -2px; }
 .lu-card .fl { top: 34px; }
 .lu-card.gk .no { color: #fff; }
 .lu-card { width: 76px; } .lu-card .ph { width: 42px !important; }
+/* 한 줄에 5명일 때 작은 카드 */
+.lu-card.sm { width: 64px; border-radius: 9px; }
+.lu-card.sm .no { font-size: 21px; left: 3px; top: 2px; }
+.lu-card.sm .ph { width: 34px !important; height: 46px !important; }
+.lu-card.sm .fl { top: 27px; left: 4px; font-size: 13px; }
+.lu-card.sm .nm { padding: 2px 4px 4px; }
+.lu-card.sm .nm small { font-size: 7.5px; }
+.lu-card.sm .nm b { font-size: 10px; }
