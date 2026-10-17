@@ -1030,3 +1030,56 @@ table.pltbl { border-collapse: separate; border-spacing: 0 3px; margin-top: -3px
 .pltbl tr.me td.zone.up { box-shadow: inset 0 3px 0 var(--pl-cyan), inset 0 -3px 0 var(--pl-cyan); }
 .pltbl tr.me td.zone.down { box-shadow: inset 0 3px 0 var(--pl-magenta), inset 0 -3px 0 var(--pl-magenta); }
 .pltbl tr.me td.pts { background: var(--pl-green); color: var(--pl-purple); }
+
+/* ── 킥오프 전 선발 라인업 소개 ── */
+.lu-intro { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; color: #fff; overflow-y: auto;
+  background: radial-gradient(120% 70% at 50% 0%, #5a0a62 0%, var(--pl-purple) 55%, #1d0020 100%); animation: luIn .3s ease; padding: max(12px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px)); }
+.lu-intro.out { animation: luOut .26s ease forwards; }
+@keyframes luIn { from { opacity: 0; } } @keyframes luOut { to { opacity: 0; } }
+.lu-top { display: flex; align-items: center; gap: 10px; max-width: 520px; width: 100%; margin: 0 auto 10px; }
+.lu-dots { flex: 1; display: flex; gap: 6px; }
+.lu-dots i { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .22); overflow: hidden; position: relative; }
+.lu-dots i.done { background: var(--pl-green); }
+.lu-dots i.on::after { content: ""; position: absolute; inset: 0; background: var(--pl-green); transform-origin: left; animation: luBar 5.2s linear forwards; }
+@keyframes luBar { from { transform: scaleX(0); } }
+.lu-skip { border: 0; background: rgba(255, 255, 255, .14); color: #fff; font-weight: 700; font-size: 13px; padding: 6px 12px; border-radius: 999px; }
+.lu-page { max-width: 520px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; animation: luSlide .45s cubic-bezier(.2, .8, .2, 1); }
+@keyframes luSlide { from { opacity: 0; transform: translateX(40px); } }
+.lu-head { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--tc); color: var(--ti); clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%); padding-right: 26px; }
+.lu-head .cr { flex: none; width: 52px; height: 52px; display: grid; place-items: center; background: #fff; border-radius: 50%; }
+.lu-head .cr .logo { background: none; padding: 0; }
+.lu-head small { display: block; font-family: var(--f-bug); font-weight: 800; font-size: 13px; letter-spacing: .08em; opacity: .85; }
+.lu-head b { display: block; font-size: 21px; font-weight: 800; line-height: 1.15; }
+.lu-form { font-family: var(--f-bug); font-weight: 800; font-size: 22px; background: var(--pl-purple); color: #fff; padding: 2px 10px; border-radius: 6px; }
+.lu-pitch { position: relative; aspect-ratio: 68 / 88; border-radius: 12px; overflow: hidden;
+  background: repeating-linear-gradient(180deg, rgba(255, 255, 255, .05) 0 12.5%, transparent 12.5% 25%), linear-gradient(180deg, #2a0a33, #170019); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .14); }
+.lu-pitch .ln { position: absolute; border: 2px solid rgba(255, 255, 255, .14); }
+.lu-pitch .ln.h { left: 0; right: 0; top: -2px; border-width: 0 0 2px; height: 0; }
+.lu-pitch .ln.c { left: 50%; top: -18%; width: 36%; aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%; }
+.lu-pitch .ln.b { left: 22%; right: 22%; bottom: -2px; height: 17%; border-bottom: 0; }
+.lu-dot { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; width: 76px; opacity: 0; animation: luDot .4s cubic-bezier(.2, 1.5, .4, 1) forwards; }
+.lu-dot:nth-child(4) { animation-delay: .05s; } .lu-dot:nth-child(5) { animation-delay: .1s; } .lu-dot:nth-child(6) { animation-delay: .15s; } .lu-dot:nth-child(7) { animation-delay: .2s; }
+.lu-dot:nth-child(8) { animation-delay: .25s; } .lu-dot:nth-child(9) { animation-delay: .3s; } .lu-dot:nth-child(10) { animation-delay: .35s; } .lu-dot:nth-child(11) { animation-delay: .4s; }
+.lu-dot:nth-child(12) { animation-delay: .45s; } .lu-dot:nth-child(13) { animation-delay: .5s; } .lu-dot:nth-child(14) { animation-delay: .55s; }
+@keyframes luDot { from { opacity: 0; transform: translate(-50%, -30%) scale(.6); } to { opacity: 1; transform: translate(-50%, -50%); } }
+.lu-dot i { font-style: normal; width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; background: var(--tc); color: var(--ti); font-family: var(--f-bug); font-weight: 800; font-size: 15px; box-shadow: 0 0 0 2px #fff, 0 4px 10px rgba(0, 0, 0, .4); }
+.lu-dot span { max-width: 76px; font-size: 11px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(0, 0, 0, .45); padding: 1px 6px; border-radius: 4px; }
+.lu-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; }
+.lu-list li { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; min-width: 0; padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, .1); }
+.lu-list b { flex: none; width: 24px; font-family: var(--f-bug); font-weight: 800; font-size: 17px; color: var(--pl-green); }
+.lu-list span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lu-list em { flex: none; font-style: normal; font-size: 10.5px; font-weight: 800; color: rgba(255, 255, 255, .6); }
+.lu-bench { font-size: 12px; color: rgba(255, 255, 255, .72); line-height: 1.5; }
+.lu-bench small { display: block; font-family: var(--f-bug); font-weight: 800; font-size: 12px; letter-spacing: .08em; color: var(--pl-cyan); }
+.lu-hint { margin-top: auto; padding-top: 10px; text-align: center; font-size: 12px; color: rgba(255, 255, 255, .5); }
+/* 순위표 컴팩트: 20개 팀이 한 화면에 */
+table.pltbl { border-spacing: 0 2px; margin-top: -2px; }
+.pltbl thead th { font-size: 12px; padding: 4px 2px; }
+.pltbl td { font-size: 14px; padding: 0 2px; height: 22px; line-height: 1; }
+.pltbl td.zone { width: 4px; }
+.pltbl td.pos-n { width: 20px; font-size: 14px; }
+.pltbl td.tn { font-size: 12.5px; max-width: 150px; }
+.pltbl td.tn .row { gap: 6px !important; }
+.pltbl td.tn .cr { width: 19px; height: 19px; }
+.pltbl td.pts { font-size: 15.5px; min-width: 28px; }
+.card:has(> .tbl-wrap > .pltbl) { padding: 8px 10px; }

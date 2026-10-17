@@ -505,7 +505,7 @@
         const k = offset + i + 1;
         const zone = k <= (euro ? 4 : 3) ? 'up' : k > n - 3 ? 'down' : '';
         const t = G.teams[r.id];
-        return `<tr class="${r.id === uid ? 'me' : ''} ${zone}" data-act="teamsheet" data-v="${r.id}" style="cursor:pointer;--tc:${t.c1 || '#555'}"><td class="zone ${zone}"></td><td class="pos-n">${k}</td><td class="tn"><span class="row" style="gap:7px"><span class="cr">${logo(t, 18)}</span><span class="nm">${esc(t.name)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td></tr>`;
+        return `<tr class="${r.id === uid ? 'me' : ''} ${zone}" data-act="teamsheet" data-v="${r.id}" style="cursor:pointer;--tc:${t.c1 || '#555'}"><td class="zone ${zone}"></td><td class="pos-n">${k}</td><td class="tn"><span class="row" style="gap:7px"><span class="cr">${logo(t, 15)}</span><span class="nm">${esc(t.name)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td></tr>`;
       }).join('')}</tbody></table></div>`;
   }
 
@@ -834,7 +834,7 @@
     if (sub === 'table') {
       const euro = G.leagues[li].code !== 'RSK1';
       body = chips + `<section class="card">${tableHtml(G, li, S.table(G, li), 0)}
-        <p class="muted" style="font-size:12px;margin:10px 0 0"><span style="color:var(--brand)">■</span> ${euro ? '챔피언스리그권' : 'ACL권'} · <span style="color:var(--loss)">■</span> 강등권 (여기서 마치면 구단주 신뢰도가 크게 떨어져요)</p></section>`;
+        <p class="muted" style="font-size:11px;margin:6px 0 0"><span style="color:var(--pl-up-ink)">●</span> ${euro ? '챔피언스리그권' : 'ACL권'} · <span style="color:var(--pl-dn-ink)">●</span> 강등권</p></section>`;
     } else if (sub === 'fixtures') body = chips + fixturesView(li);
     else if (sub === 'cup') body = cupView();
     else if (sub === 'euro') body = euroView();
@@ -1041,7 +1041,7 @@
     const groups = comp.groups.map((g, gi) => {
       const tb = S.euroGroupTable(comp, gi);
       return `<section class="card"><h2>${'ABCD'[gi]}조</h2><div class="tbl-wrap"><table class="tbl pltbl"><thead><tr><th></th><th style="text-align:left">구단</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th></tr></thead><tbody>
-        ${tb.map((r, i) => { const t = G.teams[r.id]; return `<tr class="${r.id === uid ? 'me' : ''}" data-act="teamsheet" data-v="${r.id}" style="cursor:pointer;--tc:${t.c1 || '#555'}"><td class="zone ${i < 2 ? 'up' : ''}"></td><td class="tn"><span class="row" style="gap:7px"><span class="cr">${logo(t, 18)}</span><span class="nm">${esc(t.name)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td></tr>`; }).join('')}</tbody></table></div></section>`;
+        ${tb.map((r, i) => { const t = G.teams[r.id]; return `<tr class="${r.id === uid ? 'me' : ''}" data-act="teamsheet" data-v="${r.id}" style="cursor:pointer;--tc:${t.c1 || '#555'}"><td class="zone ${i < 2 ? 'up' : ''}"></td><td class="tn"><span class="row" style="gap:7px"><span class="cr">${logo(t, 15)}</span><span class="nm">${esc(t.name)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td></tr>`; }).join('')}</tbody></table></div></section>`;
     }).join('');
     const ko = [[6, 7, '8강'], [8, 9, '4강'], [10, null, '결승']].map(([a, b, name]) => {
       const rd = comp.rounds[b != null ? b : a] || comp.rounds[a];
@@ -1499,7 +1499,8 @@
     UI.live.view = new KM.Render.PitchView($('#lv-canvas'), m, userSide);
     UI.live.view.snapshot();
     renderLivePanel(true);
-    showTalk('pre');
+    UI.live.paused = true;
+    lineupIntro(() => showTalk('pre'));
     UI.live.last = performance.now();
     requestAnimationFrame(liveLoop);
     try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then((l) => { UI.wake = l; }).catch(() => {}); } catch (e) { /* 무시 */ }
@@ -1550,6 +1551,42 @@
     const L = UI.live, m = L.m, s = L.userSide;
     const fav = W.teamRating(UI.G, m.sides[s].team) - W.teamRating(UI.G, m.sides[1 - s].team);
     return { fav, gd: m.score[s] - m.score[1 - s], xgd: m.stats[s].xg - m.stats[1 - s].xg };
+  }
+  // 킥오프 전 선발 라인업 소개 (프리미어리그 중계 그래픽 스타일): 홈 → 원정, 화면을 누르면 다음
+  function lineupIntro(done) {
+    const L = UI.live, m = L.m;
+    const host = $('.match-screen'); if (!host) { done(); return; }
+    const box = document.createElement('div');
+    box.className = 'lu-intro';
+    host.appendChild(box);
+    const last = (n) => String(n).split(' ').pop();
+    const page = (s) => {
+      const sd = m.sides[s], t = sd.team;
+      const form = (sd.tactics && sd.tactics.formation) || '';
+      const dots = sd.starters.map((st) => {
+        const [l] = KM.Render.slotPos(st.slot);
+        const tp = st.role === 'GK' ? 92 : 81 - st.slot[1] * 72;  // 골키퍼와 수비 사이를 넉넉히
+        return `<div class="lu-dot" style="left:${l}%;top:${tp}%"><i>${st.p.num || ''}</i><span>${esc(last(st.p.name))}</span></div>`;
+      }).join('');
+      const list = sd.starters.slice().sort((a, b) => (a.p.num || 99) - (b.p.num || 99)).map((st) =>
+        `<li><b>${st.p.num || ''}</b><span>${esc(st.p.name)}</span><em>${st.role}</em></li>`).join('');
+      const bench = sd.bench.map((p) => `${p.num ? p.num + ' ' : ''}${esc(last(p.name))}`).join(' · ');
+      return `<div class="lu-page" style="--tc:${t.c1 || '#444'};--ti:${inkOn(t.c1 || '#444', t.c2)}">
+        <div class="lu-head"><span class="cr">${logo(t, 40)}</span><div class="grow"><small>${s === 0 ? 'HOME' : 'AWAY'} · 선발 라인업</small><b>${esc(t.name)}</b></div>${form ? `<span class="lu-form">${form}</span>` : ''}</div>
+        <div class="lu-pitch"><span class="ln c"></span><span class="ln h"></span><span class="ln b"></span>${dots}</div>
+        <ol class="lu-list">${list}</ol>
+        ${bench ? `<div class="lu-bench"><small>교체 명단</small>${bench}</div>` : ''}
+      </div>`;
+    };
+    let i = 0, timer = null;
+    const show = () => {
+      box.innerHTML = `<div class="lu-top"><div class="lu-dots">${[0, 1].map((k) => `<i class="${k < i ? 'done' : k === i ? 'on' : ''}"></i>`).join('')}</div><button class="lu-skip" data-lu="skip">건너뛰기</button></div>${page(i)}<div class="lu-hint">화면을 누르면 다음으로</div>`;
+      clearTimeout(timer); timer = setTimeout(next, 5200);
+    };
+    const finish = () => { clearTimeout(timer); box.classList.add('out'); setTimeout(() => box.remove(), 260); done(); };
+    const next = () => { if (i >= 1) finish(); else { i++; show(); } };
+    box.addEventListener('click', (e) => { e.stopPropagation(); if (e.target.closest('[data-lu=skip]')) finish(); else next(); });
+    show();
   }
   function showTalk(phase) {
     const L = UI.live;
