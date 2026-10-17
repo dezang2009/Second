@@ -1477,7 +1477,7 @@
     const h = m.sides[0].team, a = m.sides[1].team;
     const kit = KM.Render.kits(h, a);
     el.innerHTML = `<div class="in">
-      <div class="scoreboard" style="--hc:${kit[0].fill};--ac:${kit[1].fill}"><div class="tm">${logo(h, 34)}<b>${esc(h.short)}</b></div><div class="mid"><div class="score" id="lv-score">0 - 0</div><div class="clock" id="lv-clock">00:00</div></div><div class="tm away">${logo(a, 34)}<b>${esc(a.short)}</b></div></div>
+      ${scoreBug(h, a)}
       <div class="possbar" aria-hidden="true"><i id="lv-ph" style="background:${kit[0].fill};width:50%"></i><i style="background:${kit[1].fill};flex:1"></i></div>
       <div class="pitch-wrap"><canvas class="pitch" id="lv-canvas" aria-label="경기 화면"></canvas><div class="owner" id="lv-owner"></div><div id="lv-flash"></div><div id="lv-ht" class="ht-wrap" hidden></div></div>
       <div class="ctrl"><button class="btn" data-act="lvpause" id="lv-pause">일시정지</button><button class="btn" data-act="lvspeed" id="lv-speed">${speedLabel(UI.live.speed)}</button><button class="btn" data-act="lvskip">결과로</button></div>
@@ -1583,13 +1583,55 @@
   // 하프타임: 경기를 멈추고 전반 요약 + 진영 교체 안내 + 팀 토크
   function showHalftime() { showTalk('ht'); }
 
+  // 프리미어리그 중계 스코어 버그 스타일: 구단 색 약칭 판 + 엠블럼 + 흰 점수 칸, 아래에 보라색 시계 탭
+  const PL_PURPLE = '#37003c';
+  function lum(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return 0;
+    const n = parseInt(m[1], 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  // 판 색 위에서 읽히는 글자색: 보조색이 충분히 대비되면 보조색, 아니면 흰색/진보라
+  function inkOn(bg, alt) {
+    const L = lum(bg), ratio = (x, y) => (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    if (alt && ratio(L, lum(alt)) >= 3.2) return alt;
+    return ratio(L, 1) >= ratio(L, lum(PL_PURPLE)) ? '#ffffff' : PL_PURPLE;
+  }
+  function bugVars(t, k) { return `--${k}:${t.c1 || '#444'};--${k}i:${inkOn(t.c1 || '#444', t.c2)}`; }
+  function scoreBug(h, a, fin) {
+    const id = (x) => (fin ? '' : ` id="${x}"`);
+    return `<div class="plbug" style="${bugVars(h, 'h')};${bugVars(a, 'a')}">
+      <div class="plbug-row">
+        <div class="plbug-side home"><b>${esc(h.short)}</b><span class="cr">${logo(h, 26)}</span></div>
+        <div class="plbug-sc"><i${id('lv-sh')}>${fin ? fin[0] : 0}</i><i${id('lv-sa')}>${fin ? fin[1] : 0}</i></div>
+        <div class="plbug-side away"><span class="cr">${logo(a, 26)}</span><b>${esc(a.short)}</b></div>
+        ${fin ? '' : '<div class="plbug-goal" id="lv-goal" aria-live="polite"></div>'}
+      </div>
+      <div class="plbug-clock"><span${id('lv-clock')}>${fin ? 'FT' : '00:00'}</span>${fin ? '' : '<em id="lv-add" hidden></em>'}</div>
+    </div>`;
+  }
+  // 골: 넣은 팀 쪽 판이 점수판 전체로 펼쳐지며 GOAL
+  function bugGoal(m, f) {
+    const box = $('#lv-goal'); if (!box) return;
+    const t = m.sides[f.side].team;
+    const letters = 'GOAL'.split('').map((c, i) => `<span style="animation-delay:${0.18 + i * 0.07}s">${c}</span>`).join('');
+    box.className = 'plbug-goal ' + (f.side === 0 ? 'from-l' : 'from-r');
+    box.style.cssText = `--g:${t.c1 || '#444'};--gi:${inkOn(t.c1 || '#444', t.c2)};--g2:${t.c2 || '#fff'}`;
+    box.innerHTML = `<div class="gb"><span class="cr">${logo(t, 28)}</span><b class="gw">${letters}</b><span class="cr">${logo(t, 28)}</span></div>`;
+    void box.offsetWidth; box.classList.add('on');
+    clearTimeout(bugGoal.t); bugGoal.t = setTimeout(() => box.classList.remove('on'), 3400);
+  }
+
   function showFlash(f) {
     const box = $('#lv-flash');
     if (!box) return;
     const L = UI.live;
     const mine = f.side === L.userSide;
     const pl = f.pid != null ? UI.G.players[f.pid] : null;
-    if (f.type === 'goal') box.innerHTML = `<div class="flash">${pl ? avatar(pl, 64, 'var(--accent)') : ''}<span class="w">${mine ? 'GOAL!' : '실점'}</span><small>${esc(f.name)}</small></div>`;
+    if (f.type === 'goal') {
+      bugGoal(L.m, f);
+      const t = L.m.sides[f.side].team;
+      box.innerHTML = `<div class="flash scorer" style="--g:${t.c1 || '#444'}">${pl ? avatar(pl, 44) : ''}<span><small>${mine ? '득점' : '실점'}</small><b>${esc(f.name)}</b></span></div>`;
+    }
     else if (f.type === 'red') box.innerHTML = `<div class="flash red"><span class="w">퇴장</span><small>${esc(f.name)}</small></div>`;
     else if (f.type === 'pen') box.innerHTML = `<div class="flash"><span class="w" style="font-size:44px">페널티킥</span></div>`;
     if (navigator.vibrate && f.type === 'goal' && mine) try { navigator.vibrate(120); } catch (e) { /* 무시 */ }
@@ -1597,10 +1639,13 @@
 
   function updateLiveHud() {
     const L = UI.live, m = L.m;
-    const sc = `${m.score[0]} - ${m.score[1]}`;
-    const s = $('#lv-score'); if (s && s.textContent !== sc) s.textContent = sc;
-    const c = $('#lv-clock'); const ct = m.finished ? '종료' : m.clockText();
+    for (const [id, v] of [['#lv-sh', m.score[0]], ['#lv-sa', m.score[1]]]) { const e = $(id); if (e && e.textContent !== String(v)) { e.textContent = v; e.classList.remove('bump'); void e.offsetWidth; e.classList.add('bump'); } }
+    const c = $('#lv-clock'); const raw = m.finished ? 'FT' : m.clockText();
+    const plus = /^(\d+)\+(\d+)/.exec(raw);
+    const ct = plus ? plus[1] + ':00' : raw;
     if (c && c.textContent !== ct) c.textContent = ct;
+    const ad = $('#lv-add');
+    if (ad) { const at = plus ? '+' + plus[2] : ''; if (ad.textContent !== at) { ad.textContent = at; ad.hidden = !at; } }
     const ph = $('#lv-ph'); if (ph) ph.style.width = m.possPct() + '%';
     const ow = m.ball.owner;
     if (ow !== L.owner) {
@@ -1720,7 +1765,7 @@
     const pp = m.possPct();
     UI.lastAn = m.analysis ? { an: summary.user.res.an, us: uSide } : null;
     sheet(`<span class="eyebrow">${ev.k === 'L' ? `리그 ${ev.r + 1}라운드` : ev.k === 'E' ? esc(euroLabel(G, ev.r)) : `${esc(G.cup.name)} ${S.cupRoundName(G, ev.r)}`} · 경기 결과</span>
-      <div class="fixture"><div class="tm">${logo(h, 64)}<b>${esc(h.name)}</b></div><div class="sc num">${m.score[0]} - ${m.score[1]}</div><div class="tm">${logo(a, 64)}<b>${esc(a.name)}</b></div></div>
+      ${scoreBug(h, a, m.score)}<div class="row muted" style="font-size:12.5px;font-weight:700;margin-top:-4px"><span class="grow">${esc(h.name)}</span><span>${esc(a.name)}</span></div>
       ${res.agg || res.pens ? `<div class="muted" style="text-align:center;font-weight:700">${res.agg ? `합계 ${res.agg[0]} - ${res.agg[1]}` : ''}${res.agg && res.pens ? ' · ' : ''}${res.pens ? `승부차기 ${res.pens[0]} - ${res.pens[1]}` : ''}</div>` : ''}
       ${summary.user.res.an ? '<button class="btn an-btn" data-act="analysis">📊 경기 분석 보기</button>' : ''}
       ${goals.length ? `<div class="stack" style="gap:4px;font-size:13px">${goals.map((g) => `<div style="text-align:${g.side === 0 ? 'left' : 'right'}">⚽ <b>${esc(G.players[g.pid] ? G.players[g.pid].name : '')}${g.og ? ' (자책골)' : ''}</b> <span class="muted num" style="font-size:15px">${g.min}'</span></div>`).join('')}</div>` : ''}
