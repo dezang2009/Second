@@ -10,7 +10,10 @@ const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
 const html = read('index.html');
 const css = read('styles.css');
 const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-const js = 'globalThis.KM = { BUNDLE: true };\n' + scripts.map((f) => `// ── ${f}\n${read(f)}`).join('\n');
+// 유스·자동 생성 선수용 가상 얼굴 (python3 tools/build_faces.py)
+let faces = null;
+try { faces = fs.readFileSync(path.join(root, 'data/faces_meta.json'), 'utf8'); } catch (e) { /* 없음 */ }
+const js = `globalThis.KM = { BUNDLE: true${faces ? `, FACES: ${faces}` : ''} };\n` + scripts.map((f) => `// ── ${f}\n${read(f)}`).join('\n');
 const fonts = html.match(/<link rel="preload" href="fonts[^>]+>/)[0]; // 글꼴 파일은 fonts/ 폴더에서 (dist에도 복사)
 const icon = 'data:image/svg+xml,' + encodeURIComponent(read('icon.svg'));
 const safeJs = js.replace(/<\/script/gi, '<\\/script');
@@ -19,7 +22,7 @@ const body = `<div id="app"></div>\n<script>\n${safeJs}\n</script>`;
 let sprites = null;
 try { sprites = fs.readFileSync(path.join(root, 'data/sprites.json'), 'utf8'); } catch (e) { /* 스프라이트 없음 */ }
 const artBody = sprites
-  ? `<div id="app"></div>\n<script>\n${safeJs.replace('globalThis.KM = { BUNDLE: true };', `globalThis.KM = { BUNDLE: true, SPRITES: ${sprites} };`)}\n</script>`
+  ? `<div id="app"></div>\n<script>\n${safeJs.replace('globalThis.KM = { BUNDLE: true', `globalThis.KM = { BUNDLE: true, SPRITES: ${sprites}`)}\n</script>`
   : body;
 const full = `<!doctype html>
 <html lang="ko">
@@ -63,8 +66,9 @@ if (sprites) {
   try {
     const ph = JSON.parse(fs.readFileSync(path.join(root, 'data/photos.json'), 'utf8'));
     const map = (ids) => Object.fromEntries(ids.map((id) => [id, 1]));
-    appBody = artBody.replace('globalThis.KM = { BUNDLE: true,', `globalThis.KM = { BUNDLE: true, PHOTOS: ${JSON.stringify({ p: map(ph.p), l: map(ph.l) })},`);
-    for (const sub of ['p', 'l']) {
+    const hasF = fs.existsSync(path.join(root, 'dist/photos/f'));
+    appBody = artBody.replace('globalThis.KM = { BUNDLE: true,', `globalThis.KM = { BUNDLE: true, PHOTOS: ${JSON.stringify({ p: map(ph.p), l: map(ph.l), f: hasF ? 1 : 0 })},`);
+    for (const sub of hasF ? ['p', 'l', 'f'] : ['p', 'l']) {
       const src = path.join(root, 'dist/photos', sub), dst = path.join(root, 'dist/app/ph', sub);
       fs.mkdirSync(dst, { recursive: true });
       for (const f of fs.readdirSync(src)) fs.copyFileSync(path.join(src, f), path.join(dst, f));
