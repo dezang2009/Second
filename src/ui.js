@@ -1380,11 +1380,73 @@
     UI.selSlot = null;
     renderPrematch();
   }
+  // ── 경기 1시간 전 구단 공식 SNS 라인업 발표 ─────────────────
+  // 구단마다 그래픽 스타일이 정해져 있다: 포스터형 / 사진 격자형 / 어두운 조명형
+  function hashN(str) { let h = 2166136261; for (const c of String(str)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function hasPhoto(p) { return !!((KM.PHOTOS && KM.PHOTOS.p[p.id]) || (KM.SPRITES && KM.SPRITES.p[p.id]) || (p.photo && !KM.SPRITES)); }
+  function kfmt(n) { return n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + '만' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + '천' : String(n); }
+  function snsLineup(G, t) {
+    const xi = t.lineup.map((id) => G.players[id]).filter(Boolean);
+    const subs = t.bench.map((id) => G.players[id]).filter(Boolean);
+    const byNum = xi.slice().sort((a, b) => (a.num || 99) - (b.num || 99));
+    const star = xi.filter(hasPhoto).sort((a, b) => b.ovr - a.ovr)[0] || xi[0];
+    return { xi, subs, byNum, star };
+  }
+  function snsGraphic(G, t, h, a, style) {
+    const L = snsLineup(G, t), sur = (p) => esc(splitName(p.name)[1]);
+    const cap = (p) => (p === L.byNum.slice().sort((x, y) => y.ovr - x.ovr)[0] ? ' (C)' : '');
+    const crests = `<span class="cr">${logo(h, 34)}</span><span class="cr">${logo(a, 34)}</span>`;
+    const st = `--tc:${t.c1 || '#444'};--ti:${inkOn(t.c1 || '#444', t.c2)};--t2:${t.c2 || '#fff'}`;
+    if (style === 0) {  // 포스터형: 구단 색 바탕, 큰 STARTING XI, 번호 목록 + 대표 선수 사진, SUBS 띠
+      return `<div class="sg poster" style="${st}"><div class="bgtx">${esc(t.short).repeat(6)}</div>
+        <div class="ghost">STARTING XI</div><h4>STARTING XI</h4>
+        <div class="frame"><div class="lcol"><div class="crs">${crests}</div><ol>${L.byNum.map((p) => `<li><b>${p.num || ''}</b>${sur(p)}${cap(p)}</li>`).join('')}</ol></div>
+        <div class="rcol">${bigPhoto(L.star)}</div></div>
+        <div class="subs"><b>SUBS</b><span>${L.subs.map(sur).join(', ')}</span></div></div>`;
+    }
+    if (style === 1) {  // 사진 격자형: 제목 칸 + 11명 사진 칸, 아래 교체 명단 띠
+      const tiles = L.xi.map((p) => `<div class="tile">${avatar(p, 110)}<span>${sur(p)}${cap(p)}</span></div>`).join('');
+      return `<div class="sg grid" style="${st}"><div class="cells"><div class="tile title"><small>${esc(t.short)} PRESENTS</small><i>STARTING</i><b>XI</b>${logo(t, 26)}</div>${tiles}</div>
+        <div class="subs"><b>SUBS</b><span>${L.subs.map(sur).join(' / ')}</span><span class="crs">${crests}</span></div></div>`;
+    }
+    // 어두운 조명형: 검은 바탕, 구단 색 조명을 받은 대표 선수, 기울어진 STARTING
+    return `<div class="sg dark" style="${st}"><div class="glow"></div><div class="big">XI</div>
+      <div class="lcol"><i class="ttl">STARTING</i><div class="crs">${crests}</div>
+        <ol>${L.byNum.map((p) => `<li><b>${p.num || ''}</b>${sur(p)}${cap(p)}</li>`).join('')}</ol>
+        <div class="subs"><b>교체:</b> ${L.subs.map((p) => `<em>${p.num || ''}</em>${sur(p)}`).join(' / ')}</div></div>
+      <div class="rcol">${bigPhoto(L.star)}</div></div>`;
+  }
+  function snsPost(G, t, h, a) {
+    const n = hashN(t.name), style = n % 3;
+    const likes = Math.round((t.fans || 60) * (t.rep || 50) * 4.2 * (0.7 + (n % 100) / 160));
+    const L = snsLineup(G, t);
+    const benchStar = L.subs.slice().sort((x, y) => y.ovr - x.ovr)[0];
+    const pool = [
+      `${splitName(L.star.name)[1]} 선발 좋다 🔥`,
+      benchStar ? `${splitName(benchStar.name)[1]}은(는) 왜 벤치야?` : '이 라인업 믿는다',
+      `${t.tactics.formation || ''} 그대로 가는구나`,
+      '오늘 무조건 이긴다 💪', '수비 라인 불안한데...', '감독님 믿습니다', 'COYG!! 가자!!',
+    ];
+    const cm = [pool[n % pool.length], pool[(n >>> 3) % pool.length]].filter((x, i, arr) => arr.indexOf(x) === i);
+    const handle = '@' + (t.short || 'club').toLowerCase() + '_official';
+    return `<article class="sns-post">
+      <header><span class="av">${logo(t, 30)}</span><div class="grow"><b>${esc(t.name)} <i class="ok">✓</i></b><small>${esc(handle)} · 1시간 전</small></div><span class="more">···</span></header>
+      <p>오늘의 선발 라인업 📋 #${esc(h.short)}${esc(a.short)} ${t === h ? '🏟️ 홈에서' : '✈️ 원정'} 승리를 위해!</p>
+      ${snsGraphic(G, t, h, a, style)}
+      <footer><span>♥ ${kfmt(likes)}</span><span>💬 ${kfmt(Math.round(likes / 23))}</span><span>↻ ${kfmt(Math.round(likes / 41))}</span></footer>
+      <ul class="cmts">${cm.map((c, i) => `<li><b>fan_${((n >>> (i * 5)) % 9000) + 1000}</b> ${esc(c)}</li>`).join('')}</ul>
+    </article>`;
+  }
+  UI.snsPost = snsPost;  // 개발용: 구단별 그래픽 미리보기
+  function snsPage(G, h, a) {
+    return `<div class="sns-head"><span class="dot"></span><b>킥오프 1시간 전</b><span class="muted">양 구단이 선발 라인업을 공개했어요</span></div>
+      ${snsPost(G, h, h, a)}${snsPost(G, a, h, a)}`;
+  }
   function renderPrematch() {
     const G = UI.G, fx = S.userFixture(G), t = S.userTeam(G);
     const home = fx.m.h === t.id;
     const opp = S.team(G, home ? fx.m.a : fx.m.h);
-    W.autoLineup(G, opp);
+    S.aiPrepare(G, opp, t);  // 실제 경기와 같은 상대 선발 (라인업 발표에도 그대로)
     const oppXI = opp.lineup.map((id) => G.players[id]).filter(Boolean).sort((a, b) => b.ovr - a.ovr).slice(0, 5);
     let el = $('.match-screen');
     if (!el) { el = document.createElement('div'); el.className = 'match-screen pre'; document.body.appendChild(el); lockScroll(); }
@@ -1400,7 +1462,8 @@
         <div class="muted" style="font-size:12.5px">${opp.tactics.formation} · 전력 ${W.teamRating(G, opp)} · ${formHtml(opp.form)}</div></div></div>
         <div class="row" style="gap:6px;overflow-x:auto">${oppXI.map((p) => `<div style="text-align:center;width:62px;flex:none">${avatar(p, 44, opp.c1)}<div style="font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(shortPlayerName(p.name))}</div><div class="num" style="font-weight:700;color:var(--accent)">${p.ovr}</div></div>`).join('')}</div></section>
       ${reportCard()}
-      <p class="swipe-hint">← 옆으로 넘겨 라인업·역할·교체 명단·전술을 확인하세요 →</p></div>
+      <p class="swipe-hint">← 옆으로 넘겨 라인업 발표·라인업·역할·교체 명단·전술을 확인하세요 →</p></div>
+      <div class="pre-page">${snsPage(G, home ? t : opp, home ? opp : t)}</div>
       <div class="pre-page">${lineupEditor(t, 'pitch')}</div>
       <div class="pre-page">${lineupEditor(t, 'roles')}</div>
       <div class="pre-page">${lineupEditor(t, 'bench')}</div>
@@ -1462,7 +1525,7 @@
     // 끌다가 손을 뗀 직후의 클릭(선수 선택 등)은 무시
     box.addEventListener('click', (e) => { if (UI.swipedAt && performance.now() - UI.swipedAt < 250) { e.stopPropagation(); e.preventDefault(); } }, true);
   }
-  const PRE_TABS = [['opp', '상대'], ['xi', '라인업'], ['roles', '역할'], ['bench', '교체 명단'], ['tac', '전술']];
+  const PRE_TABS = [['opp', '상대'], ['sns', '라인업 발표'], ['xi', '라인업'], ['roles', '역할'], ['bench', '교체'], ['tac', '전술']];
 
   // 어시스턴트 매니저의 상대 분석
   function reportCard() {

@@ -1470,7 +1470,7 @@
     createMatch, playWeek, endSeason, advanceDay, canAdvance, nextEventDay, dateText, dateOf, ensureDays, quickSim, buildSide, cupRoundName,
     makeBid, completeSigning, askingPrice, wageDemand, willingToJoin, acceptOffer, rejectOffer, counterOffer, releasePlayer, releaseCost,
     renew, renewDemand, upgradeFacility, facCost, FAC, jobOffers, takeJob, strengthRank,
-    rivalry, h2hKey, EURO_ROUNDS, euroGroupTable, euroUserComp, euroStatus, setupEuro,
+    rivalry, h2hKey, aiPrepare, EURO_ROUNDS, euroGroupTable, euroUserComp, euroStatus, setupEuro,
     pressQuestions, answerPress, unlock, ACH, news, oppReport, sendReport, aiPlan, teamTalk, TALKS, unitStrength,
   };
 })(globalThis.KM || (globalThis.KM = {}));
