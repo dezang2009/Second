@@ -10,7 +10,7 @@
 사진과 로고의 저작권은 각 권리자에게 있으므로 공개 배포 시 사용 허가를 확인할 것.
 """
 import io, json, os, sys, time, urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from PIL import Image
 
 CDN = 'https://img.a.transfermarkt.technology'
@@ -124,6 +124,19 @@ def official(pid, size):
     return im.resize(size, Image.LANCZOS)
 
 
+def official_webp(pid):
+    src, dst = f'{OFFICIAL}/{pid}.png', f'dist/photos/p/{pid}.webp'
+    if not os.path.exists(src):
+        return pid, False
+    if os.path.exists(dst) and os.path.getmtime(dst) > os.path.getmtime(src):
+        return pid, True
+    im = official(pid, (240, 312))
+    if im is None:
+        return pid, False
+    im.save(dst, 'WEBP', quality=84, method=4)
+    return pid, True
+
+
 def tm_or_official(players):
     """공식 사진이 있으면 그것, 없으면 트랜스퍼마크트 사진 → [(선수, 'off'|bytes)]"""
     tm = [p for p in players if p.get('photo') and not os.path.exists(f"{OFFICIAL}/{p['id']}.png")]
@@ -138,11 +151,11 @@ def photos(data, clubs):
     allp = [p for c in clubs for p in c['players']]
     idx = {'p': [], 'l': []}
     n_off = 0
-    for p in allp:  # 공식 프로필 사진 먼저 (배경 투명 webp)
-        im = official(p['id'], (240, 312))
-        if im is not None:
-            im.save(f"dist/photos/p/{p['id']}.webp", 'WEBP', quality=84, method=6)
-            idx['p'].append(p['id']); n_off += 1
+    # 공식 프로필 사진 먼저 (배경 투명 webp). 원본이 커서 여러 프로세스로 나눠 처리하고, 이미 만든 파일은 건너뛴다
+    with ProcessPoolExecutor() as ex:
+        for pid, ok in ex.map(official_webp, [p['id'] for p in allp], chunksize=16):
+            if ok:
+                idx['p'].append(pid); n_off += 1
     players, paths = tm_or_official(allp)
     paths = [x.replace('/portrait/medium/', '/portrait/big/') for x in paths]
     with ThreadPoolExecutor(6) as ex:
