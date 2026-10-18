@@ -1393,7 +1393,7 @@
     return { xi, subs, byNum, star };
   }
   function snsGraphic(G, t, h, a, style) {
-    const L = snsLineup(G, t), sur = (p) => esc(splitName(p.name)[1]);
+    const L = snsLineup(G, t), sur = (p) => esc(p.name), last = (p) => esc(splitName(p.name)[1]);
     const cap = (p) => (p === L.byNum.slice().sort((x, y) => y.ovr - x.ovr)[0] ? ' (C)' : '');
     const crests = `<span class="cr">${logo(h, 34)}</span><span class="cr">${logo(a, 34)}</span>`;
     const st = `--tc:${t.c1 || '#444'};--ti:${inkOn(t.c1 || '#444', t.c2)};--t2:${t.c2 || '#fff'}`;
@@ -1402,18 +1402,18 @@
         <div class="ghost">STARTING XI</div><h4>STARTING XI</h4>
         <div class="frame"><div class="lcol"><div class="crs">${crests}</div><ol>${L.byNum.map((p) => `<li><b>${p.num || ''}</b>${sur(p)}${cap(p)}</li>`).join('')}</ol></div>
         <div class="rcol">${bigPhoto(L.star)}</div></div>
-        <div class="subs"><b>SUBS</b><span>${L.subs.map(sur).join(', ')}</span></div></div>`;
+        <div class="subs"><b>SUBS</b><span>${L.subs.map(last).join(', ')}</span></div></div>`;
     }
     if (style === 1) {  // 사진 격자형: 제목 칸 + 11명 사진 칸, 아래 교체 명단 띠
       const tiles = L.xi.map((p) => `<div class="tile">${avatar(p, 110)}<span>${sur(p)}${cap(p)}</span></div>`).join('');
       return `<div class="sg grid" style="${st}"><div class="cells"><div class="tile title"><small>${esc(t.short)} PRESENTS</small><i>STARTING</i><b>XI</b>${logo(t, 26)}</div>${tiles}</div>
-        <div class="subs"><b>SUBS</b><span>${L.subs.map(sur).join(' / ')}</span><span class="crs">${crests}</span></div></div>`;
+        <div class="subs"><b>SUBS</b><span>${L.subs.map(last).join(' / ')}</span><span class="crs">${crests}</span></div></div>`;
     }
     // 어두운 조명형: 검은 바탕, 구단 색 조명을 받은 대표 선수, 기울어진 STARTING
     return `<div class="sg dark" style="${st}"><div class="glow"></div><div class="big">XI</div>
       <div class="lcol"><i class="ttl">STARTING</i><div class="crs">${crests}</div>
         <ol>${L.byNum.map((p) => `<li><b>${p.num || ''}</b>${sur(p)}${cap(p)}</li>`).join('')}</ol>
-        <div class="subs"><b>교체:</b> ${L.subs.map((p) => `<em>${p.num || ''}</em>${sur(p)}`).join(' / ')}</div></div>
+        <div class="subs"><b>교체:</b> ${L.subs.map((p) => `<em>${p.num || ''}</em>${last(p)}`).join(' / ')}</div></div>
       <div class="rcol">${bigPhoto(L.star)}</div></div>`;
   }
   function snsPost(G, t, h, a) {

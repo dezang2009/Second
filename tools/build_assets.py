@@ -90,15 +90,58 @@ def main():
         photos(data, clubs)
 
 
+OFFICIAL = '.official-cache'
+
+
+def official(pid, size):
+    """구단·리그 공식 프로필 사진(배경 투명, 정사각형 반신) → 머리와 가슴이 보이는 3:4 세로 RGBA. 없으면 None
+    tools/fetch_official_photos.py 가 받아 둔 원본을 쓴다"""
+    path = f'{OFFICIAL}/{pid}.png'
+    if not os.path.exists(path):
+        return None
+    try:
+        im = Image.open(path).convert('RGBA')
+    except Exception:
+        return None
+    w, h = im.size
+    bbox = im.getchannel('A').getbbox()
+    if bbox and bbox[3] - bbox[1] < h * 0.98:  # 위쪽 여백이 있으면 머리 꼭대기에 맞춘다
+        top = max(0, bbox[1] - int(h * 0.02))
+    else:
+        top = 0
+    cw = int(w * 0.64)
+    ch = int(cw * 13 / 10)
+    left = (w - cw) // 2
+    im = im.crop((left, top, left + cw, min(h, top + ch)))
+    if im.height < ch:  # 아래가 모자라면 투명하게 늘린다
+        pad = Image.new('RGBA', (cw, ch), (0, 0, 0, 0)); pad.paste(im, (0, 0)); im = pad
+    return im.resize(size, Image.LANCZOS)
+
+
+def tm_or_official(players):
+    """공식 사진이 있으면 그것, 없으면 트랜스퍼마크트 사진 → [(선수, 'off'|bytes)]"""
+    tm = [p for p in players if p.get('photo') and not os.path.exists(f"{OFFICIAL}/{p['id']}.png")]
+    paths = [p['photo'].split('transfermarkt.technology')[-1] for p in tm]
+    return tm, paths
+
+
 def photos(data, clubs):
     """선수마다 고화질 사진 한 장(트랜스퍼마크트 portrait/big 300×390 → 240×312 webp), 로고는 wappen/big 180px → 160px"""
     os.makedirs('dist/photos/p', exist_ok=True)
     os.makedirs('dist/photos/l', exist_ok=True)
-    players = [p for c in clubs for p in c['players'] if p.get('photo')]
-    paths = [p['photo'].split('transfermarkt.technology')[-1].replace('/portrait/medium/', '/portrait/big/') for p in players]
+    allp = [p for c in clubs for p in c['players']]
+    idx = {'p': [], 'l': []}
+    n_off = 0
+    for p in allp:  # 공식 프로필 사진 먼저 (배경 투명 webp)
+        im = official(p['id'], (240, 312))
+        if im is not None:
+            im.save(f"dist/photos/p/{p['id']}.webp", 'WEBP', quality=84, method=6)
+            idx['p'].append(p['id']); n_off += 1
+    players, paths = tm_or_official(allp)
+    paths = [x.replace('/portrait/medium/', '/portrait/big/') for x in paths]
     with ThreadPoolExecutor(6) as ex:
         imgs = list(ex.map(fetch, paths))
-    idx = {'p': [], 'l': []}
+    print('official photos', n_off, file=sys.stderr)
     for p, b in zip(players, imgs):
         if not b:
             continue
@@ -124,25 +167,27 @@ def photos(data, clubs):
 def sprites(data, clubs, logos):
     """사진 120장/로고 전부를 격자 한 장씩으로 묶어 webp로 저장"""
     os.makedirs('dist/assets', exist_ok=True)
-    players = [p for c in clubs for p in c['players'] if p.get('photo')]
-    paths = [p['photo'].split('transfermarkt.technology')[-1] for p in players]
+    allp = [p for c in clubs for p in c['players']]
+    players, paths = tm_or_official(allp)
     with ThreadPoolExecutor(6) as ex:
         imgs = list(ex.map(fetch, paths))
     index = {'p': {}, 'l': {}, 'pw': 84, 'ph': 109, 'lw': 64}
     PW, PH, COLS, PER = 84, 109, 12, 144
-    ok = [(p, b) for p, b in zip(players, imgs) if b]
+    ok = [(p, 'off') for p in allp if os.path.exists(f"{OFFICIAL}/{p['id']}.png")] + [(p, b) for p, b in zip(players, imgs) if b]
     for s in range(0, len(ok), PER):
         chunk = ok[s:s + PER]
         rows = (len(chunk) + COLS - 1) // COLS
-        sheet = Image.new('RGB', (PW * COLS, PH * rows), (200, 205, 210))
+        sheet = Image.new('RGBA', (PW * COLS, PH * rows), (0, 0, 0, 0))
         for i, (p, b) in enumerate(chunk):
             try:
-                im = Image.open(io.BytesIO(b)).convert('RGB').resize((PW, PH), Image.LANCZOS)
+                im = official(p['id'], (PW, PH)) if b == 'off' else Image.open(io.BytesIO(b)).convert('RGBA').resize((PW, PH), Image.LANCZOS)
             except Exception:
+                im = None
+            if im is None:
                 continue
             sheet.paste(im, ((i % COLS) * PW, (i // COLS) * PH))
             index['p'][p['id']] = [s // PER, i]
-        sheet.save(f'dist/assets/p{s // PER}.webp', 'WEBP', quality=72, method=6)
+        sheet.save(f'dist/assets/p{s // PER}.webp', 'WEBP', quality=74, method=6)
     LW, LC = 64, 12
     rows = (len(clubs) + LC - 1) // LC
     sheet = Image.new('RGBA', (LW * LC, LW * rows), (0, 0, 0, 0))

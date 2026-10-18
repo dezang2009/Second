@@ -7,3 +7,5 @@ data/sprites.json
 __pycache__/
 android/release.keystore
 data/photos.json
+.official-cache/
+.official-later/

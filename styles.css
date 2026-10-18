@@ -1182,3 +1182,8 @@ table.pltbl { border-spacing: 0 2px; margin-top: -2px; }
 .sg.dark .rcol img, .sg.dark .rcol .spr { filter: contrast(1.1) saturate(1.1) drop-shadow(-6px 0 14px color-mix(in srgb, var(--tc) 70%, transparent)); }
 .sg.dark .rcol { align-items: center; padding-top: 40px; } .sg.dark .rcol img { width: 100%; height: auto; border-radius: 0; -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent); mask-image: linear-gradient(180deg, #000 70%, transparent); }
 .sns-post, .sns-head { flex: none; }
+/* 라인업 발표: 풀 네임 */
+.sg.poster ol { font-size: 11.5px; } .sg.poster ol li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sg.dark ol { font-size: 13.5px; } .sg.dark ol li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sg.dark { grid-template-columns: 1.25fr 1fr; }
+.sg.grid .tile > span { font-size: 11px; white-space: normal; line-height: 1.15; }
