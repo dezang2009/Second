@@ -1784,16 +1784,39 @@
       <div class="plbug-clock"><span${id('lv-clock')}>${fin ? 'FT' : '00:00'}</span>${fin ? '' : '<em id="lv-add" hidden></em>'}</div>
     </div>`;
   }
-  // 골: 넣은 팀 쪽 판이 점수판 전체로 펼쳐지며 GOAL
+  // 골: PL 중계처럼 사이안→그린→옐로 빛이 점수판을 쓸고 지나가면, 넣은 팀 색 판에 엠블럼과
+  // 구단마다 다른 상징(대포·갈매기·벌·체리…)이 움직이며 GOAL이 완성된다. 끝나면 다시 빛이 지나가며 바뀐 점수로
+  const CANNON = '<svg viewBox="0 0 64 32" class="svg"><path d="M4 14l40-9 3 12-40 9z"/><rect x="44" y="6" width="8" height="12" rx="2"/><circle cx="20" cy="24" r="7"/><circle cx="20" cy="24" r="2.5" fill="var(--g)"/></svg>';
+  const BALL = '⚽';
+  // kind: fly(날아와 자리잡음) · o(GOAL의 O 자리) · side(옆에서 튀어나옴)
+  const MOTIF = {
+    ARS: [CANNON, 'side'], AVL: ['🦁', 'side'], BHA: ['🕊️', 'fly'], BOU: ['🍒', 'o'], BRE: ['🐝', 'fly'], CHE: ['🦁', 'side'], CRY: ['🦅', 'fly'],
+    EVE: ['🏰', 'o'], FUL: ['🏠', 'o'], IPS: ['🐎', 'side'], LIV: ['🐦', 'fly'], MCI: ['⛵', 'side'], MUN: ['😈', 'side'], NEW: ['🐦‍⬛', 'fly'],
+    NFO: ['🌳', 'o'], TOT: ['🐓', 'side'], SUN: ['🐈‍⬛', 'side'], LEE: ['🌹', 'o'], COV: ['🐘', 'side'], HUL: ['🐯', 'o'],
+    RMA: ['👑', 'o'], ATM: ['🐻', 'side'], VAL: ['🦇', 'fly'], VIL: ['⚓', 'o'], BVB: ['🐝', 'fly'], B04: ['🦁', 'side'], EIN: ['🦅', 'fly'], KOL: ['🐐', 'side'],
+    INT: ['🐍', 'side'], JUV: ['🦓', 'side'], MIL: ['😈', 'side'], ROM: ['🐺', 'side'], LAZ: ['🦅', 'fly'], NAP: ['🐴', 'side'], TOR: ['🐂', 'side'], VEN: ['🦁', 'side'], FIO: ['⚜️', 'o'],
+    PSG: ['🗼', 'o'], ASM: ['👑', 'o'], OL: ['🦁', 'side'], LIL: ['🐕', 'side'], ULS: ['🐯', 'side'], GWN: ['🐻', 'side'], POH: ['⚒️', 'o'],
+  };
+  function motifOf(t) {
+    const m = MOTIF[t.short];
+    if (m) return m;
+    return [BALL, ['o', 'side', 'fly'][hashN(t.name) % 3]];
+  }
   function bugGoal(m, f) {
     const box = $('#lv-goal'); if (!box) return;
     const t = m.sides[f.side].team;
-    const letters = 'GOAL'.split('').map((c, i) => `<span style="animation-delay:${0.18 + i * 0.07}s">${c}</span>`).join('');
-    box.className = 'plbug-goal ' + (f.side === 0 ? 'from-l' : 'from-r');
-    box.style.cssText = `--g:${t.c1 || '#444'};--gi:${inkOn(t.c1 || '#444', t.c2)};--g2:${t.c2 || '#fff'}`;
-    box.innerHTML = `<div class="gb"><span class="cr">${logo(t, 28)}</span><b class="gw">${letters}</b><span class="cr">${logo(t, 28)}</span></div>`;
+    const [sym, kind] = motifOf(t);
+    const ink = inkOn(t.c1 || '#444', t.c2);
+    const style = hashN(t.short) % 3;  // 글자 등장 방식도 구단마다 다르게
+    const mot = `<i class="mot ${sym.startsWith('<svg') ? '' : 'emo'}">${sym}</i>`;
+    const word = kind === 'o'
+      ? `<span>G</span>${mot}<span>A</span><span>L</span>`
+      : `<span>G</span><span>O</span><span>A</span><span>L</span>`;
+    box.className = `plbug-goal pl2 k-${kind} s${style} ${ink === '#ffffff' ? 'ink-w' : 'ink-d'}`;
+    box.style.cssText = `--g:${t.c1 || '#444'};--gi:${ink};--g2:${t.c2 || '#fff'}`;
+    box.innerHTML = `<div class="plate"><b class="ab">${esc(t.short)}</b><span class="cr">${logo(t, 28)}</span><div class="gw">${word}</div>${kind !== 'o' ? mot : ''}</div><div class="sweep"></div><div class="sweep out"></div>`;
     void box.offsetWidth; box.classList.add('on');
-    clearTimeout(bugGoal.t); bugGoal.t = setTimeout(() => box.classList.remove('on'), 3400);
+    clearTimeout(bugGoal.t); bugGoal.t = setTimeout(() => box.classList.remove('on'), 4700);
   }
 
   function showFlash(f) {

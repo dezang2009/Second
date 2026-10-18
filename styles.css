@@ -1307,3 +1307,59 @@ nav.tabs button.on svg { stroke: #fff; }
 .matchcard .mw { flex-direction: column; align-items: flex-start; gap: 0; white-space: nowrap; font-size: 17px; }
 .matchcard .mw i { font-family: var(--f-body); font-size: 11.5px; font-weight: 700; letter-spacing: 0; text-transform: none; }
 .topbar .meta .open { background: var(--pl-green) !important; color: var(--pl-purple) !important; padding: 0 7px; border-radius: 999px; font-weight: 800; }
+
+/* ── 점수판: PL 중계 원본처럼 퍼플 점수 칸, 팀 판 끝의 이중 꺾쇠 ── */
+.plbug-sc { background: var(--pl-purple); }
+.plbug-sc i { color: #fff; }
+.plbug-sc i + i { border-left-color: rgba(255, 255, 255, .22); }
+.plbug-side.home::after, .plbug-side.away::before { content: ""; position: absolute; top: 0; bottom: 0; width: 16px; pointer-events: none;
+  background: color-mix(in srgb, var(--h) 65%, #000); clip-path: polygon(0 0, 45% 0, 100% 50%, 45% 100%, 0 100%, 55% 50%); }
+.plbug-side.home::after { right: 6px; }
+.plbug-side.away::before { left: 6px; background: color-mix(in srgb, var(--a) 65%, #000); clip-path: polygon(100% 0, 55% 0, 0 50%, 55% 100%, 100% 100%, 45% 50%); }
+.plbug-side.home .cr, .plbug-side.away .cr { z-index: 1; }
+
+/* ── 골 연출 (PL 2025/26 중계: 구단마다 다른 GOAL 애니메이션) ── */
+.plbug-goal.pl2 .plate { position: absolute; inset: 0; display: flex; align-items: center; background: var(--g); color: var(--gi); overflow: hidden; opacity: 0; }
+.plbug-goal.pl2.on .plate { animation: g2Plate 4.7s linear forwards; }
+@keyframes g2Plate { 0%, 8% { opacity: 0; } 9%, 90% { opacity: 1; } 91%, 100% { opacity: 0; } }
+.plbug-goal.pl2 .ab { flex: none; width: 33%; padding-left: 10px; font-family: var(--f-bug); font-weight: 800; font-size: 25px; letter-spacing: .02em; }
+.plbug-goal.pl2 .cr { flex: none; width: 34px; height: 34px; display: grid; place-items: center; background: #fff; border-radius: 50%; }
+.plbug-goal.pl2 .cr .logo { background: none; padding: 0; }
+.plbug-goal.pl2 .gw { flex: 1; display: flex; align-items: center; justify-content: flex-end; padding-right: 12px; font-family: var(--f-bug); font-weight: 800; font-size: 30px; letter-spacing: .04em; line-height: 1; }
+.plbug-goal.pl2 .gw span { display: inline-block; opacity: 0; }
+/* 빛 쓸기: 사이안→그린→옐로 */
+.plbug-goal.pl2 .sweep { position: absolute; inset: 0; background: linear-gradient(90deg, #04f5ff 0%, #00ff85 55%, #e6ff3d 100%); transform: translateX(-102%); }
+.plbug-goal.pl2.on .sweep { animation: g2SweepIn 4.7s cubic-bezier(.6, 0, .3, 1) forwards; }
+.plbug-goal.pl2.on .sweep.out { animation: g2SweepOut 4.7s cubic-bezier(.6, 0, .3, 1) forwards; }
+@keyframes g2SweepIn { 0% { transform: translateX(-102%); } 9% { transform: translateX(0); } 17% { transform: translateX(102%); } 100% { transform: translateX(102%); } }
+@keyframes g2SweepOut { 0%, 82% { transform: translateX(-102%); } 91% { transform: translateX(0); } 100% { transform: translateX(102%); } }
+/* 글자 등장 방식 3가지 */
+.plbug-goal.pl2.on.s0 .gw span { animation: g2Drop .45s cubic-bezier(.2, 1.5, .4, 1) forwards; }
+.plbug-goal.pl2.on.s1 .gw span { animation: g2Type .01s steps(1) forwards; }
+.plbug-goal.pl2.on.s2 .gw span { animation: g2Stamp .4s cubic-bezier(.2, 1.4, .4, 1) forwards; }
+.plbug-goal.pl2.on .gw > :nth-child(1) { animation-delay: .95s !important; }
+.plbug-goal.pl2.on .gw > :nth-child(2) { animation-delay: 1.1s !important; }
+.plbug-goal.pl2.on .gw > :nth-child(3) { animation-delay: 1.25s !important; }
+.plbug-goal.pl2.on .gw > :nth-child(4) { animation-delay: 1.4s !important; }
+@keyframes g2Drop { from { opacity: 0; transform: translateY(-110%); } to { opacity: 1; transform: none; } }
+@keyframes g2Type { to { opacity: 1; } }
+@keyframes g2Stamp { from { opacity: 0; transform: scale(2.2); } to { opacity: 1; transform: none; } }
+/* 구단 상징: 단색 실루엣 */
+.plbug-goal.pl2 .mot { font-style: normal; display: inline-grid; place-items: center; line-height: 1; }
+.plbug-goal.pl2 .mot.emo { font-size: 24px; filter: brightness(0); }
+.plbug-goal.pl2.ink-w .mot.emo { filter: brightness(0) invert(1); }
+.plbug-goal.pl2 .mot .svg { width: 46px; height: 24px; fill: var(--gi); }
+/* o: GOAL의 O 자리에서 돌며 커진다 */
+.plbug-goal.pl2.k-o .gw .mot { opacity: 0; margin: 0 1px; }
+.plbug-goal.pl2.on.k-o .gw .mot { animation: g2Spin .7s .9s cubic-bezier(.2, 1.4, .4, 1) forwards; }
+@keyframes g2Spin { from { opacity: 0; transform: rotate(-200deg) scale(.2); } to { opacity: 1; transform: none; } }
+/* side: 엠블럼 옆에서 튀어나와 크게 보였다가 글자 앞에 자리잡는다 */
+.plbug-goal.pl2.k-side .plate > .mot { position: absolute; left: calc(33% + 46px); opacity: 0; }
+.plbug-goal.pl2.on.k-side .plate > .mot { animation: g2Side 4.2s .45s cubic-bezier(.2, 1.2, .4, 1) forwards; }
+@keyframes g2Side { 0% { opacity: 0; transform: translateX(-30px) scale(.4); } 10% { opacity: 1; transform: translateX(10px) scale(1.5); } 22% { transform: none; } 90% { opacity: 1; transform: none; } 100% { opacity: 1; } }
+/* fly: 오른쪽 끝에서 날아와 글자 위를 지나 엠블럼 옆에 앉는다 */
+.plbug-goal.pl2.k-fly .plate > .mot { position: absolute; left: calc(33% + 46px); opacity: 0; }
+.plbug-goal.pl2.on.k-fly .plate > .mot { animation: g2Fly 4.2s .4s cubic-bezier(.3, .7, .3, 1) forwards; }
+@keyframes g2Fly { 0% { opacity: 0; transform: translate(220px, -14px) scale(1.6) rotate(-12deg); } 6% { opacity: 1; } 24% { transform: translate(0, -4px) scale(1.15) rotate(6deg); } 30% { transform: none; } 100% { opacity: 1; transform: none; } }
+.plbug-goal.pl2 .gw { padding-left: 4px; }
+.plbug-row { background: var(--pl-purple); }
