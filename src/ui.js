@@ -194,9 +194,20 @@
     return bg.firstChild;
   }
   // 팝업·경기 화면이 열려 있으면 뒤 화면이 스크롤되지 않도록 고정
+  // 팝업·경기 화면이 열린 동안 뒤 화면을 고정한다. overflow:hidden만 주면 휴대폰에서 스크롤이 맨 위로 튀어서
+  // body를 현재 위치 그대로 고정해 두었다가 닫을 때 원래 위치로 되돌린다
   function lockScroll() {
     const locked = !!($('.sheet-bg') || $('.match-screen'));
-    document.documentElement.classList.toggle('locked', locked);
+    const root = document.documentElement, body = document.body;
+    if (locked && !root.classList.contains('locked')) {
+      UI._lockY = window.scrollY || root.scrollTop || 0;
+      body.style.top = -UI._lockY + 'px';
+      root.classList.add('locked');
+    } else if (!locked && root.classList.contains('locked')) {
+      root.classList.remove('locked');
+      body.style.top = '';
+      window.scrollTo(0, UI._lockY || 0);
+    }
   }
   function closeSheet() { const s = $('.sheet-bg'); if (s) s.remove(); lockScroll(); }
 

@@ -409,7 +409,7 @@ select.sel { background: var(--surface); border: 1px solid var(--line); border-r
 .tx-route i { font-style: normal; color: var(--brand); }
 .tx-offer { display: flex; flex-direction: column; gap: 12px; }
 .tx-offer-body { display: flex; align-items: center; gap: 12px; background: var(--surface-2); border-radius: 12px; padding: 10px 12px; }
-html.locked, html.locked body { overflow: hidden; }
+html.locked body { position: fixed; left: 0; right: 0; width: 100%; overflow: hidden; }
 .sheet, .match-screen, .feed { overscroll-behavior: contain; }
 
 .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
