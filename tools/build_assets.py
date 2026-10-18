@@ -109,7 +109,7 @@ def official(pid, size):
         top = max(0, bbox[1] - int(h * 0.02))
     else:
         top = 0
-    cw = int(w * 0.64)
+    cw = int(w * (0.92 if h > w * 1.15 else 0.64))  # 세로로 긴 원본(K리그)은 넓게 잘라 유니폼까지
     ch = int(cw * 13 / 10)
     left = (w - cw) // 2
     im = im.crop((left, top, left + cw, min(h, top + ch)))
