@@ -1187,3 +1187,123 @@ table.pltbl { border-spacing: 0 2px; margin-top: -2px; }
 .sg.dark ol { font-size: 13.5px; } .sg.dark ol li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sg.dark { grid-template-columns: 1.25fr 1fr; }
 .sg.grid .tile > span { font-size: 11px; white-space: normal; line-height: 1.15; }
+
+/* ══ 프리미어리그 공식 디자인 시스템 (premierleague.com · PL 앱 · 중계 그래픽) ══════════════
+   색: PL 퍼플 #37003c, 라디컬 레드 #e90052, 사이안 #04f5ff, 그린 #00ff85, 브랜드 그라데이션 사이안→블루→퍼플
+   글꼴: 숫자·영문 머리글은 장체(Barlow Condensed), 한글은 Pretendard */
+:root {
+  --pl-purple: #37003c; --pl-magenta: #e90052; --pl-cyan: #04f5ff; --pl-green: #00ff85; --pl-blue: #6c4bff; --pl-violet: #963cff;
+  --pl-grad: linear-gradient(98deg, #05f0ff 0%, #7367ff 52%, #963cff 100%);
+  --pl-grad-dark: linear-gradient(110deg, #37003c 0%, #5b0a63 55%, #3d1a8f 100%);
+  --pl-pattern: repeating-linear-gradient(118deg, rgba(255, 255, 255, .05) 0 2px, transparent 2px 22px);
+  --fm: #6c1fd1;
+  --grad-fm: linear-gradient(100deg, #37003c 0%, #6c1fd1 100%);
+  --grad-brand: linear-gradient(100deg, #37003c 0%, #6c1fd1 100%);
+  --brand: #37003c; --brand-ink: #fff;
+  --accent: #00ff85; --accent-ink: #37003c;
+  --live: #e90052;
+  --win: #00a85a; --draw: #8a6fb0; --loss: #e90052;
+  --bg: #f3eff5;
+  --glass: #ffffff;
+  --glass-b: rgba(55, 0, 60, .09);
+  --glass-sh: 0 1px 2px rgba(55, 0, 60, .05), 0 8px 24px rgba(55, 0, 60, .07);
+  --stage: radial-gradient(120% 50% at 50% -10%, #e8dff0 0%, rgba(232, 223, 240, 0) 65%), #f3eff5;
+  --grad-bg: var(--stage);
+  --bar: rgba(255, 255, 255, .9);
+  --row-hover: rgba(55, 0, 60, .05);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --fm: #c08bff; --grad-fm: linear-gradient(100deg, #963cff 0%, #e90052 100%); --grad-brand: linear-gradient(100deg, #963cff 0%, #e90052 100%);
+  --brand: #00ff85; --brand-ink: #37003c; --win: #00ff85; --draw: #c9a8ff; --loss: #ff3d7f; --live: #ff3d7f;
+  --bg: #1a001d; --surface: #26032b; --surface-2: #330a3a; --line: #4a1a52; --muted: #c2a9c8; --ink: #ffffff;
+  --glass: linear-gradient(160deg, rgba(255, 255, 255, .075) 0%, rgba(255, 255, 255, .03) 100%);
+  --glass-b: rgba(255, 255, 255, .09); --glass-sh: 0 12px 32px rgba(0, 0, 0, .35);
+  --stage: radial-gradient(110% 55% at 50% -12%, #6a0a74 0%, rgba(106, 10, 116, 0) 62%), radial-gradient(80% 50% at 100% 100%, #2b1a80 0%, rgba(43, 26, 128, 0) 60%), #1a001d;
+  --grad-bg: var(--stage); --bar: rgba(38, 3, 43, .86); --row-hover: rgba(255, 255, 255, .05);
+} }
+:root[data-theme="dark"] {
+  --fm: #c08bff; --grad-fm: linear-gradient(100deg, #963cff 0%, #e90052 100%); --grad-brand: linear-gradient(100deg, #963cff 0%, #e90052 100%);
+  --brand: #00ff85; --brand-ink: #37003c; --win: #00ff85; --draw: #c9a8ff; --loss: #ff3d7f; --live: #ff3d7f;
+  --bg: #1a001d; --surface: #26032b; --surface-2: #330a3a; --line: #4a1a52; --muted: #c2a9c8; --ink: #ffffff;
+  --glass: linear-gradient(160deg, rgba(255, 255, 255, .075) 0%, rgba(255, 255, 255, .03) 100%);
+  --glass-b: rgba(255, 255, 255, .09); --glass-sh: 0 12px 32px rgba(0, 0, 0, .35);
+  --stage: radial-gradient(110% 55% at 50% -12%, #6a0a74 0%, rgba(106, 10, 116, 0) 62%), radial-gradient(80% 50% at 100% 100%, #2b1a80 0%, rgba(43, 26, 128, 0) 60%), #1a001d;
+  --grad-bg: var(--stage); --bar: rgba(38, 3, 43, .86); --row-hover: rgba(255, 255, 255, .05);
+}
+:root:not([data-theme="dark"]) .sheet { background: #f7f3f8; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sheet { background: #22022a; } }
+:root[data-theme="dark"] .sheet { background: #22022a; }
+
+/* 상단 바: PL 사이트처럼 퍼플 바 + 아래 브랜드 그라데이션 선 */
+.topbar, :root[data-theme="dark"] .topbar { background: var(--pl-purple); color: #fff; box-shadow: none; position: sticky; }
+.topbar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -3px; height: 3px; background: var(--pl-grad); }
+body::before, :root[data-theme="dark"] body::before { background: var(--pl-purple); }
+.topbar .meta, .topbar .club .meta span { color: rgba(255, 255, 255, .72); }
+.topbar .bal { background: rgba(255, 255, 255, .1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); color: #fff; }
+.topbar .bal small { color: rgba(255, 255, 255, .7); }
+.topbar .open { background: var(--pl-green); color: var(--pl-purple); }
+/* 하단 탭 */
+nav.tabs button.on, :root[data-theme="dark"] nav.tabs button.on { color: #fff; background: var(--grad-fm); box-shadow: 0 4px 12px rgba(55, 0, 60, .3); }
+nav.tabs button.on svg { stroke: #fff; }
+/* 계속 버튼: PL 그린 */
+.cont { background: var(--pl-green) !important; color: var(--pl-purple); box-shadow: 0 8px 22px rgba(0, 255, 133, .35), 0 2px 6px rgba(0, 0, 0, .25); }
+.cont small { opacity: .75; }
+.cont svg { stroke: var(--pl-purple); }
+.cont.match { background: var(--pl-magenta) !important; color: #fff; box-shadow: 0 8px 22px rgba(233, 0, 82, .4); }
+.cont.match svg { stroke: #fff; }
+/* 버튼 */
+.btn.primary, .match-screen .btn.primary { background: var(--grad-fm); color: #fff; }
+.btn.accent, .match-screen .btn.accent { background: var(--pl-green); color: var(--pl-purple); }
+.btn.danger { background: var(--pl-magenta); color: #fff; }
+.seg button.on, :root[data-theme="dark"] .seg button.on { background: var(--grad-fm); color: #fff; box-shadow: 0 3px 10px rgba(55, 0, 60, .25); }
+.chip.on, :root[data-theme="dark"] .chip.on { background: var(--pl-purple); color: #fff; box-shadow: none; }
+:root[data-theme="dark"] .chip.on { background: var(--pl-green); color: var(--pl-purple); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.on { background: var(--pl-green); color: var(--pl-purple); } }
+/* 카드 제목: PL 사이트 섹션 머리 (굵은 글씨 + 짧은 그라데이션 막대) */
+.card > h2, .card .h2 { position: relative; padding-left: 12px; }
+.card > h2::before, .card .h2::before { content: ""; position: absolute; left: 0; top: .2em; bottom: .2em; width: 4px; border-radius: 2px; background: var(--pl-grad); }
+.eyebrow { color: var(--fm); font-weight: 800; letter-spacing: .04em; }
+/* 숫자는 장체 */
+.ovr, .rating, .kv b, .pcard .big .o, .fixture .vs, .tbl td.pts { font-family: var(--f-bug); font-weight: 800; letter-spacing: 0; }
+.ovr { font-size: 17px; }
+
+/* ── 홈 다음 경기: PL 매치센터 카드 ── */
+.matchcard .band { background: var(--pl-pattern), var(--pl-grad-dark) !important; }
+.matchcard .band::after { height: 4px; background: var(--pl-grad); }
+.matchcard .fixture .vs { font-size: 30px; color: #fff; background: rgba(255, 255, 255, .12); border-radius: 8px; padding: 2px 10px; }
+.matchcard .mw { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f-bug); font-weight: 800; font-size: 15px; letter-spacing: .06em; color: var(--pl-green); text-transform: uppercase; }
+.matchcard .mw i { font-style: normal; color: #fff; opacity: .7; letter-spacing: .02em; }
+
+/* ── 선수 프로필: PL 선수 페이지 히어로 (구단 색 + 큰 외곽선 등번호 + 공식 컷 사진) ── */
+.pcard { background: radial-gradient(120% 90% at 85% 10%, color-mix(in srgb, var(--c1) 70%, #fff) 0%, var(--c1) 45%, color-mix(in srgb, var(--c1) 70%, #000) 100%) !important; color: var(--cink); min-height: 230px; }
+.pcard::after { display: none; }
+.pcard::before { content: attr(data-num); position: absolute; right: 8px; top: -10px; font-family: var(--f-bug); font-weight: 800; font-size: 190px; line-height: 1; color: transparent;
+  -webkit-text-stroke: 2px color-mix(in srgb, var(--cink) 28%, transparent); pointer-events: none; letter-spacing: -.04em; }
+.pcard .shot { width: 170px; margin-right: -6px; }
+.pcard .shot img, .pcard .shot .spr { width: 170px !important; height: 221px !important; border-radius: 0 !important; object-fit: cover; object-position: top; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .3)); }
+.pcard .nm { font-size: 28px; }
+.pcard .nm small { display: block; font-size: 15px; font-weight: 700; opacity: .85; letter-spacing: 0; }
+.pcard .big .o { font-size: 60px; }
+.pcard .postag { display: inline-block; font-family: var(--f-bug); font-weight: 800; font-size: 13px; letter-spacing: .06em; padding: 2px 8px; border-radius: 4px; background: var(--pl-purple); color: #fff; }
+
+/* ── 기록: PL 스탯 리더 카드 (1위는 사진과 함께 크게) ── */
+.leader { padding: 0; overflow: hidden; }
+.leader .top { position: relative; display: flex; align-items: flex-end; min-height: 150px; padding: 14px 0 0 16px; color: #fff; overflow: hidden;
+  background: var(--pl-pattern), radial-gradient(90% 120% at 85% 20%, color-mix(in srgb, var(--tc) 55%, #6c1fd1) 0%, var(--pl-purple) 70%); }
+.leader .top .tx { flex: 1; z-index: 1; padding-bottom: 14px; min-width: 0; }
+.leader .top h2 { font-size: 13px; font-weight: 800; color: var(--pl-green); letter-spacing: .04em; margin: 0 0 6px; padding: 0; }
+.leader .top h2::before { display: none; }
+.leader .top .rk { font-family: var(--f-bug); font-weight: 800; font-size: 14px; opacity: .8; }
+.leader .top .nm { font-size: 20px; font-weight: 800; line-height: 1.15; }
+.leader .top .cl { display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: .85; margin-top: 2px; }
+.leader .top .cl .logo { background: #fff; border-radius: 50%; padding: 2px; box-sizing: content-box; }
+.leader .top .v { font-family: var(--f-bug); font-weight: 800; font-size: 56px; line-height: .9; margin-top: 6px; }
+.leader .top .v small { font-family: var(--f-body); font-size: 14px; font-weight: 700; margin-left: 4px; }
+.leader .top .shot { width: 130px; flex: none; align-self: flex-end; z-index: 1; }
+.leader .top .shot img, .leader .top .shot .spr { display: block; width: 130px; height: 169px; object-fit: cover; object-position: top; }
+.leader .rest { padding: 4px 14px 10px; }
+.leader .rest .li .rk { width: 18px; font-family: var(--f-bug); font-weight: 800; font-size: 16px; color: var(--muted); }
+.leader .rest .li b.num { font-family: var(--f-bug); font-size: 20px; }
+.matchcard .mw { flex-direction: column; align-items: flex-start; gap: 0; white-space: nowrap; font-size: 17px; }
+.matchcard .mw i { font-family: var(--f-body); font-size: 11.5px; font-weight: 700; letter-spacing: 0; text-transform: none; }
+.topbar .meta .open { background: var(--pl-green) !important; color: var(--pl-purple) !important; padding: 0 7px; border-radius: 999px; font-weight: 800; }

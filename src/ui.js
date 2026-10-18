@@ -417,7 +417,7 @@
         parts.push(`<section class="card matchcard ${rv ? 'derby' : ''}" style="--hc:${hT.c1};--ac:${aT.c1}">
           <div class="band stack">
             ${rv ? `<div class="derby-tag">🔥 ${esc(rv.name)}${'<i>★</i>'.repeat(rv.lvl)}${rec ? `<span>감독 부임 후 ${rec.w}승 ${rec.d}무 ${rec.l}패</span>` : ''}</div>` : ''}
-            <div class="row"><span class="eyebrow" style="color:#aeb9c9">${esc(fx.label)}</span><span class="grow"></span><span class="tag" style="background:#ffffff1a;color:#fff">${home ? '홈' : '원정'} · ${esc(hT.stadium)}</span></div>
+            <div class="row" style="align-items:flex-start"><span class="mw">${fx.ev.k === 'L' ? `MATCHWEEK ${fx.ev.r + 1}` : fx.ev.k === 'E' ? 'EUROPE' : 'CUP'}<i>${esc(fx.label)}</i></span><span class="grow"></span><span class="tag" style="background:#ffffff1a;color:#fff">${home ? '홈' : '원정'} · ${esc(hT.stadium)}</span></div>
             <div class="fixture">
               <div class="tm">${logo(hT, 64)}<b>${esc(hT.name)}</b>${formHtml(hT.form)}</div>
               <div class="vs">VS</div>
@@ -801,11 +801,11 @@
     const c1 = t ? t.c1 : '#3a4656', c2 = t ? t.c2 : '#9aa6b6';
     const ko = /[가-힣]/.test(p.name);
     const html = `
-      <div class="pcard" style="--c1:${c1};--c2:${c2};--cink:${KM.Render.contrast(c1)}">
+      <div class="pcard" data-num="${p.num || ''}" style="--c1:${c1};--c2:${c2};--cink:${KM.Render.contrast(c1)}">
         <div class="info">
           <div class="row" style="gap:8px">${t ? logo(t, 26) : ''}<span style="font-size:12.5px;font-weight:700;opacity:.9">${t ? esc(t.name) : '자유계약'}${p.num ? ' · #' + p.num : ''}</span></div>
-          <div class="nm ${ko ? 'ko' : ''}">${esc(p.name)}</div>
-          <div class="meta"><span>${esc(D.ROLE_NAME[p.role] || p.role)}</span><span>${p.age}세</span>${p.nat ? `<span>${esc(p.nat)}</span>` : ''}${p.h ? `<span>${p.h}cm</span>` : ''}</div>
+          <div class="nm ${ko ? 'ko' : ''}">${(() => { const n = splitName(p.name); return n[0] ? `<small>${esc(n[0])}</small>${esc(n[1])}` : esc(n[1]); })()}</div>
+          <div class="meta"><span class="postag">${p.role}</span><span>${esc(D.ROLE_NAME[p.role] || p.role)}</span><span>${p.age}세</span>${p.nat ? `<span>${esc(p.nat)}</span>` : ''}${p.h ? `<span>${p.h}cm</span>` : ''}</div>
           <div class="big"><div><small>OVR</small><span class="o">${p.ovr}</span></div><div style="padding-bottom:6px"><small>잠재력</small><span class="stars" style="color:#ffd23a">${stars(p)}</span></div></div>
         </div>
         <div class="shot">${bigPhoto(p)}</div>
@@ -1093,13 +1093,19 @@
   function statsView(li) {
     const G = UI.G, uid = G.user.teamId;
     const ps = Object.values(G.players).filter((p) => p.teamId != null && G.teams[p.teamId].league === li && p.season.apps > 0);
-    const list = (title, key, fmt) => {
+    // PL 스탯 리더 카드: 1위는 공식 사진과 함께 크게, 2~10위는 목록
+    const list = (title, key, fmt, unit) => {
       const top = ps.slice().sort(key).slice(0, 10);
-      return `<section class="card"><h2>${title}</h2><div class="list">${top.map((p, i) => `<div class="li tap" data-act="player" data-v="${p.id}"><span class="muted num" style="width:16px;font-weight:700">${i + 1}</span>${avatar(p, 36, G.teams[p.teamId].c1)}<div class="grow"><div class="name" style="${p.teamId === uid ? 'color:var(--brand)' : ''}">${esc(p.name)}</div><div class="sub">${esc(G.teams[p.teamId].name)}</div></div><b class="num" style="font-size:18px">${fmt(p)}</b></div>`).join('') || '<div class="empty">아직 기록이 없어요.</div>'}</div></section>`;
+      if (!top.length) return `<section class="card"><h2>${title}</h2><div class="empty">아직 기록이 없어요.</div></section>`;
+      const p0 = top[0], t0 = G.teams[p0.teamId];
+      return `<section class="card leader"><div class="top tap" data-act="player" data-v="${p0.id}" style="--tc:${t0.c1}">
+          <div class="tx"><h2>${title}</h2><span class="rk">1</span><div class="nm">${esc(p0.name)}</div><div class="cl">${logo(t0, 16)}${esc(t0.name)}</div><div class="v">${fmt(p0)}<small>${unit}</small></div></div>
+          <div class="shot">${bigPhoto(p0)}</div></div>
+        <div class="rest list">${top.slice(1).map((p, i) => `<div class="li tap" data-act="player" data-v="${p.id}"><span class="rk">${i + 2}</span>${avatar(p, 34, G.teams[p.teamId].c1)}<div class="grow"><div class="name" style="${p.teamId === uid ? 'color:var(--fm)' : ''}">${esc(p.name)}</div><div class="sub">${esc(G.teams[p.teamId].name)}</div></div><b class="num">${fmt(p)}</b></div>`).join('')}</div></section>`;
     };
-    return totwCard(G, li) + list('득점 순위', (a, b) => b.season.goals - a.season.goals || a.season.apps - b.season.apps, (p) => p.season.goals + '골')
-      + list('도움 순위', (a, b) => b.season.assists - a.season.assists || a.season.apps - b.season.apps, (p) => p.season.assists + '도움')
-      + list('평균 평점 (5경기 이상)', (a, b) => (b.season.apps >= 5) - (a.season.apps >= 5) || b.season.rsum / b.season.apps - a.season.rsum / a.season.apps, (p) => (p.season.rsum / p.season.apps).toFixed(2));
+    return totwCard(G, li) + list('득점 순위', (a, b) => b.season.goals - a.season.goals || a.season.apps - b.season.apps, (p) => p.season.goals, '골')
+      + list('도움 순위', (a, b) => b.season.assists - a.season.assists || a.season.apps - b.season.apps, (p) => p.season.assists, '도움')
+      + list('평균 평점 (5경기 이상)', (a, b) => (b.season.apps >= 5) - (a.season.apps >= 5) || b.season.rsum / b.season.apps - a.season.rsum / a.season.apps, (p) => (p.season.rsum / p.season.apps).toFixed(2), '점');
   }
 
   // 주간 베스트 11 (4-3-3 배치)
