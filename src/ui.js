@@ -233,7 +233,7 @@
     const dateText = ev ? esc(S.dateText(G, G.day)) : `${seasonLabel(G.year)} 시즌 종료`;
     const win = S.windowOpen(G) ? '<span class="open">이적시장</span>' : '';
     // 오른쪽 아래에 떠 있는 '계속' 버튼 (엄지로 누르기 편하게)
-    app().innerHTML = `
+    keepX(() => { app().innerHTML = `
       <header class="topbar">
         <div class="club"><span class="crest">${logo(t, 30)}</span><div style="min-width:0"><b>${esc(t.name)}</b><div class="meta"><span>${dateText}</span>${win}</div></div></div>
         <div class="bal"><small>구단 잔고</small><span class="num">${money(t.balance)}</span></div>
@@ -243,7 +243,23 @@
       <nav class="tabs" aria-label="메뉴"><div class="in">
         ${[['home', '홈'], ['squad', '선수단'], ['league', '리그'], ['transfer', '이적'], ['club', '구단']].map(([k, l]) =>
           `<button data-act="tab" data-v="${k}" class="${UI.tab === k ? 'on' : ''}" aria-current="${UI.tab === k}">${ICON[k]}${l}${k === 'transfer' && G.offers.length ? '<span class="dot"></span>' : ''}${k === 'home' && G.news.some((n) => n.read === false && !n.gen) ? '<span class="dot"></span>' : ''}</button>`).join('')}
-      </div></nav>`;
+      </div></nav>`; });
+  }
+  // 화면을 다시 그려도 가로 스크롤(리그 칩, 탭, 표, 카드 줄) 위치는 그대로 둔다
+  const XSEL = '.chips, .seg, .tbl-wrap, .tx-rail, .an-tabs, .row[style*="overflow-x"]';
+  function keepX(fn, root) {
+    const box = root || app(), pos = {}, count = {};
+    box.querySelectorAll(XSEL).forEach((el) => {
+      const k = el.className; const i = count[k] = (count[k] || 0) + 1;
+      if (el.scrollLeft) pos[k + '#' + i] = el.scrollLeft;
+    });
+    fn();
+    if (!Object.keys(pos).length) return;
+    const seen = {};
+    box.querySelectorAll(XSEL).forEach((el) => {
+      const k = el.className; const i = seen[k] = (seen[k] || 0) + 1;
+      if (pos[k + '#' + i]) el.scrollLeft = pos[k + '#' + i];
+    });
   }
   // FM식 '계속' 버튼: 경기일이면 경기 준비, 아니면 하루 진행
   function contBtn(G) {
@@ -258,7 +274,7 @@
     const v = $('#view');
     if (!v) return render();
     const y = window.scrollY;
-    v.innerHTML = viewHtml();
+    keepX(() => { v.innerHTML = viewHtml(); });
     window.scrollTo(0, y);
   }
   function viewHtml() {
@@ -1465,7 +1481,7 @@
     const oldPages = el.querySelectorAll('.pre-page');
     const keepY = Array.from(oldPages).map((x) => x.scrollTop);
     const page = UI.prePage || 0;
-    el.innerHTML = `<div class="pre-head">
+    keepX(() => { el.innerHTML = `<div class="pre-head">
       <div class="row"><button class="btn sm ghost" data-act="closepre">← 닫기</button><span class="grow"></span><span class="eyebrow">${esc(fx.label)}</span></div>
       <div class="pre-tabs" role="tablist">${PRE_TABS.map(([, l], i) => `<button role="tab" data-act="pretab" data-v="${i}" class="${i === page ? 'on' : ''}" aria-selected="${i === page}">${l}</button>`).join('')}<i class="ink" style="--i:${page}"></i></div></div>
       <div class="pre-pages" id="pre-pages"><div class="pre-track" style="transform:translateX(${-page * 100}%)">
@@ -1480,7 +1496,7 @@
       <div class="pre-page">${lineupEditor(t, 'bench')}</div>
       <div class="pre-page">${tacticsPanel(t.tactics, 'team')}</div>
       </div></div>
-      <div class="pre-foot"><button class="btn" data-act="quickmatch">결과만 보기</button><button class="btn accent big" data-act="kickoff">킥오프</button></div>`;
+      <div class="pre-foot"><button class="btn" data-act="quickmatch">결과만 보기</button><button class="btn accent big" data-act="kickoff">킥오프</button></div>`; }, el);
     const box = $('#pre-pages');
     box.querySelectorAll('.pre-page').forEach((x, i) => { x.scrollTop = keepY[i] || 0; });
     bindSwipe(el, box);
