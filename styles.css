@@ -1363,3 +1363,72 @@ nav.tabs button.on svg { stroke: #fff; }
 @keyframes g2Fly { 0% { opacity: 0; transform: translate(220px, -14px) scale(1.6) rotate(-12deg); } 6% { opacity: 1; } 24% { transform: translate(0, -4px) scale(1.15) rotate(6deg); } 30% { transform: none; } 100% { opacity: 1; transform: none; } }
 .plbug-goal.pl2 .gw { padding-left: 4px; }
 .plbug-row { background: var(--pl-purple); }
+
+/* ══ 경기 화면 스코어 버그: PL 2025/26 중계 그래픽 그대로 ══ */
+@font-face { font-family: "Poppins"; font-weight: 800; font-style: normal; font-display: swap; src: url("fonts/Poppins-ExtraBold.woff2") format("woff2"); }
+.plb2 { --H: 40px; position: relative; padding-top: 10px; filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .35)); font-family: "Poppins", var(--f-body); }
+.plb2 .b2bar { position: relative; height: var(--H); display: flex; align-items: center; border-radius: 4px;
+  background: linear-gradient(90deg, #37003c 0%, #8e2bd9 34%, #6b19b8 62%, #37003c 100%); }
+.plb2 .pl { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; font-weight: 800; font-size: 21px; letter-spacing: .01em; z-index: 1; }
+.plb2 .pl b { font-weight: 800; position: relative; z-index: 1; }
+/* 홈 판: 오른쪽 끝이 번개처럼 꺾이고, 뒤에 보조색 꺾쇠가 한 겹 더 */
+.plb2 .pl.home { left: 0; width: 34%; padding-left: 12px; color: var(--hi); background: var(--h); border-radius: 4px 0 0 4px;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, calc(100% - 4px) 33%, calc(100% - 12px) 50%, 100% 100%, 0 100%); }
+.plb2 .pl.home::before { content: ""; position: absolute; inset: 0; background: var(--h); z-index: 0; }
+.plb2 .b2bar::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(34% - 26px); width: 34px; background: var(--hz);
+  clip-path: polygon(0 0, 52% 0, 82% 33%, 58% 50%, 100% 100%, 46% 100%, 20% 62%, 40% 46%); z-index: 1; }
+.plb2 .pl.away { right: 0; width: 22%; justify-content: flex-end; padding-right: 12px; color: var(--ai); background: var(--a); border-radius: 0 4px 4px 0;
+  clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%, 12px 50%, 4px 33%); }
+.plb2 .b2bar::after { content: ""; position: absolute; top: 0; bottom: 0; right: calc(22% - 26px); width: 34px; background: var(--az);
+  clip-path: polygon(48% 0, 100% 0, 80% 54%, 60% 62%, 54% 100%, 0 100%, 42% 50%, 18% 33%); z-index: 1; }
+/* 큰 흰 숫자 + 가운데 엠블럼: 바 위아래로 삐져나온다 */
+.plb2 .mid { position: absolute; left: calc(34% + 4px); top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 2px; z-index: 2; }
+.plb2 .mid i { font-style: normal; font-weight: 800; font-size: 50px; line-height: 1; color: #fff; min-width: 32px; text-align: center; font-variant-numeric: tabular-nums; text-shadow: 0 2px 6px rgba(30, 0, 40, .35); }
+.plb2 .mid .emb { width: 30px; height: 30px; margin-top: -14px; flex: none; }
+.plb2 .mid i.bump { animation: b2Bump .7s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes b2Bump { 0% { transform: scale(1.6); } 100% { transform: none; } }
+/* 시계 탭: 숫자 아래 */
+.plb2 .clk { position: relative; margin-left: calc(34% - 4px); width: 132px; display: flex; justify-content: center; }
+.plb2 .clk span { display: block; width: 100%; text-align: center; background: #37003c; color: #fff; font-weight: 800; font-size: 15px; padding: 3px 0 4px; border-radius: 0 0 8px 8px; letter-spacing: .03em; font-variant-numeric: tabular-nums; }
+.plb2 .clk em { position: absolute; left: 100%; top: 0; font-style: normal; font-weight: 800; font-size: 13px; background: var(--pl-green); color: #37003c; padding: 3px 7px 4px; border-radius: 0 0 8px 0; }
+/* ── 골: 노랑→초록 빛 → 팀 색 판(약칭·번개·큰 엠블럼·상징·GOAL) → 초록 빛으로 지우고 바뀐 점수 ── */
+.plb2 .g3 { position: absolute; inset: 0; pointer-events: none; visibility: hidden; z-index: 3; border-radius: 4px; overflow: visible; }
+.plb2 .g3.on { visibility: visible; }
+.plb2 .g3 .plate { position: absolute; inset: 0; border-radius: 4px; background: var(--g); color: var(--gi); opacity: 0; }
+.plb2 .g3.on .plate { animation: g3Plate 4.8s linear forwards; }
+@keyframes g3Plate { 0%, 9% { opacity: 0; } 10%, 92% { opacity: 1; } 93%, 100% { opacity: 0; } }
+.plb2 .g3 .plate .pl { left: 0; width: 34%; padding-left: 12px; height: 100%; background: var(--g); clip-path: polygon(0 0, calc(100% - 14px) 0, calc(100% - 4px) 33%, calc(100% - 12px) 50%, 100% 100%, 0 100%); }
+.plb2 .g3 .plate::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(34% - 26px); width: 34px; background: var(--gz);
+  clip-path: polygon(0 0, 52% 0, 82% 33%, 58% 50%, 100% 100%, 46% 100%, 20% 62%, 40% 46%); z-index: 1; }
+.plb2 .g3 .crest { position: absolute; left: calc(34% + 14px); top: 50%; transform: translateY(-50%); z-index: 2; display: grid; place-items: center; }
+.plb2 .g3 .crest .logo { width: 50px !important; height: 50px !important; background: none; padding: 0; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .35)); }
+.plb2 .g3 .gw { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; font-weight: 800; font-size: 28px; letter-spacing: .01em; line-height: 1; }
+.plb2 .g3 .gw span { display: inline-block; opacity: 0; }
+.plb2 .g3.on .gw > * { animation: g3Letter .5s cubic-bezier(.2, 1.3, .4, 1) forwards; }
+.plb2 .g3.on .gw > :nth-child(1) { animation-delay: 1.5s; } .plb2 .g3.on .gw > :nth-child(2) { animation-delay: 1.6s; }
+.plb2 .g3.on .gw > :nth-child(3) { animation-delay: 1.7s; } .plb2 .g3.on .gw > :nth-child(4) { animation-delay: 1.8s; }
+@keyframes g3Letter { from { opacity: 0; transform: scale(.4) translateY(30%); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+/* 구단 상징: 엠블럼 옆에서 나와 오른쪽으로 지나간 뒤(1.0~1.9s) GOAL로 바뀐다 */
+.plb2 .g3 .mot { font-style: normal; line-height: 1; display: inline-grid; place-items: center; }
+.plb2 .g3 .mot.emo { font-size: 26px; filter: brightness(0); }
+.plb2 .g3.ink-w .mot.emo { filter: brightness(0) invert(1); }
+.plb2 .g3 .mot .svg { width: 60px; height: 30px; fill: var(--gi); }
+.plb2 .g3 .plate > .mot { position: absolute; left: calc(34% + 72px); top: 50%; opacity: 0; transform: translateY(-50%); z-index: 2; }
+.plb2 .g3.on.k-side .plate > .mot { animation: g3Side 4.8s linear forwards; }
+@keyframes g3Side { 0%, 14% { opacity: 0; transform: translate(-30px, -50%) scale(.6); } 20% { opacity: 1; transform: translate(0, -50%) scale(1.1); } 30% { opacity: 1; transform: translate(60px, -50%); } 37% { opacity: 0; transform: translate(90px, -50%) scale(.8); } 100% { opacity: 0; } }
+.plb2 .g3.on.k-fly .plate > .mot { animation: g3Fly 4.8s linear forwards; }
+@keyframes g3Fly { 0%, 13% { opacity: 0; transform: translate(170px, -80%) scale(1.3); } 18% { opacity: 1; } 30% { opacity: 1; transform: translate(-10px, -50%) scale(1); } 37% { opacity: 0; transform: translate(-30px, -50%) scale(.7); } 100% { opacity: 0; } }
+.plb2 .g3.k-o .gw .mot { opacity: 0; font-size: 22px; margin: 0 1px; }
+.plb2 .g3.on.k-o .gw .mot { animation: g3Spin .7s 1.55s cubic-bezier(.2, 1.4, .4, 1) forwards; }
+@keyframes g3Spin { from { opacity: 0; transform: rotate(-220deg) scale(.2); } to { opacity: 1; transform: none; } }
+/* 빛: 시작은 노랑→초록이 바 전체를 덮었다 걷히고, 끝은 초록 빛이 오른쪽에서 글자를 지운다 */
+.plb2 .g3 .flood { position: absolute; inset: 0; border-radius: 4px; opacity: 0; z-index: 4;
+  background: linear-gradient(90deg, #e9b51e 0%, #c8e83a 22%, #63f04f 48%, #2ff05a 100%); background-size: 200% 100%; }
+.plb2 .g3.on .flood { animation: g3Flood 4.8s ease-out forwards; }
+@keyframes g3Flood { 0% { opacity: 0; background-position: 100% 0; } 4% { opacity: .95; } 10% { opacity: .95; background-position: 0 0; } 15% { opacity: 0; } 100% { opacity: 0; } }
+.plb2 .g3 .wipe { position: absolute; top: 0; bottom: 0; right: 0; width: 0; z-index: 4; border-radius: 0 4px 4px 0;
+  background: linear-gradient(90deg, rgba(47, 240, 90, 0) 0%, #6bf04f 18%, #2ff05a 100%); }
+.plb2 .g3.on .wipe { animation: g3Wipe 4.8s cubic-bezier(.6, 0, .4, 1) forwards; }
+@keyframes g3Wipe { 0%, 80% { width: 0; opacity: 1; } 91% { width: 66%; opacity: 1; } 95% { width: 66%; opacity: 0; } 100% { width: 0; opacity: 0; } }
+.plb2 .mid { transition: opacity .15s; }
+.plb2 .b2bar:has(.g3.on) .mid { opacity: 0; transition-delay: .45s; }

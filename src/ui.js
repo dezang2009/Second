@@ -1772,16 +1772,21 @@
     return w >= p ? '#ffffff' : PL_PURPLE;
   }
   function bugVars(t, k) { return `--${k}:${t.c1 || '#444'};--${k}i:${inkOn(t.c1 || '#444', t.c2)}`; }
+  // 판 끝 번개 모양 꺾쇠 색: 보조색이 판 색과 충분히 다르면 보조색, 아니면 판 색을 어둡게
+  function zigOf(t) {
+    const c1 = t.c1 || '#444', c2 = t.c2;
+    const ratio = (x, y) => (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    if (c2 && ratio(lum(c1), lum(c2)) >= 1.6 && !/^#?f{6}$/i.test(c2.replace('#', '')) ) return c2;
+    return `color-mix(in srgb, ${c1} 55%, #000)`;
+  }
+  const EMB = '<svg viewBox="0 0 32 32" class="emb"><circle cx="16" cy="16" r="14.5" fill="#37003c" stroke="#fff" stroke-width="2"/><path d="M16 7l7 5-2.7 8.3h-8.6L9 12z" fill="#fff"/><path d="M16 7v-3M23 12l3-1M20.3 20.3l2 2.5M11.7 20.3l-2 2.5M9 12l-3-1" stroke="#fff" stroke-width="1.6"/></svg>';
+  // 경기 화면 점수판: PL 2025/26 중계 스코어 버그 (홈 판 + 번개 꺾쇠 + 큰 흰 숫자 + 퍼플 그라데이션 + 원정 판, 아래 시계 탭)
   function scoreBug(h, a, fin) {
     const id = (x) => (fin ? '' : ` id="${x}"`);
-    return `<div class="plbug" style="${bugVars(h, 'h')};${bugVars(a, 'a')}">
-      <div class="plbug-row">
-        <div class="plbug-side home"><b>${esc(h.short)}</b><span class="cr">${logo(h, 26)}</span></div>
-        <div class="plbug-sc"><i${id('lv-sh')}>${fin ? fin[0] : 0}</i><i${id('lv-sa')}>${fin ? fin[1] : 0}</i></div>
-        <div class="plbug-side away"><span class="cr">${logo(a, 26)}</span><b>${esc(a.short)}</b></div>
-        ${fin ? '' : '<div class="plbug-goal" id="lv-goal" aria-live="polite"></div>'}
-      </div>
-      <div class="plbug-clock"><span${id('lv-clock')}>${fin ? 'FT' : '00:00'}</span>${fin ? '' : '<em id="lv-add" hidden></em>'}</div>
+    return `<div class="plb2" style="--h:${h.c1 || '#444'};--hi:${inkOn(h.c1 || '#444')};--hz:${zigOf(h)};--a:${a.c1 || '#444'};--ai:${inkOn(a.c1 || '#444')};--az:${zigOf(a)}">
+      <div class="b2bar"><div class="pl home"><b>${esc(h.short)}</b></div><div class="mid"><i${id('lv-sh')}>${fin ? fin[0] : 0}</i>${EMB}<i${id('lv-sa')}>${fin ? fin[1] : 0}</i></div><div class="pl away"><b>${esc(a.short)}</b></div>
+        ${fin ? '' : '<div class="g3" id="lv-goal" aria-live="polite"></div>'}</div>
+      <div class="clk"><span${id('lv-clock')}>${fin ? 'FT' : '00:00'}</span>${fin ? '' : '<em id="lv-add" hidden></em>'}</div>
     </div>`;
   }
   // 골: PL 중계처럼 사이안→그린→옐로 빛이 점수판을 쓸고 지나가면, 넣은 팀 색 판에 엠블럼과
@@ -1806,17 +1811,14 @@
     const box = $('#lv-goal'); if (!box) return;
     const t = m.sides[f.side].team;
     const [sym, kind] = motifOf(t);
-    const ink = inkOn(t.c1 || '#444', t.c2);
-    const style = hashN(t.short) % 3;  // 글자 등장 방식도 구단마다 다르게
+    const ink = inkOn(t.c1 || '#444');
     const mot = `<i class="mot ${sym.startsWith('<svg') ? '' : 'emo'}">${sym}</i>`;
-    const word = kind === 'o'
-      ? `<span>G</span>${mot}<span>A</span><span>L</span>`
-      : `<span>G</span><span>O</span><span>A</span><span>L</span>`;
-    box.className = `plbug-goal pl2 k-${kind} s${style} ${ink === '#ffffff' ? 'ink-w' : 'ink-d'}`;
-    box.style.cssText = `--g:${t.c1 || '#444'};--gi:${ink};--g2:${t.c2 || '#fff'}`;
-    box.innerHTML = `<div class="plate"><b class="ab">${esc(t.short)}</b><span class="cr">${logo(t, 28)}</span><div class="gw">${word}</div>${kind !== 'o' ? mot : ''}</div><div class="sweep"></div><div class="sweep out"></div>`;
+    const word = kind === 'o' ? `<span>G</span>${mot}<span>A</span><span>L</span>` : '<span>G</span><span>O</span><span>A</span><span>L</span>';
+    box.className = `g3 k-${kind} ${f.side ? 'aw' : 'hm'} ${ink === '#ffffff' ? 'ink-w' : 'ink-d'}`;
+    box.style.cssText = `--g:${t.c1 || '#444'};--gi:${ink};--gz:${zigOf(t)}`;
+    box.innerHTML = `<div class="plate"><div class="pl"><b>${esc(t.short)}</b></div><span class="crest">${logo(t, 46)}</span>${kind !== 'o' ? mot : ''}<div class="gw">${word}</div></div><div class="flood"></div><div class="wipe"></div>`;
     void box.offsetWidth; box.classList.add('on');
-    clearTimeout(bugGoal.t); bugGoal.t = setTimeout(() => box.classList.remove('on'), 4700);
+    clearTimeout(bugGoal.t); bugGoal.t = setTimeout(() => box.classList.remove('on'), 4800);
   }
 
   function showFlash(f) {
@@ -1837,7 +1839,8 @@
 
   function updateLiveHud() {
     const L = UI.live, m = L.m;
-    for (const [id, v] of [['#lv-sh', m.score[0]], ['#lv-sa', m.score[1]]]) { const e = $(id); if (e && e.textContent !== String(v)) { e.textContent = v; e.classList.remove('bump'); void e.offsetWidth; e.classList.add('bump'); } }
+    // 골 연출이 끝난 뒤에 점수를 바꾼다
+    if (!$('#lv-goal.on')) for (const [id, v] of [['#lv-sh', m.score[0]], ['#lv-sa', m.score[1]]]) { const e = $(id); if (e && e.textContent !== String(v)) { e.textContent = v; e.classList.remove('bump'); void e.offsetWidth; e.classList.add('bump'); } }
     const c = $('#lv-clock'); const raw = m.finished ? 'FT' : m.clockText();
     const plus = /^(\d+)\+(\d+)/.exec(raw);
     const ct = plus ? plus[1] + ':00' : raw;
