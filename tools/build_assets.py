@@ -110,6 +110,12 @@ def official(pid, size):
     else:
         top = 0
     cw = int(w * (0.92 if h > w * 1.15 else 0.64))  # 세로로 긴 원본(K리그)은 넓게 잘라 유니폼까지
+    if w > h * 1.15 and bbox:  # 가로로 넓고 선수가 작게 서 있는 원본(리그 1): 선수 윤곽에 맞춰 자른다
+        cw = int((bbox[2] - bbox[0]) * 0.95)
+        left = (bbox[0] + bbox[2]) // 2 - cw // 2
+        ch = int(cw * 13 / 10)
+        im = im.crop((left, top, left + cw, top + ch))
+        return im.resize(size, Image.LANCZOS)
     ch = int(cw * 13 / 10)
     left = (w - cw) // 2
     im = im.crop((left, top, left + cw, min(h, top + ch)))
