@@ -660,7 +660,7 @@
       let near = 99;
       for (const o of opps) if (o.grp !== 'GK') { const dd = dist(o.x, o.y, m.x, m.y); if (dd < near) near = dd; }
       clear = near > 3.5 && fieldBlockers === 0 && ((f > 88.5 && Math.abs(y - 34) < 16) || (f > 82 && xgAt(f, y) > 0.08));
-      const u = Math.log(xg * (1 + men * 0.12) * (0.75 + m.a.sho / 200) + eps) - 0.42 + longBonus + m.R.shoot + (clear ? (f > 94 ? 1.8 : 0.7) : 0);
+      const u = Math.log(xg * (1 + men * 0.12) * (0.75 + m.a.sho / 200) + eps) - 1.3 + longBonus + m.R.shoot + (clear ? (f > 94 ? 2.7 : 1.6) : 0);
       options.push({ k: 'shoot', u, xg });
     }
     // 패스
@@ -836,8 +836,8 @@
     const skill = header ? (m.a.phy * 0.6 + m.a.sho * 0.4) * (1 + m.R.aerial * 0.25) : m.a.sho;
     const gkSkill = gk ? gk.a.gk : 30;
     let pGoal = xg * (0.55 + skill / 110) * (1.45 - gkSkill / 110);
-    pGoal = clamp(pGoal * 0.49, 0.005, 0.9);
-    xg = Math.min(0.95, xg * 0.42); // 표시용 xG: 실제 득점 확률 수준으로 보정
+    pGoal = clamp(pGoal * 0.54, 0.005, 0.9);
+    xg = Math.min(0.95, xg * 0.5); // 표시용 xG: 실제 득점 확률 수준으로 보정
     const f = fx(s, m.x), y = fy(s, m.y);
     const d = Math.hypot(LEN - f, 34 - y);
     const pOn = clamp(0.32 + skill / 250 - d * 0.006, 0.18, 0.75);
