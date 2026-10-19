@@ -398,81 +398,162 @@
     const tot = a + b || 1;
     return `<div class="compare"><span class="num">${fmt ? fmt(a) : a}</span><div><div class="mid">${label}</div><div class="dual"><i style="flex:${a / tot};background:var(--brand)"></i><i style="flex:${b / tot};background:var(--muted)"></i></div></div><span class="num">${fmt ? fmt(b) : b}</span></div>`;
   }
+  // ── 홈: FM26 대시보드 (뉴스 · 다음 경기 · 일정 · 캘린더 · 라운드 결과 · 순위) ──
+  const FM_WD = ['일', '월', '화', '수', '목', '금', '토'];
+  function fmDate(G, d) { const dt = S.dateOf(G, d); return `${FM_WD[dt.getDay()]} ${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}`; }
+  // 달력 이벤트 e에서 우리 경기 찾기
+  function userMatchAt(G, e) {
+    const uid = G.user.teamId, mine = (x) => x && (x.h === uid || x.a === uid) && x.h != null && x.a != null;
+    if (e.k === 'L') { const lg = S.leagueOf(G, S.userTeam(G)); const m = (lg.fixtures[e.r] || []).find(mine); return m ? { m, ab: { GB1: 'PRM', ES1: 'LAL', L1: 'BUN', IT1: 'SEA', FR1: 'LI1', RSK1: 'K1' }[lg.code] || lg.code, cn: lg.name } : null; }
+    if (e.k === 'E') { if (!G.euro) return null; for (const c of G.euro.comps) { const m = (c.rounds[e.r] || []).find(mine); if (m) return { m, ab: c.short, cn: c.name }; } return null; }
+    const m = (G.cup.rounds[e.r] || []).find(mine); return m ? { m, ab: 'CUP', cn: G.cup.name } : null;
+  }
+  function fmPanel(title, body, extra, cls) {
+    return `<section class="fm-w ${cls || ''}"><header><h3>${title}</h3>${extra || ''}</header>${body}</section>`;
+  }
+  function fmNews(G) {
+    const inbox = G.news.filter((n) => !n.gen).slice(0, 5);
+    if (!inbox.length) return '';
+    const i = clamp(UI.newsI || 0, 0, inbox.length - 1), n = inbox[i];
+    const t = S.userTeam(G);
+    const ago = n.d != null ? (G.day - n.d <= 0 ? '오늘' : G.day - n.d === 1 ? '어제' : `${G.day - n.d}일 전`) : '';
+    return `<section class="fm-w fm-news">
+      <button class="fm-news-main" data-act="mail" data-i="${G.news.indexOf(n)}">
+        <div class="tx"><h3>${esc(n.title)}</h3><p>${esc(n.body)}</p><div class="src">${esc(n.from || '구단 사무국')}<span>${ago}</span></div></div>
+        <div class="im">${n.opp != null && G.teams[n.opp] ? logo(G.teams[n.opp], 74) : logo(t, 74)}</div>
+      </button>
+      <div class="fm-dots">${inbox.map((x, k) => `<button data-act="newsi" data-v="${k}" class="${k === i ? 'on' : ''} ${x.read === false ? 'new' : ''}" aria-label="소식 ${k + 1}"></button>`).join('')}<span class="grow"></span><button class="fm-more" data-act="inboxall">받은 편지함${inbox.some((x) => x.read === false) ? ` <b>${G.news.filter((x) => !x.gen && x.read === false).length}</b>` : ''}</button></div>
+    </section>`;
+  }
+  function fmNext(G, t, ev) {
+    const fx = S.userFixture(G);
+    const lgName = S.leagueOf(G, t).name;
+    const pos = S.position(G, t.id);
+    const conf = Math.round(G.board.conf);
+    const perf = conf >= 60 ? ['좋음', 'up'] : conf >= 40 ? ['보통', 'mid'] : ['나쁨', 'dn'];
+    if (!fx) {
+      return fmPanel('다음 일정', `<div class="fm-next"><div class="row">${logo(t, 54)}<div class="grow"><b class="nm">${esc(t.name)}</b><div class="sub">${lgName} ${pos}위 · ${esc(S.dateText(G, ev.day))}</div></div></div><p class="sub" style="margin:10px 0">이번 일정에는 우리 경기가 없어요.</p>
+        <div class="fm-btns"><button class="fm-btn" data-act="nextday">다음 날로</button><button class="fm-btn pri" data-act="tomatch">다음 경기까지</button></div></div>`);
+    }
+    const home = fx.m.h === t.id, opp = S.team(G, home ? fx.m.a : fx.m.h);
+    const left = ev.day - G.day;
+    const rv = S.rivalry(G, fx.m.h, fx.m.a);
+    const bars = (f) => `<span class="fm-form">${(f || []).slice(-5).map((r) => `<i class="${r}"></i>`).join('')}</span>`;
+    return `<section class="fm-w fm-nextw">
+      <div class="fm-next">
+        <div class="row" style="gap:12px">${logo(opp, 58)}<div class="grow"><b class="nm">${esc(opp.name)} <span>(${home ? 'H' : 'A'})</span></b>
+          <div class="sub">${fx.ev.k === 'L' && G.week > 0 ? `${lgName} ${S.position(G, opp.id)}위 · ` : ''}${left <= 0 ? '오늘' : left === 1 ? '내일' : `${left}일 후`}</div>
+          ${rv ? `<div class="fm-derby">${esc(rv.name)}</div>` : ''}</div></div>
+        <div class="fm-kv"><span>${esc(fx.label)}</span><b>${esc(home ? t.stadium : opp.stadium)}</b></div>
+        <div class="fm-kv"><span>폼</span>${bars(opp.form)}</div>
+        <div class="fm-kv"><span>우리 폼</span>${bars(t.form)}</div>
+        <div class="fm-kv"><span>종합 성적 <small>목표: ${esc(G.board.goal.text)}</small></span><b class="fm-chip ${perf[1]}">${perf[0]}</b></div>
+        ${ev.day <= G.day ? '<button class="fm-btn pri big" data-act="prematch">경기 준비</button>' : '<div class="fm-btns"><button class="fm-btn" data-act="nextday">다음 날로</button><button class="fm-btn pri" data-act="tomatch">경기일까지</button></div>'}
+      </div></section>`;
+  }
+  function fmSchedule(G, t) {
+    const rows = [];
+    let firstUp = -1;
+    G.calendar.forEach((e, w) => {
+      const um = userMatchAt(G, e);
+      if (!um) return;
+      if (w >= G.week && firstUp < 0) firstUp = rows.length;
+      rows.push({ e, w, um });
+    });
+    const start = clamp((firstUp < 0 ? rows.length : firstUp) - 2, 0, Math.max(0, rows.length - 7));
+    const list = rows.slice(start, start + 7).map(({ e, w, um }) => {
+      const m = um.m, home = m.h === t.id, opp = S.team(G, home ? m.a : m.h);
+      const done = m.hs != null;
+      let res = '';
+      if (done) {
+        const gf = home ? m.hs : m.as, ga = home ? m.as : m.hs;
+        const r = gf > ga ? 'W' : gf < ga ? 'L' : (m.pens ? ((home ? m.pens[0] > m.pens[1] : m.pens[1] > m.pens[0]) ? 'W' : 'L') : 'D');
+        res = `<span class="res"><i class="${r}"></i>${gf}-${ga}</span>`;
+      } else res = `<span class="res ko">${w === G.week ? '다음' : '15:00'}</span>`;
+      return `<div class="fm-sr ${w === G.week ? 'cur' : ''}"><span class="dt">${fmDate(G, e.day)}</span><span class="cp"><i class="ci">${um.ab === 'CUP' ? '🏆' : um.ab.length > 2 ? '★' : '⚽'}</i>${esc(um.ab)}</span><span class="op">${logo(opp, 18)}${esc(opp.short || opp.name.slice(0, 3))}</span><span class="ha">${home ? 'H' : 'A'}</span>${res}</div>`;
+    }).join('');
+    return fmPanel('경기 일정', `<div class="fm-sched">${list || '<div class="empty">일정이 없어요.</div>'}</div>`, `<button class="fm-link" data-act="goto" data-tab="league" data-sub="fixtures">전체</button>`);
+  }
+  function fmCalendar(G, t, ev) {
+    const dt0 = S.dateOf(G, G.day);
+    const mon = G.day - ((dt0.getDay() + 6) % 7);
+    const cells = [];
+    for (let d = mon; d < mon + 7; d++) {
+      const dt = S.dateOf(G, d);
+      const e = G.calendar.find((x) => x.day === d);
+      const um = e ? userMatchAt(G, e) : null;
+      let ic = '', cls = '';
+      if (um) { const opp = S.team(G, um.m.h === t.id ? um.m.a : um.m.h); ic = `${logo(opp, 26)}<small>${um.m.hs != null ? `${um.m.h === t.id ? um.m.hs : um.m.as}-${um.m.h === t.id ? um.m.as : um.m.hs}` : '15:00'}</small>`; cls = 'match'; }
+      else if (G.calendar.some((x) => x.day === d + 1 && userMatchAt(G, x))) { ic = '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18zm0 4v5l3 3"/></svg><small>회복</small>'; cls = 'rest'; }
+      else if (d < G.day) { ic = ''; cls = 'past'; }
+      else { ic = '<svg viewBox="0 0 24 24"><path d="M4 18l5-5 4 4 7-8M15 9h5v5"/></svg><small>훈련</small>'; cls = 'train'; }
+      cells.push(`<div class="fm-cd ${cls} ${d === G.day ? 'today' : ''}"><span class="wd">${FM_WD[dt.getDay()]}</span><span class="dn">${dt.getDate()}</span><span class="ic">${ic}</span></div>`);
+    }
+    return fmPanel(`캘린더 ${dt0.getFullYear()}`, `<div class="fm-cal">${cells.join('')}</div>`, `<span class="fm-sub">${dt0.getMonth() + 1}월</span>`);
+  }
+  function fmRound(G, t) {
+    const lg = S.leagueOf(G, t);
+    const r = clamp((lg.played || 0) - 1, 0, lg.fixtures.length - 1);
+    const fx = lg.fixtures[r] || [];
+    const done = fx.some((m) => m.hs != null);
+    const e = G.calendar.find((x) => x.k === 'L' && x.r === r);
+    const rows = fx.map((m) => {
+      const h = S.team(G, m.h), a = S.team(G, m.a), me = m.h === t.id || m.a === t.id;
+      return `<div class="fm-rr ${me ? 'me' : ''}" data-act="teamsheet" data-v="${me ? (m.h === t.id ? m.a : m.h) : m.h}"><span class="h">${esc(h.name)}${logo(h, 18)}</span><b class="sc">${m.hs != null ? `${m.hs} - ${m.as}` : 'v'}</b><span class="a">${logo(a, 18)}${esc(a.name)}</span></div>`;
+    }).join('');
+    return fmPanel('경기 결과', `<div class="fm-rhead">${esc(lg.name)} <span>${r + 1}R · ${e && e.day != null ? fmDate(G, e.day) : ''}</span></div><div class="fm-round">${rows}</div>`, `<button class="fm-link" data-act="goto" data-tab="league" data-sub="fixtures">더 보기</button>`);
+  }
+  function fmStages(G, t) {
+    const lg = S.leagueOf(G, t), li = t.league;
+    const tb = S.table(G, li);
+    // 순위 변동 화살표: 라운드가 바뀌면 직전 순위를 보관
+    const now = {}; tb.forEach((r, i) => { now[r.id] = i + 1; });
+    const ps = G.posSnap && G.posSnap[li];
+    if (!G.posSnap) G.posSnap = {};
+    if (!ps || ps.w !== lg.played) G.posSnap[li] = { w: lg.played, now, prev: ps ? ps.now : null };
+    const prev = G.posSnap[li].prev;
+    const n = tb.length, euro = lg.code !== 'RSK1';
+    const pos = tb.findIndex((r) => r.id === t.id);
+    const from = clamp(pos - 4, 0, Math.max(0, n - 9));
+    const rows = tb.slice(from, from + 9).map((r, i) => {
+      const k = from + i + 1, tm = G.teams[r.id];
+      const pv = prev && prev[r.id], mv = pv ? pv - k : 0;
+      const zone = k <= (euro ? 4 : 3) ? 'q' : k > n - 3 ? 'r' : '';
+      return `<tr class="${r.id === t.id ? 'me' : ''} ${zone}" data-act="teamsheet" data-v="${r.id}"><td class="p">${k}</td><td class="mv ${mv > 0 ? 'up' : mv < 0 ? 'dn' : ''}">${mv > 0 ? '▲' : mv < 0 ? '▼' : '–'}</td><td class="tn">${logo(tm, 18)}<span>${esc(tm.name)}</span></td><td>${r.p}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pt">${r.pts}</td></tr>`;
+    }).join('');
+    return fmPanel('순위', `<div class="fm-rhead">${esc(lg.name)}</div><table class="fm-tbl"><thead><tr><th>순위</th><th></th><th class="tn">팀</th><th>경기</th><th>득실</th><th>승점</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="fm-leg"><span><i class="q"></i>${euro ? '유럽 대항전' : 'ACL'}</span><span><i class="r"></i>강등</span></div>`, `<button class="fm-link" data-act="goto" data-tab="league" data-sub="table">전체</button>`);
+  }
   function homeView() {
     const G = UI.G, t = S.userTeam(G);
-    const parts = [];
     const ev = S.currentEvent(G);
-    if (!ev) {
-      parts.push(`<section class="card stack"><span class="eyebrow">시즌 종료</span><h2 style="margin:0">${seasonLabel(G.year)} 시즌이 끝났습니다</h2><p class="muted" style="margin:0">최종 순위 ${S.position(G, t.id)}위. 결산을 확인하고 다음 시즌을 시작하세요.</p><button class="btn primary big" data-act="endseason">시즌 결산 보기</button></section>`);
-    } else {
-      parts.push(dayStrip(G));
-      const fx = S.userFixture(G);
-      if (fx) {
-        const home = fx.m.h === t.id;
-        const opp = S.team(G, home ? fx.m.a : fx.m.h);
-        const hT = S.team(G, fx.m.h), aT = S.team(G, fx.m.a);
-        const os = opp.lineup.map((id) => G.players[id]).filter(Boolean).sort((a, b) => b.ovr - a.ovr)[0];
-        const rv = S.rivalry(G, hT.id, aT.id);
-        const rec = rv && G.h2h ? G.h2h[S.h2hKey(hT.id, aT.id)] : null;
-        parts.push(`<section class="card matchcard ${rv ? 'derby' : ''}" style="--hc:${hT.c1};--ac:${aT.c1}">
-          <div class="band stack">
-            ${rv ? `<div class="derby-tag">🔥 ${esc(rv.name)}${'<i>★</i>'.repeat(rv.lvl)}${rec ? `<span>감독 부임 후 ${rec.w}승 ${rec.d}무 ${rec.l}패</span>` : ''}</div>` : ''}
-            <div class="row" style="align-items:flex-start"><span class="mw">${fx.ev.k === 'L' ? `MATCHWEEK ${fx.ev.r + 1}` : fx.ev.k === 'E' ? 'EUROPE' : 'CUP'}<i>${esc(fx.label)}</i></span><span class="grow"></span><span class="tag" style="background:#ffffff1a;color:#fff">${home ? '홈' : '원정'} · ${esc(hT.stadium)}</span></div>
-            <div class="fixture">
-              <div class="tm">${logo(hT, 64)}<b>${esc(hT.name)}</b>${formHtml(hT.form)}</div>
-              <div class="vs">VS</div>
-              <div class="tm">${logo(aT, 64)}<b>${esc(aT.name)}</b>${formHtml(aT.form)}</div>
-            </div>
-          </div>
-          <div class="foot">
-            ${compare('전력', W.teamRating(G, hT), W.teamRating(G, aT))}
-            ${fx.ev.k === 'L' && G.week > 0 ? compare('리그 순위', S.position(G, hT.id), S.position(G, aT.id), (v) => v + '위') : ''}
-            ${os ? `<div class="row" style="font-size:12.5px">${avatar(os, 36, opp.c1)}<span class="grow muted">경계 대상 <b style="color:var(--ink)">${esc(os.name)}</b> · ${os.role} · 시즌 ${os.season.goals}골 ${os.season.assists}도움</span>${ovrBadge(os.ovr)}</div>` : ''}
-            ${ev.day <= G.day ? '<button class="btn primary big" data-act="prematch">경기 준비</button>' : `<div class="grid2"><button class="btn" data-act="nextday">다음 날로</button><button class="btn primary" data-act="tomatch">경기일까지 진행</button></div>`}
-          </div>
-        </section>`);
-      } else {
-        const label = ev.k === 'C' ? `${G.cup.name} ${S.cupRoundName(G, ev.r)}` : ev.k === 'E' ? `유럽 대항전 ${S.EURO_ROUNDS[ev.r]}` : '리그';
-        parts.push(`<section class="card stack"><span class="eyebrow">${esc(S.dateText(G, ev.day))} · ${esc(label)}</span><p style="margin:0">이번 일정에는 우리 경기가 없어요. 다른 구단 경기는 그날 자동으로 치러져요.</p><div class="grid2"><button class="btn" data-act="nextday">다음 날로</button><button class="btn primary" data-act="tomatch">다음 경기까지</button></div></section>`);
-      }
-    }
+    const parts = [];
+    if (!ev) parts.push(fmPanel('시즌 종료', `<div class="fm-next"><p class="sub" style="margin:0 0 12px">${seasonLabel(G.year)} 시즌이 끝났습니다. 최종 순위 ${S.position(G, t.id)}위.</p><button class="fm-btn pri big" data-act="endseason">시즌 결산 보기</button></div>`));
+    parts.push(fmNews(G));
+    if (ev) parts.push(fmNext(G, t, ev));
     const lm = G.lastMatch;
+    const pq = lm && S.pressQuestions(G);
     if (lm) {
       const opp = S.team(G, lm.opp);
-      const pq = S.pressQuestions(G);
       const motm = lm.motm != null && G.players[lm.motm];
-      parts.push(`<section class="card stack">
-        <h2 style="margin:0">지난 경기 <small>${esc(lm.label)}</small></h2>
-        <div class="row">${logo(opp, 30)}<b class="grow">${lm.home ? 'vs' : '@'} ${esc(opp.name)}</b><span class="tag ${lm.r === 'W' ? 'green' : lm.r === 'L' ? 'red' : 'amber'}">${lm.r === 'W' ? '승' : lm.r === 'L' ? '패' : '무'}</span><span class="num" style="font-size:24px;font-weight:700">${lm.gf} - ${lm.ga}</span></div>
-        ${lm.agg || lm.pens ? `<div class="muted" style="font-size:12px">${lm.agg ? `합계 ${lm.agg[0]}-${lm.agg[1]}` : ''}${lm.agg && lm.pens ? ' · ' : ''}${lm.pens ? `승부차기 ${lm.home ? lm.pens[0] + '-' + lm.pens[1] : lm.pens[1] + '-' + lm.pens[0]}` : ''}</div>` : ''}
-        ${lm.an ? `<button class="btn an-btn" data-act="lmanalysis">📊 경기 분석 · xG ${lm.an.sides[lm.us].st.xg.toFixed(1)} : ${lm.an.sides[1 - lm.us].st.xg.toFixed(1)}</button>` : ''}
-        ${motm ? `<div class="row" style="font-size:12.5px">${avatar(motm, 30, 'var(--accent)')}<span class="muted">경기 최우수 선수 <b style="color:var(--ink)">${esc(motm.name)}</b></span></div>` : ''}
-        ${pq && !lm.answered ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:12px"><span class="eyebrow">기자회견</span><div style="font-weight:700">“${esc(pq.q)}”</div>
-          ${pq.a.map((a, i) => `<button class="btn sm ghost" style="justify-content:flex-start;text-align:left;font-weight:600" data-act="press" data-v="${i}">${esc(a.t)}</button>`).join('')}</div>` : lm.answer ? `<div class="muted" style="font-size:12.5px">기자회견: “${esc(lm.answer)}”</div>` : ''}
-      </section>`);
+      parts.push(fmPanel('지난 경기', `<div class="fm-last"><div class="row">${logo(opp, 30)}<b class="grow">${lm.home ? 'vs' : '@'} ${esc(opp.name)} <small>${esc(lm.label)}</small></b><span class="fm-score ${lm.r}">${lm.gf} - ${lm.ga}</span></div>
+        ${lm.agg || lm.pens ? `<div class="sub">${lm.agg ? `합계 ${lm.agg[0]}-${lm.agg[1]}` : ''}${lm.agg && lm.pens ? ' · ' : ''}${lm.pens ? `승부차기 ${lm.home ? lm.pens[0] + '-' + lm.pens[1] : lm.pens[1] + '-' + lm.pens[0]}` : ''}</div>` : ''}
+        ${motm ? `<div class="sub">경기 최우수 선수 <b>${esc(motm.name)}</b></div>` : ''}
+        ${lm.an ? `<button class="fm-btn" data-act="lmanalysis">경기 분석 · xG ${lm.an.sides[lm.us].st.xg.toFixed(1)} : ${lm.an.sides[1 - lm.us].st.xg.toFixed(1)}</button>` : ''}
+        ${pq && !lm.answered ? `<div class="fm-press"><span>기자회견</span><b>“${esc(pq.q)}”</b>${pq.a.map((a, i) => `<button class="fm-btn" data-act="press" data-v="${i}">${esc(a.t)}</button>`).join('')}</div>` : lm.answer ? `<div class="sub">기자회견: “${esc(lm.answer)}”</div>` : ''}</div>`));
     }
     const alerts = [];
-    if (G.offers.length) alerts.push(`<button class="li tap" data-act="goto" data-tab="transfer" data-sub="offers" style="background:none;border:0;width:100%;text-align:left"><span class="tag live">제안</span><span class="grow">우리 선수 영입 제안 ${G.offers.length}건</span><span class="muted">›</span></button>`);
+    if (G.offers.length) alerts.push(`<button class="fm-al" data-act="goto" data-tab="transfer" data-sub="offers"><i class="b"></i><span class="grow">우리 선수 영입 제안 ${G.offers.length}건</span>›</button>`);
     const expiring = t.squad.map((id) => G.players[id]).filter((p) => p.contract <= 1);
-    if (expiring.length && G.week >= G.calendar.length * 0.6) alerts.push(`<button class="li tap" data-act="goto" data-tab="squad" data-sub="list" style="background:none;border:0;width:100%;text-align:left"><span class="tag amber">계약</span><span class="grow">시즌 후 계약 만료 ${expiring.length}명 — 재계약하지 않으면 떠나요</span><span class="muted">›</span></button>`);
+    if (expiring.length && G.week >= G.calendar.length * 0.6) alerts.push(`<button class="fm-al" data-act="goto" data-tab="squad" data-sub="list"><i class="a"></i><span class="grow">시즌 후 계약 만료 ${expiring.length}명</span>›</button>`);
     const unavailable = t.lineup.map((id) => G.players[id]).filter((p) => p && (p.inj > 0 || p.sus > 0));
-    if (unavailable.length) alerts.push(`<div class="li"><span class="tag red">결장</span><span class="grow">${unavailable.map((p) => esc(p.name)).join(', ')} 출전 불가</span></div>`);
-    if (alerts.length) parts.push(`<section class="card" style="padding-block:4px"><div class="list">${alerts.join('')}</div></section>`);
-    const conf = Math.round(G.board.conf);
-    parts.push(`<section class="card stack" style="gap:8px">
-      <h2 style="margin:0">구단주 신뢰도 <small>목표: ${esc(G.board.goal.text)}</small></h2>
-      <div class="meter"><i style="width:${conf}%;background:${conf >= 60 ? 'var(--win)' : conf >= 35 ? 'var(--draw)' : 'var(--loss)'}"></i></div>
-      <div class="row muted" style="font-size:12.5px"><span class="grow">${conf >= 75 ? '구단주가 매우 만족하고 있어요.' : conf >= 55 ? '구단주가 지켜보고 있어요.' : conf >= 35 ? '구단주가 불안해하고 있어요.' : '경질 위기입니다!'}</span><span>현재 ${S.position(G, t.id)}위</span></div>
-    </section>`);
-    const tb = S.table(G, t.league);
-    const pos = tb.findIndex((r) => r.id === t.id);
-    const from = clamp(pos - 2, 0, tb.length - 5);
-    parts.push(`<section class="card"><h2>${esc(S.leagueOf(G, t).name)} <small><button class="btn sm ghost" data-act="goto" data-tab="league" data-sub="table">전체 순위</button></small></h2>${tableHtml(G, t.league, tb.slice(from, from + 5), from)}</section>`);
-    const inbox = G.news.filter((n) => !n.gen);
-    const unread = inbox.filter((n) => n.read === false).length;
-    parts.splice(ev ? 2 : 1, 0, `<section class="card inbox"><div class="row"><h2 class="grow" style="margin:0">받은 편지함 ${unread ? `<span class="badge">${unread}</span>` : ''}</h2><button class="btn sm ghost" data-act="inboxall">전체 보기</button></div>
-      <div class="list">${inbox.slice(0, 5).map(mailItem).join('') || '<div class="empty">새 메시지가 없어요.</div>'}</div></section>`);
-    return parts.join('');
+    if (unavailable.length) alerts.push(`<div class="fm-al"><i class="r"></i><span class="grow">${unavailable.map((p) => esc(p.name)).join(', ')} 출전 불가</span></div>`);
+    if (alerts.length) parts.push(fmPanel('알림', `<div class="fm-alerts">${alerts.join('')}</div>`));
+    parts.push(fmSchedule(G, t));
+    if (ev) parts.push(fmCalendar(G, t, ev));
+    parts.push(fmRound(G, t));
+    parts.push(fmStages(G, t));
+    return `<div class="fm26">${parts.join('')}</div>`;
   }
   // 오늘부터 7일 일정: 경기일·훈련일을 한눈에
   function dayStrip(G) {
@@ -2133,6 +2214,7 @@
     player(el) { openPlayer(+el.dataset.v, { pid: +el.dataset.v }); },
     teamsheet(el) { openTeam(+el.dataset.v); },
     mail(el) { const n = UI.G.news[+el.dataset.i]; if (n) openMail(n); },
+    newsi(el) { UI.newsI = +el.dataset.v; rerenderView(); },
     inboxall() {
       const G = UI.G;
       UI.inboxF = UI.inboxF || 'mail';
