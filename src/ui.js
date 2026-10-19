@@ -1511,7 +1511,6 @@
   function settingsView() {
     const G = UI.G;
     return `<section class="card stack"><h2 style="margin:0">게임</h2>
-      <div class="stack" style="gap:6px"><span class="eyebrow">화면 테마</span><div class="seg">${[['dark', 'FM 다크'], ['light', '라이트'], ['system', '시스템']].map(([k, l]) => `<button data-act="theme" data-v="${k}" class="${UI.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div class="stack" style="gap:6px"><span class="eyebrow">기본 경기 속도</span><div class="seg">${[1, 2, 4].map((s) => `<button data-act="defspeed" data-v="${s}" class="${G.settings.speed === s ? 'on' : ''}">${s}배속</button>`).join('')}</div></div>
       <button class="btn" data-act="save">지금 저장 (슬롯 ${UI.slot + 1})</button>
       <button class="btn ghost" data-act="totitle">메인 화면으로</button></section>
@@ -2459,12 +2458,10 @@
     try { localStorage.setItem('km.theme', v); } catch (e) { /* 무시 */ }
     applyTheme();
   }
+  // FM26 디자인은 다크 전용
   function applyTheme() {
-    let v = 'dark';
-    try { v = localStorage.getItem('km.theme') || 'dark'; } catch (e) { /* 무시 */ }
-    if (v === 'system') delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = v;
-    UI.theme = v;
+    document.documentElement.dataset.theme = 'dark';
+    UI.theme = 'dark';
   }
   function init() {
     applyTheme();
