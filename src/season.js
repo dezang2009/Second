@@ -539,10 +539,13 @@
   function quickSim(G, h, a, rng, knockout) {
     aiPrepare(G, h, a); aiPrepare(G, a, h);
     const rH = effRating(G, h), rA = effRating(G, a);
-    const diff = rH - rA + 2.2;
+    // 직접 보는 경기(매치 엔진)와 같은 분포가 되도록 맞춘 값: 홈 이점, 기대 득점, 공통 득점(무승부 비율)
+    const diff = rH - rA + 1.8;
     const lh = clamp(1.2 * Math.exp(0.056 * diff) * mentF(h) * (1.08 - (a.tactics.mentality - 2) * 0.04), 0.15, 5);
     const la = clamp(1.2 * Math.exp(-0.056 * diff) * mentF(a) * (1.08 - (h.tactics.mentality - 2) * 0.04), 0.15, 5);
-    const hs = poisson(rng, lh), as = poisson(rng, la);
+    // 두 팀 득점을 독립으로 뽑으면 무승부가 실제보다 적다 → 양쪽에 같이 들어가는 득점을 조금 섞는다
+    const c = Math.min(0.18, lh * 0.5, la * 0.5), both = poisson(rng, c);
+    const hs = poisson(rng, lh - c) + both, as = poisson(rng, la - c) + both;
     const res = { hs, as, pens: null, players: [] };
     for (const [t, goals, conceded] of [[h, hs, as], [a, as, hs]]) {
       const slots = D.FORMATIONS[t.tactics.formation];
@@ -946,24 +949,78 @@
   }
 
   // ── 이적 ───────────────────────────────────────────────────
+  // AI 구단 이적: 포지션별로 모자란 자리(인원·주전 수준)를 채운다.
+  // 빅클럽은 더 좋은 선수를 노리고, 셀링 클럽은 핵심 선수를 쉽게 내주지 않으며, 마감일엔 거래가 몰린다
+  const DEPTH = { GK: 2, DF: 8, MF: 7, FW: 5 };
+  function teamNeeds(G, t) {
+    const sq = t.squad.map((id) => G.players[id]).filter(Boolean);
+    const base = W.squadOvr(G, t), out = [];
+    for (const g in DEPTH) {
+      const ps = sq.filter((p) => p.pos === g).sort((a, b) => b.ovr - a.ovr);
+      const starters = g === 'GK' ? 1 : g === 'DF' ? 4 : g === 'MF' ? 3 : 2;
+      const weak = ps[starters - 1] ? ps[starters - 1].ovr : base - 12;
+      const need = Math.max(0, DEPTH[g] - ps.length) * 4 + Math.max(0, base - 1 - weak) * 1.2 + (ps.some((p) => p.age >= 33) ? 1 : 0);
+      out.push({ g, need, weak, count: ps.length });
+    }
+    return out.sort((a, b) => b.need - a.need);
+  }
   function aiTransfers(G, rng) {
-    const n = rng.int(2, 5);
-    const all = Object.values(G.players).filter((p) => p.teamId != null && p.teamId !== G.user.teamId);
-    for (let i = 0; i < n; i++) {
-      const buyer = rng.pick(G.teams.filter((t) => t.id !== G.user.teamId && t.squad.length < 30));
-      if (!buyer) return;
-      const pos = rng.pick(['GK', 'DF', 'MF', 'FW']);
-      const mine = buyer.squad.map((id) => G.players[id]).filter((p) => p.pos === pos).sort((a, b) => b.ovr - a.ovr);
-      const ref = mine[pos === 'GK' ? 0 : 2];
-      const need = ref ? ref.ovr : 55;
-      const cands = all.filter((p) => p.teamId != null && p.teamId !== buyer.id && p.pos === pos && p.ovr > need + 1 && p.ovr < need + 9 && p.value < buyer.balance * 0.6 && team(G, p.teamId).rep <= buyer.rep + 6);
-      if (!cands.length) continue;
-      const p = rng.pick(cands);
+    const w = G.week, deadline = w === 3 || w === G.window.mid1, winter = w >= G.window.mid0;
+    const deals = deadline ? rng.int(winter ? 4 : 9, winter ? 8 : 15) : rng.int(winter ? 1 : 4, winter ? 3 : 8);
+    const ai = G.teams.filter((t) => t.id !== G.user.teamId);
+    if (deadline) for (const t of ai) if (t.squad.length > 30) trimSquad(G, rng, t);  // 마감일엔 넘치는 선수 정리
+    const pool = Object.values(G.players).filter((p) => p.teamId != null && p.teamId !== G.user.teamId && p.movedY !== G.year && !p.inj);
+    for (let i = 0; i < deals; i++) {
+      // 가장 급한 구단 (필요도 × 돈)
+      const cand = ai.map((t) => ({ t, n: teamNeeds(G, t)[0] })).filter((x) => x.n.need > 1.5 && x.t.balance > 300);
+      if (!cand.length) break;
+      const pick = weighted(rng, cand, (x) => x.n.need * Math.sqrt(Math.max(1, x.t.balance)));
+      const buyer = pick.t, need = pick.n, big = buyer.rep >= 88;
+      const want = Math.max(need.weak + 2, W.squadOvr(G, buyer) - 1);
+      const cands = pool.filter((p) => {
+        if (p.teamId === buyer.id || p.pos !== need.g || p.ovr < want || p.ovr > want + (big ? 10 : 7)) return false;
+        if (p.age > 31 && p.ovr < want + 4) return false;
+        const seller = team(G, p.teamId);
+        if (!seller || seller.rep > buyer.rep + 4 || seller.squad.length <= 20) return false;  // 위 단계 구단에서는 데려오기 어렵다
+        const top3 = seller.squad.map((id) => G.players[id].ovr).sort((a, b) => b - a)[2] || 0;
+        if (p.ovr >= top3 && seller.rep >= buyer.rep - 6) return false;  // 비슷한 급의 구단은 핵심 선수를 팔지 않는다
+        return p.value * 1.15 <= buyer.balance * 0.6;
+      });
+      if (!cands.length) { signFreeAgent(G, rng, buyer, need); continue; }
+      // 작은 구단의 좋은 선수를 빅클럽이 데려가는 쪽을 선호 (평판 차이가 클수록)
+      const p = weighted(rng, cands, (q) => (q.ovr - want + 2) * (q.age <= 24 ? 1.4 : q.age >= 30 ? 0.7 : 1) * Math.max(0.3, 1 + (buyer.rep - team(G, q.teamId).rep) / 8));
       const seller = team(G, p.teamId);
-      if (seller.squad.length <= 20) continue;
-      const fee = Math.round(p.value * rng.range(0.95, 1.3) / 25) * 25;
+      const key = p.ovr >= (seller.squad.map((id) => G.players[id].ovr).sort((a, b) => b - a)[4] || 0);
+      const fee = Math.round(p.value * rng.range(0.95, 1.2) * (key ? 1.2 : 1) * (deadline ? 1.12 : 1) / 25) * 25;
+      if (fee > buyer.balance * 0.7) continue;
       movePlayer(G, p, seller, buyer, fee);
-      news(G, 'transfer', `${p.name}, ${buyer.name} 이적`, `${seller.name}에서 ${josa(buyer.name, '으로/로')} 이적 (이적료 ${money(fee)})`, { gen: true, read: true, from: '이적 소식' });
+      p.movedY = G.year;
+      p.wage = Math.max(p.wage, Math.round(W.wageOf(p) * rng.range(1, 1.25) * 10) / 10);
+      pool.splice(pool.indexOf(p), 1);
+      news(G, 'transfer', `${p.name}, ${buyer.name} 이적`, `${seller.name}에서 ${josa(buyer.name, '으로/로')} 이적 (이적료 ${money(fee)})${deadline ? ' · 마감일 거래' : ''}`, { gen: true, read: true, from: '이적 소식' });
+      trimSquad(G, rng, buyer);
+      // 팔린 구단은 다음 차례에 그 자리를 다시 채우러 나선다 (연쇄 이적)
+    }
+  }
+  // 이적시장에서 못 구하면 자유계약 선수로 빈자리 채우기
+  function signFreeAgent(G, rng, t, need) {
+    if (need.count >= DEPTH[need.g]) return;
+    const fa = G.freeAgents.map((id) => G.players[id]).filter((p) => p && p.pos === need.g && p.ovr >= need.weak - 6).sort((a, b) => b.ovr - a.ovr)[0];
+    if (!fa) return;
+    movePlayer(G, fa, null, t, 0);
+    fa.movedY = G.year; fa.contract = rng.int(1, 2);
+  }
+  // 선수가 넘치면 가장 덜 쓰는 선수를 내보낸다 (하위 구단으로 싼값 이적, 안 되면 방출)
+  function trimSquad(G, rng, t) {
+    while (t.squad.length > 30) {
+      const sq = t.squad.map((id) => G.players[id]).filter((p) => !t.lineup.includes(p.id));
+      const out = sq.sort((a, b) => (a.ovr - a.age * 0.3) - (b.ovr - b.age * 0.3))[0];
+      if (!out) return;
+      const to = G.teams.filter((x) => x.id !== G.user.teamId && x.id !== t.id && x.rep < t.rep - 5 && x.squad.length < 26 && x.balance > out.value * 0.6);
+      const dest = to.length ? rng.pick(to) : null;
+      const fee = dest ? Math.round(out.value * rng.range(0.5, 0.8) / 25) * 25 : 0;
+      movePlayer(G, out, t, dest, fee);
+      out.movedY = G.year;
     }
   }
 
@@ -1003,7 +1060,7 @@
     p.listed = false;
     p.morale = clamp(p.morale + 8, 5, 100);
     G.transfers.unshift({ s: G.season, y: G.year, w: G.week, pid: p.id, from: from ? from.id : null, to: to ? to.id : null, fee, val: value0, age: age0 });
-    if (G.transfers.length > 80) G.transfers.pop();
+    if (G.transfers.length > 200) G.transfers.pop();
     if (from) W.validateLineup(G, from);
     if (to) W.validateLineup(G, to);
   }

@@ -95,7 +95,7 @@
     this.used = new Set();
     for (const sd of this.sides) D.normTactics(sd.tactics);
     // 홈 어드밴티지: 관중이 꽉 찰수록 홈팀 경기력이 조금 오른다 (중립 경기는 없음)
-    this.homeAdv = opts.neutral ? 0 : 0.018 + 0.022 * clamp(opts.fill == null ? 0.8 : opts.fill, 0, 1);
+    this.homeAdv = opts.neutral ? 0 : 0.021 + 0.024 * clamp(opts.fill == null ? 0.8 : opts.fill, 0, 1);
     this.wonT = [-99, -99]; this.lostT = [-99, -99];
     this.P = [null, null];
     // 경기 수준 기준점: 두 팀 선발의 평균 OVR. 리그 수준과 상관없이 두 팀의 '차이'가 경기를 좌우한다
@@ -836,7 +836,7 @@
     const skill = header ? (m.a.phy * 0.6 + m.a.sho * 0.4) * (1 + m.R.aerial * 0.25) : m.a.sho;
     const gkSkill = gk ? gk.a.gk : 30;
     let pGoal = xg * (0.55 + skill / 110) * (1.45 - gkSkill / 110);
-    pGoal = clamp(pGoal * 0.54, 0.005, 0.9);
+    pGoal = clamp(pGoal * 0.56, 0.005, 0.9);
     xg = Math.min(0.95, xg * 0.5); // 표시용 xG: 실제 득점 확률 수준으로 보정
     const f = fx(s, m.x), y = fy(s, m.y);
     const d = Math.hypot(LEN - f, 34 - y);
