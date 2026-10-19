@@ -10,7 +10,10 @@ const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
 const html = read('index.html');
 const css = read('styles.css');
 const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-const js = 'globalThis.KM = { BUNDLE: true };\n' + scripts.map((f) => `// ── ${f}\n${read(f)}`).join('\n');
+// 구단별 실제 골 연출 스프라이트 (python3 tools/build_goal_clips.py)
+let goalClips = null;
+try { goalClips = fs.readFileSync(path.join(root, 'data/goal_clips.json'), 'utf8'); } catch (e) { /* 없음 */ }
+const js = `globalThis.KM = { BUNDLE: true${goalClips ? `, GOALCLIPS: ${goalClips}` : ''} };\n` + scripts.map((f) => `// ── ${f}\n${read(f)}`).join('\n');
 const fonts = html.match(/<link rel="preload" href="fonts[^>]+>/)[0]; // 글꼴 파일은 fonts/ 폴더에서 (dist에도 복사)
 const icon = 'data:image/svg+xml,' + encodeURIComponent(read('icon.svg'));
 const safeJs = js.replace(/<\/script/gi, '<\\/script');
@@ -19,7 +22,7 @@ const body = `<div id="app"></div>\n<script>\n${safeJs}\n</script>`;
 let sprites = null;
 try { sprites = fs.readFileSync(path.join(root, 'data/sprites.json'), 'utf8'); } catch (e) { /* 스프라이트 없음 */ }
 const artBody = sprites
-  ? `<div id="app"></div>\n<script>\n${safeJs.replace('globalThis.KM = { BUNDLE: true };', `globalThis.KM = { BUNDLE: true, SPRITES: ${sprites} };`)}\n</script>`
+  ? `<div id="app"></div>\n<script>\n${safeJs.replace('globalThis.KM = { BUNDLE: true', `globalThis.KM = { BUNDLE: true, SPRITES: ${sprites}`)}\n</script>`
   : body;
 const full = `<!doctype html>
 <html lang="ko">

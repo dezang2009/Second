@@ -1432,3 +1432,13 @@ nav.tabs button.on svg { stroke: #fff; }
 @keyframes g3Wipe { 0%, 80% { width: 0; opacity: 1; } 91% { width: 66%; opacity: 1; } 95% { width: 66%; opacity: 0; } 100% { width: 0; opacity: 0; } }
 .plb2 .mid { transition: opacity .15s; }
 .plb2 .b2bar:has(.g3.on) .mid { opacity: 0; transition-delay: .45s; }
+/* 영상 속 비율 그대로 (바 270×28) */
+.plb2 .b2bar { height: auto; aspect-ratio: 270 / 28; }
+.plb2 .mid i { font-size: clamp(36px, 13.5vw, 54px); }
+.plb2 .mid .emb { width: auto; height: 46px; margin: -16px -2px 0; filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1px #fff); }
+.plb2 .clk { margin-left: 34%; width: 36%; }
+/* 실제 골 연출 재생: 세로로 이어 붙인 프레임을 차례로 보여 준다 */
+.plb2 .g3.clip .film { position: absolute; inset: 0; border-radius: 4px; background-repeat: no-repeat; background-size: 100% calc(var(--n) * 100%); background-position: 0 0; }
+.plb2 .g3.clip.on .film { animation: filmPlay var(--dur) steps(var(--n), jump-none) forwards; }
+@keyframes filmPlay { from { background-position: 0 0%; } to { background-position: 0 100%; } }
+.plb2 .b2bar:has(.g3.clip.on) .mid { opacity: 0; transition: none; }
