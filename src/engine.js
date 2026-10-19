@@ -95,7 +95,7 @@
     this.used = new Set();
     for (const sd of this.sides) D.normTactics(sd.tactics);
     // 홈 어드밴티지: 관중이 꽉 찰수록 홈팀 경기력이 조금 오른다 (중립 경기는 없음)
-    this.homeAdv = opts.neutral ? 0 : 0.03 + 0.03 * clamp(opts.fill == null ? 0.8 : opts.fill, 0, 1);
+    this.homeAdv = opts.neutral ? 0 : 0.018 + 0.022 * clamp(opts.fill == null ? 0.8 : opts.fill, 0, 1);
     this.wonT = [-99, -99]; this.lostT = [-99, -99];
     this.P = [null, null];
     // 경기 수준 기준점: 두 팀 선발의 평균 OVR. 리그 수준과 상관없이 두 팀의 '차이'가 경기를 좌우한다
@@ -592,6 +592,8 @@
     }
     m.hold -= DT;
     if (nearest < 3 && m.hold > 0.25 && m.grp !== 'GK') m.hold = Math.min(m.hold, 0.12 + this.rng.next() * 0.3);
+    // 박스 안에서 앞이 비었으면 드리블을 오래 끌지 않고 바로 판단(슈팅)
+    if (m.hold > 0.1 && m.grp !== 'GK' && !m.blocked && nearest > 3.5) { const f = fx(s, m.x), y = fy(s, m.y); if (f > 94 && Math.abs(y - 34) < 12) m.hold = 0.05; }
     if (m.hold > 0) {
       if (m.dx == null) this.setDribble(m, opps);
       return;
@@ -622,6 +624,7 @@
     const options = [];
     const eps = 0.0015;
     const curV = threat(f, y);
+    let clear = false;
     // 상대 가장 가까운 거리
     let nearest = 99;
     for (const o of opps) { const d = dist(o.x, o.y, m.x, m.y); if (d < nearest) nearest = d; }
@@ -631,10 +634,10 @@
       let xg = xgAt(f, y);
       if (nearest < 2) xg *= 0.6;
       // 슛 경로 차단 수비수
-      let blockers = 0;
+      let blockers = 0, fieldBlockers = 0;
       for (const o of opps) {
         const of = fx(s, o.x), oy = fy(s, o.y);
-        if (of > f && of < LEN - 1 && segDist(of, oy, f, y, LEN, 34) < 1.2) blockers++;
+        if (of > f && of < LEN - 1 && segDist(of, oy, f, y, LEN, 34) < 1.2) { blockers++; if (o.grp !== 'GK') fieldBlockers++; }
       }
       xg *= Math.pow(0.7, blockers);
       // 박스 안이 붐비면(수비수가 슈팅 각도 안에 많으면) 좋은 슈팅이 어렵다
@@ -653,7 +656,11 @@
       let longBonus = d > 16 && d < 28 ? 0.45 + (m.a.sho - 60) / 60 : 0;
       if (P.finalThird === 2) longBonus += d > 16 ? 0.35 : 0.15; // 보이면 슈팅
       if (P.finalThird === 1) longBonus += d > 16 ? -0.35 : 0.1; // 박스까지 파고들기
-      const u = Math.log(xg * (1 + men * 0.12) * (0.75 + m.a.sho / 200) + eps) - 0.42 + longBonus + m.R.shoot;
+      // 골문 앞에 막는 수비수가 없는 확실한 기회: 실제 선수처럼 거의 무조건 슈팅
+      let near = 99;
+      for (const o of opps) if (o.grp !== 'GK') { const dd = dist(o.x, o.y, m.x, m.y); if (dd < near) near = dd; }
+      clear = near > 3.5 && fieldBlockers === 0 && ((f > 88.5 && Math.abs(y - 34) < 16) || (f > 82 && xgAt(f, y) > 0.08));
+      const u = Math.log(xg * (1 + men * 0.12) * (0.75 + m.a.sho / 200) + eps) - 0.42 + longBonus + m.R.shoot + (clear ? (f > 94 ? 1.8 : 0.7) : 0);
       options.push({ k: 'shoot', u, xg });
     }
     // 패스
@@ -696,6 +703,7 @@
       if (OP.line === 1 && tf > oppLine - 2 && tf - f > 10 && (t.grp === 'FW' || t.role === 'AM')) u += 0.2; // 높은 라인 뒷공간
       if (m.grp === 'GK' && P.gk === 2 && t.grp === 'FW') u += 0.3;
       if (tf < f - 5) u -= 0.05;
+      if (clear && !(tf > f + 3 && Math.abs(ty - 34) < Math.abs(y - 34))) u -= 1.5; // 확실한 기회에서 옆·뒤로 돌리지 않는다
       // 선수 역할: 플레이메이커에게 공이 모이고, 전진 패스 성향, 공중볼 타깃
       u += t.R.pm * (tf > f - 12 ? 1 : 0.4) + m.R.prog * Math.max(-0.4, Math.min(1, (tf - f) / 20));
       if (lofted) u += t.R.aerial * 0.35;
@@ -732,7 +740,7 @@
         }
         risk = clamp(risk + (1 - m.a.pas / 100) * 0.22, 0, 0.95);
         const danger = 0.6 * Math.max(0, 1 - f / 60);
-        const u = Math.log(threat(tfS, tyS) * (1 - risk) + eps) + Math.log(1 - risk * danger + 1e-6) - 0.05 + t.R.run * 0.3 + (P.approach === 2 ? 0.15 : 0) + (P.counter ? 0.2 : 0) + m.R.prog * 0.3;
+        const u = (clear ? -1.5 : 0) + Math.log(threat(tfS, tyS) * (1 - risk) + eps) + Math.log(1 - risk * danger + 1e-6) - 0.05 + t.R.run * 0.3 + (P.approach === 2 ? 0.15 : 0) + (P.counter ? 0.2 : 0) + m.R.prog * 0.3;
         options.push({ k: 'pass', u, t, tX, tY, L, lofted, through: true });
       }
     }
@@ -745,7 +753,7 @@
         if (of > f - 1 && dist(of, oy, df, dy) < 6) pr += 0.22 * (0.6 + o.a.def / 150);
       }
       pr = clamp(pr * (1.25 - m.a.dri / 100), 0, 0.9);
-      const u = Math.log(threat(df, dy) * (1 - pr) + eps) + Math.log(1 - pr * 0.6 * Math.max(0, 1 - f / 60) + 1e-6) - 0.08 + P.dribble + (P.counter ? 0.2 : 0) + m.R.drb;
+      const u = Math.log(threat(df, dy) * (1 - pr) + eps) + Math.log(1 - pr * 0.6 * Math.max(0, 1 - f / 60) + 1e-6) - 0.08 + P.dribble + (P.counter ? 0.2 : 0) + m.R.drb - (clear && f > 94 ? 1.2 : 0);
       options.push({ k: 'dribble', u });
     }
     // 고를 수 있는 선택지가 없으면(드문 경우: 골키퍼 배급 제한) 가장 가까운 동료에게 걷어낸다
@@ -828,7 +836,7 @@
     const skill = header ? (m.a.phy * 0.6 + m.a.sho * 0.4) * (1 + m.R.aerial * 0.25) : m.a.sho;
     const gkSkill = gk ? gk.a.gk : 30;
     let pGoal = xg * (0.55 + skill / 110) * (1.45 - gkSkill / 110);
-    pGoal = clamp(pGoal * 0.43, 0.005, 0.9);
+    pGoal = clamp(pGoal * 0.49, 0.005, 0.9);
     xg = Math.min(0.95, xg * 0.42); // 표시용 xG: 실제 득점 확률 수준으로 보정
     const f = fx(s, m.x), y = fy(s, m.y);
     const d = Math.hypot(LEN - f, 34 - y);
