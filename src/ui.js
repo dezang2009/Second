@@ -816,12 +816,26 @@
       ${attrs}
       <div class="kv"><div><small>컨디션</small><b style="color:${condColor(p.cond)}">${p.cond}%</b></div><div><small>사기</small><b>${moraleText(p.morale)}</b></div><div><small>폼</small><b>${p.ratings.length ? p.form.toFixed(1) : '-'}</b></div></div>
       <div class="kv"><div><small>시즌 출전</small><b>${st.apps}</b></div><div><small>골 / 도움</small><b>${st.goals} / ${st.assists}</b></div><div><small>평균 평점</small><b>${avg}</b></div></div>
+      ${careerTable(G, p)}
       <div class="muted" style="font-size:12px">통산 ${p.career.apps}경기 ${p.career.goals}골 ${p.career.assists}도움${p.gen ? ' · 가상 선수(유스/자유계약)' : ''}</div>
       ${p.last ? `<div class="real-st"><span class="eyebrow">실제 ${KM.REAL.statsSeason ? `${KM.REAL.statsSeason}/${String(KM.REAL.statsSeason + 1).slice(2)}` : '지난'} 시즌 기록 (전 대회)</span><div><b>${p.last.apps}</b>경기 <b>${p.last.g}</b>골 <b>${p.last.a}</b>도움 · ${p.last.min.toLocaleString()}분${p.last.y ? ` · 경고 ${p.last.y}` : ''}${p.last.r ? ` · 퇴장 ${p.last.r}` : ''}</div>${p.foot ? `<small>주발: ${{ right: '오른발', left: '왼발', both: '양발' }[p.foot] || p.foot}</small>` : ''}</div>` : ''}
       ${actions}`;
     const same = $('.sheet-bg') && $('.sheet-bg').dataset.pid === String(pid);
     sheet(html, () => { UI.draft = null; }, { update: same });
     $('.sheet-bg').dataset.pid = String(pid);
+  }
+
+  // 게임 안에서 쌓인 시즌별 기록 (이번 시즌 진행 중 기록 포함). 이적한 시즌은 구단별로 나뉜다
+  function careerTable(G, p) {
+    const rows = (p.hist || []).slice();
+    const b = p.sBase || W.blankStats(), st = p.season, ap = st.apps - b.apps;
+    if (ap > 0 && p.teamId != null) rows.push({ y: G.year, t: p.teamId, ap, g: st.goals - b.goals, a: st.assists - b.assists, r: (st.rsum - b.rsum) / ap, cur: true });
+    if (!rows.length) return '';
+    rows.reverse();
+    const tot = rows.reduce((o, x) => ({ ap: o.ap + x.ap, g: o.g + x.g, a: o.a + x.a, rs: o.rs + x.r * x.ap }), { ap: 0, g: 0, a: 0, rs: 0 });
+    return `<section class="card career-tbl"><h2>시즌별 기록 <small>게임 속 기록</small></h2><div class="tbl-wrap"><table class="tbl"><thead><tr><th style="text-align:left">시즌</th><th style="text-align:left">구단</th><th>경기</th><th>골</th><th>도움</th><th>평점</th></tr></thead><tbody>
+      ${rows.map((x) => { const t = G.teams[x.t]; return `<tr class="${x.cur ? 'me' : ''}"><td style="text-align:left">${seasonLabel(x.y)}${x.cur ? ' <i class="live-dot"></i>' : ''}</td><td class="tn"><span class="row" style="gap:6px">${t ? logo(t, 18) : ''}<span>${t ? esc(t.short) : '-'}</span></span></td><td>${x.ap}</td><td>${x.g}</td><td>${x.a}</td><td><b class="rating ${ratingCls(x.r)}">${x.r.toFixed(2)}</b></td></tr>`; }).join('')}
+      <tr class="tot"><td style="text-align:left" colspan="2">합계</td><td>${tot.ap}</td><td>${tot.g}</td><td>${tot.a}</td><td>${tot.ap ? (tot.rs / tot.ap).toFixed(2) : '-'}</td></tr></tbody></table></div></section>`;
   }
 
   // 수상 내역: 같은 상은 묶어서 ×n
@@ -1269,16 +1283,54 @@
     </section>`;
   }
 
+  // ── 이적시장 SNS: 'DONE DEAL' 그래픽 (이적 전문 매체 게시물 스타일) ──
+  function eurM(k) { const m = k / 1000; return '€' + (m >= 10 ? Math.round(m) : m >= 1 ? m.toFixed(1).replace(/\.0$/, '') : Math.round(k) + 'K').toString().replace(/^€?/, '') + (m >= 1 ? 'M' : ''); }
+  function dealGraphic(G, x) {
+    const p = G.players[x.pid]; if (!p) return '';
+    const from = x.from != null ? S.team(G, x.from) : null, to = x.to != null ? S.team(G, x.to) : null;
+    if (!to) return '';
+    const dl = G.window && (x.w === 3 || x.w === G.window.mid1);  // 이적시장 마지막 주 = 데드라인 데이
+    const nm = p.en || p.name;
+    return `<div class="deal" style="--tc:${to.c1 || '#1c3fae'}">
+      <div class="dl-top"><span class="dl-tag">${dl ? 'DEADLINE <b>»</b> DAY' : 'TRANSFER <b>»</b> NEWS'}</span><i></i><span class="dl-brand">KICKOFF<br>MANAGER</span></div>
+      <div class="dl-head"><span class="cr">${logo(to, 46)}</span><h4>DONE DEAL</h4></div>
+      <div class="dl-photo">${bigPhoto(p) || avatar(p, 200)}</div>
+      <div class="dl-panel">
+        <div class="dl-route">${from ? logo(from, 34) : '<b class="fa">FREE</b>'}<span class="chev">»</span>${logo(to, 34)}</div>
+        <div class="dl-name" style="font-size:${Math.min(21, Math.round(330 / Math.max(10, nm.length + 5)))}px">${esc(nm.toUpperCase())} <span>(${x.age || p.age})</span></div>
+        <div class="dl-nums"><div><small>MARKET VALUE</small><b>${eurM(x.val || p.value)}</b></div><div><small>FEE</small><b>${x.fee ? eurM(x.fee) : 'FREE'}</b></div></div>
+      </div></div>`;
+  }
+  function dealPost(G, x) {
+    const p = G.players[x.pid], to = x.to != null ? S.team(G, x.to) : null;
+    if (!p || !to) return '';
+    const n = hashN(p.name + x.y + x.w), likes = Math.round(400 + (x.fee || 0) / 40 + (n % 900) + (to.fans || 60) * 20);
+    const from = x.from != null ? S.team(G, x.from) : null;
+    return `<article class="sns-post deal-post">
+      <header><span class="av tm">TM</span><div class="grow"><b>이적시장 소식 <i class="ok">✓</i></b><small>@transfer_news · ${seasonLabel(x.y || G.year)} ${x.w + 1}주</small></div><span class="more">···</span></header>
+      <p>✅ ${esc(p.name)}, ${from ? esc(from.name) + '에서 ' : ''}${esc(to.name)} 이적 확정! ${x.fee ? `이적료 ${money(x.fee)}` : '자유 이적'} #DoneDeal</p>
+      <div class="tap" data-act="player" data-v="${p.id}">${dealGraphic(G, x)}</div>
+      <footer><span>♥ ${kfmt(likes)}</span><span>💬 ${kfmt(Math.round(likes / 18))}</span><span>↻ ${kfmt(Math.round(likes / 30))}</span></footer>
+    </article>`;
+  }
+  function showDeal(x) {
+    if (!x || x.to == null) return;
+    sheet(`<span class="eyebrow">이적시장 소식</span>${dealPost(UI.G, x)}<button class="btn primary" data-act="closesheet">확인</button>`);
+  }
+  // 이적 소식: 최근 큰 이적은 SNS 게시물로, 나머지는 목록으로
   function newsTxView() {
     const G = UI.G;
-    return `<section class="card tx-list">${G.transfers.slice(0, 40).map((x) => {
+    const list = G.transfers.filter((x) => G.players[x.pid]);
+    const posts = list.filter((x) => x.to != null).slice(0, 10);
+    const rest = list.filter((x) => !posts.includes(x)).slice(0, 30);
+    return (posts.length ? `<div class="deal-feed">${posts.map((x) => dealPost(G, x)).join('')}</div>` : '') + `<section class="card tx-list">${rest.map((x) => {
       const p = G.players[x.pid];
       const from = x.from != null ? S.team(G, x.from) : null, to = x.to != null ? S.team(G, x.to) : null;
-      return `<div class="tx-row ${p ? 'tap' : ''}" ${p ? `data-act="player" data-v="${p.id}"` : ''}>${p ? avatar(p, 44) : ''}
-        <div class="grow" style="min-width:0"><div class="tx-name">${p ? esc(p.name) : '은퇴 선수'}</div>
+      return `<div class="tx-row tap" data-act="player" data-v="${p.id}">${avatar(p, 44)}
+        <div class="grow" style="min-width:0"><div class="tx-name">${esc(p.name)}</div>
           <div class="tx-route">${from ? logo(from, 16) + `<span>${esc(from.short)}</span>` : '<span>자유계약</span>'}<i>→</i>${to ? logo(to, 16) + `<span>${esc(to.short)}</span>` : '<span>방출</span>'}</div></div>
         <div class="tx-right"><div class="tx-price">${x.fee ? money(x.fee) : '자유 이적'}</div><div class="muted" style="font-size:11px">${x.s}시즌 ${x.w + 1}주</div></div></div>`;
-    }).join('') || '<div class="empty">아직 이적이 없어요.</div>'}</section>`;
+    }).join('') || (posts.length ? '' : '<div class="empty">아직 이적이 없어요.</div>')}</section>`;
   }
 
   function offersView() {
@@ -2222,10 +2274,10 @@
       const d = UI.draft;
       const r = S.completeSigning(UI.G, d.pid, d.fee || 0, d.wage, +el.dataset.v);
       toast(r.msg);
-      if (r.ok) { closeSheet(); UI.draft = null; save(true); render(); }
+      if (r.ok) { closeSheet(); UI.draft = null; save(true); render(); showDeal(UI.G.transfers[0]); }
     },
     bidcancel() { UI.draft = { pid: UI.draft.pid }; openPlayer(UI.draft.pid, UI.draft); },
-    accept(el) { const r = S.acceptOffer(UI.G, +el.dataset.v); toast(r.msg); save(true); render(); },
+    accept(el) { const r = S.acceptOffer(UI.G, +el.dataset.v); toast(r.msg); save(true); render(); if (r.ok) showDeal(UI.G.transfers[0]); },
     reject(el) { S.rejectOffer(UI.G, +el.dataset.v); save(true); render(); },
     fround(el) { UI.filter.round = +el.value; rerenderView(); },
 

@@ -363,7 +363,7 @@
       t.form = []; W.validateLineup(G, t);
       t.wage0 = W.wageBill(G, t);
     }
-    for (const id in G.players) { const p = G.players[id]; p.season = W.blankStats(); p.ratings = []; p.yAcc = 0; }
+    for (const id in G.players) { const p = G.players[id]; p.season = W.blankStats(); p.sBase = null; p.ratings = []; p.yAcc = 0; }
     G.board.goal = boardGoal(G);
     G.board.conf = clamp(G.board.conf, 45, 80);
     G.fin.cat = {};
@@ -949,7 +949,19 @@
     }
   }
 
+  // 선수 시즌 기록: 한 구단에서 뛴 구간이 끝날 때(이적·시즌 종료) 그 구간의 기록을 p.hist에 남긴다
+  function closeSpell(G, p) {
+    const b = p.sBase || W.blankStats(), st = p.season;
+    const apps = st.apps - b.apps;
+    if (apps > 0 && p.teamId != null) {
+      (p.hist || (p.hist = [])).push({ y: G.year, t: p.teamId, ap: apps, g: st.goals - b.goals, a: st.assists - b.assists, r: +((st.rsum - b.rsum) / apps).toFixed(2), cs: st.cs - b.cs, yel: st.yel - b.yel, red: st.red - b.red, ovr: p.ovr });
+    }
+    p.sBase = Object.assign({}, st);
+  }
+
   function movePlayer(G, p, from, to, fee) {
+    closeSpell(G, p);
+    const value0 = p.value, age0 = p.age;
     if (from) {
       from.squad = from.squad.filter((id) => id !== p.id);
       from.lineup = from.lineup.map((id) => (id === p.id ? null : id));
@@ -970,7 +982,7 @@
     }
     p.listed = false;
     p.morale = clamp(p.morale + 8, 5, 100);
-    G.transfers.unshift({ s: G.season, w: G.week, pid: p.id, from: from ? from.id : null, to: to ? to.id : null, fee });
+    G.transfers.unshift({ s: G.season, y: G.year, w: G.week, pid: p.id, from: from ? from.id : null, to: to ? to.id : null, fee, val: value0, age: age0 });
     if (G.transfers.length > 80) G.transfers.pop();
     if (from) W.validateLineup(G, from);
     if (to) W.validateLineup(G, to);
@@ -1131,6 +1143,7 @@
 
   // ── 시즌 종료 ───────────────────────────────────────────────
   function endSeason(G) {
+    for (const id in G.players) closeSpell(G, G.players[id]);  // 이번 시즌 기록을 선수 이력에 남긴다
     const rng = rngOf(G);
     const ut = userTeam(G);
     const report = { year: G.year, champions: [], awards: {}, user: {} };
@@ -1235,6 +1248,7 @@
     for (const id in G.players) { const p = G.players[id]; if (p.teamId == null && !keep.has(p.id)) delete G.players[id]; }
     G.offers = []; G.nego = {};
     G.year++; G.season++;
+
     saveRng(G, rng);
     report.newGoal = null;
     if (!G.user.sacked) {

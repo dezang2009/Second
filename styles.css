@@ -1442,3 +1442,44 @@ nav.tabs button.on svg { stroke: #fff; }
 .plb2 .g3.clip.on .film { animation: filmPlay var(--dur) steps(var(--n), jump-none) forwards; }
 @keyframes filmPlay { from { background-position: 0 0%; } to { background-position: 0 100%; } }
 .plb2 .b2bar:has(.g3.clip.on) .mid { opacity: 0; transition: none; }
+/* 선수 카드: 시즌별 기록 */
+.career-tbl .tbl td { font-size: 14px; padding: 6px 3px; }
+.career-tbl .rating { font-size: 13px; padding: 1px 6px; }
+.career-tbl tr.tot td { font-weight: 800; border-top: 2px solid var(--glass-b); }
+.career-tbl .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--pl-magenta); vertical-align: 2px; }
+
+/* ── 이적시장 SNS: DONE DEAL 그래픽 ── */
+.deal-feed { display: flex; flex-direction: column; gap: 14px; }
+.sns-post header .av.tm { background: #1a3a8f; color: #fff; font-family: var(--f-bug); font-weight: 800; font-size: 15px; box-shadow: none; }
+.deal { position: relative; overflow: hidden; aspect-ratio: 4 / 5; color: #fff; display: flex; flex-direction: column; align-items: center;
+  background: radial-gradient(70% 45% at 50% 35%, #2a55e0 0%, rgba(42, 85, 224, 0) 70%), linear-gradient(180deg, #123fbf 0%, #0a2a8c 55%, #061a5c 100%); }
+.deal::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .55;
+  background:
+    linear-gradient(90deg, #22e6a0 0 5px, transparent 5px) left / 100% 100% no-repeat,
+    linear-gradient(270deg, #22e6a0 0 5px, transparent 5px) right / 100% 100% no-repeat,
+    repeating-linear-gradient(60deg, transparent 0 34px, rgba(80, 140, 255, .18) 34px 44px, transparent 44px 80px); }
+.deal::after { content: "»»"; position: absolute; right: -6px; top: 36%; font-family: var(--f-bug); font-weight: 800; font-size: 120px; line-height: 1; color: transparent; -webkit-text-stroke: 3px rgba(60, 240, 160, .55); letter-spacing: -.1em; pointer-events: none; }
+.dl-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; margin-top: 14px; font-family: var(--f-bug); font-weight: 800; letter-spacing: .06em; }
+.dl-tag { font-size: 16px; } .dl-tag b { color: #22e6a0; }
+.dl-top i { width: 1.5px; height: 22px; background: rgba(255, 255, 255, .5); }
+.dl-brand { font-size: 10px; line-height: 1; background: #fff; color: #0a2a8c; padding: 3px 6px; border-radius: 3px; font-style: italic; }
+.dl-head { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.dl-head .cr { width: 46px; height: 46px; display: grid; place-items: center; }
+.dl-head .cr .logo { background: none; padding: 0; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .4)); }
+.dl-head h4 { margin: 0; font-family: "Poppins", var(--f-body); font-weight: 800; font-size: 44px; line-height: 1; letter-spacing: -.01em; }
+.dl-photo { position: relative; z-index: 1; flex: 1; width: 78%; display: flex; align-items: flex-end; justify-content: center; overflow: hidden; margin-top: 4px; }
+.dl-photo img, .dl-photo .spr { width: 100%; height: auto; max-height: 100%; object-fit: contain; object-position: bottom; filter: drop-shadow(0 10px 22px rgba(0, 0, 0, .45)); }
+.dl-photo .ph { width: 160px !important; height: 208px !important; }
+.dl-panel { position: relative; z-index: 2; width: 92%; margin-bottom: 14px; background: linear-gradient(180deg, #0b2a9c, #08207a); border-bottom: 3px solid #22e6a0; padding: 30px 12px 10px; }
+.dl-route { position: absolute; left: 50%; top: -28px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 18px; background: #0a2a8c; border: 1.5px solid #22e6a0; border-bottom: 0; }
+.dl-route .logo { background: none; padding: 0; }
+.dl-route .chev { font-family: var(--f-bug); font-weight: 800; font-size: 34px; line-height: 1; color: #22e6a0; letter-spacing: -.12em; }
+.dl-route .fa { font-family: var(--f-bug); font-size: 18px; }
+.dl-name { text-align: center; font-family: "Poppins", var(--f-body); font-weight: 800; font-size: 21px; line-height: 1.1; }
+.dl-name span { font-weight: 600; }
+.dl-nums { display: grid; grid-template-columns: 1fr 1fr; margin-top: 8px; }
+.dl-nums div { text-align: center; }
+.dl-nums div + div { border-left: 1.5px solid #22e6a0; }
+.dl-nums small { display: block; font-family: var(--f-bug); font-weight: 800; font-size: 11px; letter-spacing: .06em; color: #7fa6ff; }
+.dl-nums b { font-family: "Poppins", var(--f-body); font-weight: 800; font-size: 18px; }
+.dl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
