@@ -1483,3 +1483,8 @@ nav.tabs button.on svg { stroke: #fff; }
 .dl-nums small { display: block; font-family: var(--f-bug); font-weight: 800; font-size: 11px; letter-spacing: .06em; color: #7fa6ff; }
 .dl-nums b { font-family: "Poppins", var(--f-body); font-weight: 800; font-size: 18px; }
 .dl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.real-ss .ss-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.real-ss .ss-grid div { background: color-mix(in srgb, var(--ink) 5%, transparent); border-radius: 10px; padding: 6px 8px; }
+.real-ss .ss-grid small { display: block; font-size: 10.5px; color: var(--muted); font-weight: 700; }
+.real-ss .ss-grid b { font-family: var(--f-bug); font-size: 18px; }
+.real-ss .rating { font-size: 15px; }

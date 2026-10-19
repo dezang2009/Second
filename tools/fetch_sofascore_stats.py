@@ -24,25 +24,27 @@
   13 clearances                클리어링
   14 aerialDuelsWon            공중볼 경합 승리
   15 saves                     선방
-  16 goalsConceded             실점 (출전 중 실점; 값이 없으면 null)
+  16 goalsConceded             뛰는 동안 팀 실점 (골키퍼가 아니어도 나옴; 값이 없으면 null)
 값이 없으면 null.
 
 시즌: 유럽 5대 리그는 2025/26, K리그1은 2025 (마지막으로 끝난 시즌).
 API:  /api/v1/unique-tournament/{UT}/seasons, .../season/{S}/statistics?limit=100&offset=N&fields=...
       (기본값으로 1경기 이상 뛴 선수가 모두 나온다. 원본 응답은 .tm-cache/sofascore 에 캐시)
 
-짝짓기 (한 소파스코어 선수는 한 TM 선수에게만):
-  1) 소파스코어 팀(대개 그 시즌 마지막 소속) → TM 구단 (아래 TEAM 표, 손으로 확인) 안에서 이름 점수
-     (성+이니셜 이상, 한국 이름은 로마자 표기 흔들림을 줄인 열쇠가 같아야 함)
-  2) 같은 리그 전체에서 남은 선수끼리, 강한 이름 일치(≥0.9)이고 양쪽 모두 유일할 때만
-  3) 6개 리그 전체에서 남은 선수끼리, 강한 이름 일치이고 유일할 때만 (리그를 옮긴 선수)
-  같은 소파스코어 선수가 두 리그에 기록이 있으면(겨울 이적) 합산한다.
+짝짓기 (한 소파스코어 선수는 한 TM 선수에게만; 이름은 낱말 단위로, 한국 이름은 로마자 흔들림을 줄인 열쇠로 비교):
+  1) 소파스코어 팀 → TM 구단 (아래 TEAM 표, 손으로 확인) 안에서 강한 이름 일치
+  2) 같은 리그 → 6개 리그 전체의 남은 선수끼리, 강한 일치(≥0.9) + 생년 일치 + 양쪽 모두 유일할 때만
+     (지난 시즌 다른 구단·리그에서 뛴 선수)
+  3) 같은 구단 안 느슨한 일치(같은 성 / 성이 이름에 포함, 예: Ally Samatta ↔ Mbwana Samatta) + 생년 일치
+  4) 같은 리그 → 전체, 성+이름 앞 두 글자(애칭: Andy/Andrew, Kostas/Konstantinos) + 생년 + 양쪽 유일
+  생년은 소파스코어 /api/v1/player/{id} 의 dateOfBirth 와 TM 'age'(transfermarkt.json 'fetched' 기준)로 확인한다.
+  같은 소파스코어 선수가 두 리그에 기록이 있으면(겨울 이적) 합산한다 (평점·패스 성공률은 출전 시간 가중).
 """
 import hashlib, json, os, sys, time
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-from official._common import get_json, name_score, norm
+from official._common import get_json, norm
 from official.RSK1 import _SUR
 import re
 
@@ -140,7 +142,7 @@ def fetch_rows(ut, sid):
 
 # ---------- 이름 비교 ----------
 _TR = str.maketrans({'ø': 'o', 'Ø': 'O', 'æ': 'ae', 'Æ': 'Ae', 'œ': 'oe', 'ß': 'ss', 'đ': 'd', 'Đ': 'D', 'ł': 'l',
-                     'Ł': 'L', 'ı': 'i', 'þ': 'th', 'ð': 'd'})
+                     'Ł': 'L', 'ı': 'i', 'þ': 'th', 'Þ': 'Th', 'ð': 'd', 'Ð': 'D'})
 
 
 def N(s):
@@ -195,12 +197,20 @@ def strong(a, b):
 
 
 def loose(a, b):
-    """느슨한 점수 (0.6~1): 성+이니셜 0.8, 같은 성 0.7, 4글자 이상 낱말 공유 0.6.
+    """느슨한 점수 (낱말 단위): 강한 일치면 그 값, 같은 성(끝 낱말)+이름 앞 두 글자 같음 0.8 (Andy/Andrew,
+    Dani/Daniel), 같은 성 0.7, 한쪽의 성(끝 낱말, 4글자 이상)이 다른 쪽에 있음 0.6.
     한국 이름끼리는 열쇠가 다르면 0 (김·이·박 이 너무 흔하다)"""
     s = strong(a, b)
     if s or (_keys(a) and _keys(b)):
         return s
-    return name_score(' '.join(N(a)), ' '.join(N(b)))
+    A, B = N(a), N(b)
+    if not A or not B:
+        return 0
+    if len(A) >= 2 and len(B) >= 2 and A[-1] == B[-1]:
+        return 0.8 if A[0][:2] == B[0][:2] else 0.7
+    if (len(A[-1]) >= 4 and A[-1] in B) or (len(B[-1]) >= 4 and B[-1] in A):
+        return 0.6
+    return 0
 
 
 def greedy(cands, used_t, used_s, out, ok=lambda tid, sid, sc: True):

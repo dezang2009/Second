@@ -118,6 +118,41 @@
     return { sho: 4.5 * kg * w, pas: 3 * ka * w, dri: 1.5 * ka * w, phy: clamp((c90 - 0.2) * 8, -2, 3) * w };
   }
 
+  // 지난 시즌 세부 기록(SofaScore, WhoScored와 같은 종류의 경기 기록)으로 능력치 보정.
+  // 포지션 평균(90분당) 대비 많이 하는 것은 그 능력치가, 평점이 높으면 전체 수준이 오른다.
+  // ss: [평점, 출전, 분, 골, 도움, xG, 슈팅, 키패스, 빅찬스 창출, 패스 성공률, 드리블 성공, 태클, 가로채기, 걷어내기, 공중볼 승리, 선방, 실점]
+  const SS_BASE = {  // 90분당 포지션 중앙값 [슈팅, xG, 키패스, 패스%, 드리블, 태클, 가로채기, 공중볼]
+    ST: [2.5, 0.39, 1.0, 72, 0.6, 0.7, 0.22, 1.8], LW: [2.1, 0.21, 1.4, 80, 1.25, 1.25, 0.46, 0.5], RW: [2.1, 0.21, 1.4, 80, 1.25, 1.25, 0.46, 0.5],
+    AM: [1.9, 0.19, 1.5, 82.5, 1.0, 1.4, 0.5, 0.6], LM: [1.2, 0.1, 1.3, 81, 0.9, 1.6, 0.9, 0.5], RM: [1.2, 0.1, 1.3, 81, 0.9, 1.6, 0.9, 0.5],
+    CM: [1.1, 0.09, 1.0, 85.4, 0.64, 1.9, 0.83, 0.8], DM: [0.8, 0.06, 0.74, 86.5, 0.41, 1.83, 1.05, 1.05],
+    LB: [0.64, 0.05, 0.9, 83, 0.52, 1.85, 0.97, 0.9], RB: [0.64, 0.05, 0.9, 83, 0.52, 1.85, 0.97, 0.9], CB: [0.48, 0.05, 0.26, 88.3, 0.17, 1.43, 1.13, 2.15],
+  };
+  function sofaBias(p, role, ss) {
+    if (!ss || !ss[2]) return null;
+    const [r, ap, min, g, a, xg, sh, kp, bcc, pa, dr, tk, it, cl, aer, sv, gc] = ss;
+    p.real = { r, ap, min, g, a, xg, sh, kp, bcc, pa, dr, tk, it, aer, sv, gc };
+    if (min < 450) return null;
+    const w = Math.min(1, min / 1800), per = (v) => ((v || 0) * 90) / min;
+    const lg = (v, b) => clamp(Math.log2((v + 0.08 * b + 0.02) / (b * 1.08 + 0.02)), -1.5, 1.5);  // 평균 대비 배율의 로그
+    const rt = clamp(((r || 6.8) - 6.85) / 0.35, -2, 2.5);  // 평점: 6.85 기준
+    if (role === 'GK') {
+      const sv90 = per(sv), gc90 = per(gc);
+      p.sx = { 반사신경: Math.round(clamp((sv90 - 2.8) * 1.2 + rt, -3, 4) * w), 일대일: Math.round(rt * w) };
+      return { gk: (rt * 2.2 + clamp((sv90 - 2.8) * 1.5 - (gc90 - 1.3) * 2, -3, 3)) * w };
+    }
+    const B = SS_BASE[role] || SS_BASE.CM;
+    const ksh = lg(per(sh), B[0]), kxg = lg(per(xg), B[1]), kkp = lg(per(kp) + per(bcc) * 0.6, B[2] * 1.15), kdr = lg(per(dr), B[4]);
+    const kdef = lg(per(tk) + per(it), B[5] + B[6]), kaer = lg(per(aer), B[7]), kpa = clamp(((pa || B[3]) - B[3]) / 4, -2, 2);
+    // 세부 능력치(1~20)에 직접 더할 값
+    p.sx = {
+      마무리: Math.round((kxg * 1.6 + (g > xg + 2 ? 1 : g < xg - 2 ? -1 : 0)) * w), '중거리 슛': Math.round(ksh * 1.3 * w), 시야: Math.round(kkp * 2 * w),
+      패스: Math.round(kpa * 1.2 * w), 드리블: Math.round(kdr * 2 * w), 기술: Math.round(kdr * w), 태클: Math.round(kdef * 1.8 * w),
+      '위치 선정': Math.round(lg(per(it), B[6]) * 1.6 * w), 헤딩: Math.round(kaer * 1.6 * w), 점프: Math.round(kaer * w), '오프 더 볼': Math.round(kxg * w), 침착성: Math.round(rt * 0.8 * w),
+    };
+    const c = (v) => clamp(v, -5, 5) * w;
+    return { sho: c(kxg * 2.4 + ksh * 1.2), pas: c(kkp * 2 + kpa * 1.2), dri: c(kdr * 2.6), def: c(kdef * 2.6), phy: c(kaer * 1.3) };
+  }
+
   // 트랜스퍼마크트 선수 → 게임 선수
   function createRealPlayer(G, raw, seasonYear) {
     const role = D.ROLE_KO[raw.pos] || 'CM';
@@ -127,9 +162,16 @@
     p.h = h; p.nat = raw.nat || ''; p.photo = raw.photo || ''; p.foot = raw.foot || ''; p.en = raw.en || '';
     p.num = raw.num || 0;
     p.value = Math.max(25, Math.round((raw.value || 50000) / 1000));
-    const target = ovrFromValue(p.value, p.age);
+    let target = ovrFromValue(p.value, p.age);
     const bias = statBias(p, role, raw.st);
-    p.attr = makeAttrs(rng, role, target, h, bias);
+    const sb = sofaBias(p, role, raw.ss);
+    let allBias = bias;
+    if (sb) {  // 세부 기록이 있으면 그것을 주로 쓰고, 실제 경기력(평점)이 시장 가치보다 좋았거나 나빴으면 전체 수준도 조금 조정
+      allBias = Object.assign({}, bias || {});
+      for (const k in sb) allBias[k] = (allBias[k] || 0) * 0.4 + sb[k];
+      target += clamp(((p.real.r || 6.85) - 6.85) * 3, -2, 2.5) * Math.min(1, p.real.min / 1800);
+    }
+    p.attr = makeAttrs(rng, role, target, h, allBias);
     p.ovr = ovrOf(p.attr, p.pos);
     p.vOvr = p.ovr;
     const growth = p.age <= 19 ? rng.int(10, 22) : p.age <= 21 ? rng.int(6, 16) : p.age <= 23 ? rng.int(3, 10) : p.age <= 26 ? rng.int(0, 4) : 0;
@@ -338,7 +380,7 @@
   function details(p) {
     const groups = p.pos === 'GK' ? ['gk', 'mental', 'phys'] : ['tech', 'mental', 'phys'];
     let i = 0;
-    return groups.map((g) => ({ key: g, title: DETAIL[g][0], rows: DETAIL[g][1].map(([n, w, ex]) => [n, detailVal(p, w, ex, (i++) + g.length * 31)]) }));
+    return groups.map((g) => ({ key: g, title: DETAIL[g][0], rows: DETAIL[g][1].map(([n, w, ex]) => [n, clamp(detailVal(p, w, ex, (i++) + g.length * 31) + ((p.sx && p.sx[n]) || 0), 1, 20)]) }));
   }
   function detailMap(p) {
     const o = {};

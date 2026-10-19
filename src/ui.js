@@ -819,10 +819,24 @@
       ${careerTable(G, p)}
       <div class="muted" style="font-size:12px">통산 ${p.career.apps}경기 ${p.career.goals}골 ${p.career.assists}도움${p.gen ? ' · 가상 선수(유스/자유계약)' : ''}</div>
       ${p.last ? `<div class="real-st"><span class="eyebrow">실제 ${KM.REAL.statsSeason ? `${KM.REAL.statsSeason}/${String(KM.REAL.statsSeason + 1).slice(2)}` : '지난'} 시즌 기록 (전 대회)</span><div><b>${p.last.apps}</b>경기 <b>${p.last.g}</b>골 <b>${p.last.a}</b>도움 · ${p.last.min.toLocaleString()}분${p.last.y ? ` · 경고 ${p.last.y}` : ''}${p.last.r ? ` · 퇴장 ${p.last.r}` : ''}</div>${p.foot ? `<small>주발: ${{ right: '오른발', left: '왼발', both: '양발' }[p.foot] || p.foot}</small>` : ''}</div>` : ''}
+      ${realStats(p)}
       ${actions}`;
     const same = $('.sheet-bg') && $('.sheet-bg').dataset.pid === String(pid);
     sheet(html, () => { UI.draft = null; }, { update: same });
     $('.sheet-bg').dataset.pid = String(pid);
+  }
+
+  // 실제 지난 시즌 리그 세부 기록 (SofaScore): 평점과 90분당 주요 기록
+  function realStats(p) {
+    const r = p.real; if (!r || !r.min) return '';
+    const p90 = (v) => ((v || 0) * 90 / r.min).toFixed(1);
+    const gk = p.pos === 'GK';
+    const cells = gk
+      ? [['선방', r.sv], ['90분당 선방', p90(r.sv)], ['실점', r.gc], ['패스 성공률', r.pa != null ? r.pa + '%' : '-']]
+      : [['골 / 도움', `${r.g} / ${r.a}`], ['xG', r.xg != null ? r.xg.toFixed(1) : '-'], ['슈팅/90', p90(r.sh)], ['키패스/90', p90(r.kp)], ['드리블/90', p90(r.dr)], ['패스 성공률', r.pa != null ? Math.round(r.pa) + '%' : '-'], ['태클/90', p90(r.tk)], ['가로채기/90', p90(r.it)], ['공중볼/90', p90(r.aer)]];
+    return `<section class="card real-ss"><div class="row"><h2 class="grow" style="margin:0">실제 지난 시즌 리그 기록</h2><b class="rating ${ratingCls(r.r)}">${r.r ? r.r.toFixed(2) : '-'}</b></div>
+      <div class="muted" style="font-size:11.5px">${r.ap}경기 · ${r.min.toLocaleString()}분 · 평점과 세부 기록은 SofaScore 기준이며 능력치에 반영됐어요</div>
+      <div class="ss-grid">${cells.map(([k, v]) => `<div><small>${k}</small><b>${v}</b></div>`).join('')}</div></section>`;
   }
 
   // 게임 안에서 쌓인 시즌별 기록 (이번 시즌 진행 중 기록 포함). 이적한 시즌은 구단별로 나뉜다
