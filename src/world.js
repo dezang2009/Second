@@ -73,7 +73,8 @@
   }
 
   function blankStats() {
-    return { apps: 0, goals: 0, assists: 0, yel: 0, red: 0, rsum: 0, cs: 0 };
+    // 경기 세부 기록: 출전 시간, 슈팅, 유효 슈팅, 키패스, 패스 시도·성공, 드리블, 태클, 가로채기, 선방
+    return { apps: 0, goals: 0, assists: 0, yel: 0, red: 0, rsum: 0, cs: 0, min: 0, sh: 0, sot: 0, kp: 0, pa: 0, pc: 0, dr: 0, tk: 0, it: 0, sv: 0 };
   }
 
   // 능력치 생성: 세부 포지션 성향 + 선수별 고정 난수 → OVR이 목표에 맞도록 보정

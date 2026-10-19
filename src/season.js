@@ -575,11 +575,27 @@
         r.rating = clamp(Math.round(rt * 10) / 10, 4, 10);
         r.endSt = clamp(r.p.cond / 100 - 0.28 * r.mins / 90, 0.3, 1);
         r.cs = conceded === 0 && (r.role === 'GK' || ['CB', 'LB', 'RB'].includes(r.role));
+        r.x = quickStats(rng, r, conceded);
         res.players.push(r);
       }
     }
     if (knockout && hs === as) res.pens = shootout(rng);
     return res;
+  }
+  // 빠른 시뮬레이션 경기의 세부 기록: 역할별 90분당 평균(실제 리그 수준)에 능력치를 곱해 만든다
+  const QS = {  // [슈팅, 키패스, 패스 시도, 드리블, 태클, 가로채기]
+    ST: [2.5, 1.0, 22, 0.6, 0.7, 0.2], LW: [2.1, 1.4, 32, 1.3, 1.2, 0.5], RW: [2.1, 1.4, 32, 1.3, 1.2, 0.5], AM: [1.9, 1.5, 42, 1.0, 1.4, 0.5],
+    LM: [1.2, 1.3, 36, 0.9, 1.6, 0.9], RM: [1.2, 1.3, 36, 0.9, 1.6, 0.9], CM: [1.1, 1.0, 52, 0.6, 1.9, 0.8], DM: [0.8, 0.7, 58, 0.4, 1.8, 1.1],
+    LB: [0.6, 0.9, 45, 0.5, 1.9, 1.0], RB: [0.6, 0.9, 45, 0.5, 1.9, 1.0], CB: [0.5, 0.3, 55, 0.2, 1.4, 1.1], GK: [0, 0, 30, 0, 0, 0],
+  };
+  function quickStats(rng, r, conceded) {
+    const b = QS[r.role] || QS.CM, a = r.p.attr, f = r.mins / 90;
+    const n = (mean) => { const l = Math.max(0, mean * f); return l < 8 ? poisson(rng, l) : Math.max(0, Math.round(rng.gauss(l, Math.sqrt(l)))); };
+    const sh = r.goals + n(b[0] * (a.sho / 75) ** 1.6), pa = n(b[2] * (0.8 + a.pas / 250)) + (r.mins > 10 ? 3 : 0);
+    return {
+      min: r.mins, sh, sot: r.goals + Math.min(sh - r.goals, poisson(rng, (sh - r.goals) * 0.33)), kp: r.ast + n(b[1] * (a.pas / 75) ** 1.6), pa, pc: Math.round(pa * clamp(0.6 + a.pas / 330 + rng.gauss(0, 0.03), 0.5, 0.95)),
+      dr: n(b[3] * (a.dri / 75) ** 2), tk: n(b[4] * (a.def / 75) ** 1.4), it: n(b[5] * (a.def / 75) ** 1.4), sv: r.role === 'GK' ? poisson(rng, 2.6 * f * (a.gk / 75)) : 0,
+    };
   }
   function roleGoalW(r) { return r === 'ST' ? 1.9 : r === 'LW' || r === 'RW' ? 1.55 : r === 'AM' ? 1.35 : r === 'LM' || r === 'RM' ? 0.9 : r === 'CM' ? 0.7 : r === 'DM' ? 0.3 : r === 'CB' ? 0.25 : 0.22; }
   function roleAstW(r) { return r === 'AM' ? 2.2 : r === 'LW' || r === 'RW' || r === 'LM' || r === 'RM' ? 1.9 : r === 'CM' ? 1.3 : r === 'ST' ? 1.2 : r === 'LB' || r === 'RB' ? 0.8 : 0.4; }
@@ -620,6 +636,7 @@
         // 매 경기 엔진으로 뛰는 사용자 팀만 불리해진다. 같은 척도로 맞춘다.
         yel: m.yellow ? 1 : 0, red: !!m.red, inj: m.injured ? m.injWeeks : 0, rating: m.rating, endSt: clamp(m.p.cond / 100 - Math.max(0, m.p.cond / 100 - m.st) * 0.6, 0.3, 1),
         cs: match.score[1 - m.side] === 0 && (m.grp === 'GK' || m.grp === 'DF') && m.mins >= 60,
+        x: { min: m.mins, sh: m.s.shots, sot: m.s.sot, kp: m.s.key, pa: m.s.pass, pc: m.s.passOk, dr: m.s.drb, tk: m.s.tkl, it: m.s.int, sv: m.s.saves },
       });
     }
     return res;
@@ -635,6 +652,7 @@
       played.add(p.id);
       for (const st of [p.season, p.career]) {
         st.apps++; st.goals += r.goals; st.assists += r.ast; st.yel += r.yel; st.red += r.red ? 1 : 0; st.rsum += r.rating;
+        if (r.x) for (const k in r.x) st[k] = (st[k] || 0) + r.x[k];
         if (r.cs) st.cs++;
       }
       p.ratings.push(r.rating); if (p.ratings.length > 6) p.ratings.shift();
@@ -954,7 +972,9 @@
     const b = p.sBase || W.blankStats(), st = p.season;
     const apps = st.apps - b.apps;
     if (apps > 0 && p.teamId != null) {
-      (p.hist || (p.hist = [])).push({ y: G.year, t: p.teamId, ap: apps, g: st.goals - b.goals, a: st.assists - b.assists, r: +((st.rsum - b.rsum) / apps).toFixed(2), cs: st.cs - b.cs, yel: st.yel - b.yel, red: st.red - b.red, ovr: p.ovr });
+      const x = {};
+      for (const k of ['min', 'sh', 'sot', 'kp', 'pa', 'pc', 'dr', 'tk', 'it', 'sv']) x[k] = (st[k] || 0) - (b[k] || 0);
+      (p.hist || (p.hist = [])).push(Object.assign({ y: G.year, t: p.teamId, ap: apps, g: st.goals - b.goals, a: st.assists - b.assists, r: +((st.rsum - b.rsum) / apps).toFixed(2), cs: st.cs - b.cs, yel: st.yel - b.yel, red: st.red - b.red, ovr: p.ovr }, x));
     }
     p.sBase = Object.assign({}, st);
   }
