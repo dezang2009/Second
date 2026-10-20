@@ -4,6 +4,14 @@ on:
   push:
   workflow_dispatch:
 
+# 최신 빌드만 Releases에 남도록 동시에 하나씩만 올린다
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -37,3 +45,16 @@ jobs:
           name: rhythm-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+
+      # 폰 브라우저에서 zip 없이 바로 받을 수 있게 Releases의 "최신 테스트 APK"를 매번 새로 만든다
+      - name: Publish latest APK to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk rhythm-debug.apk
+          gh release delete debug-latest --yes --cleanup-tag || true
+          gh release create debug-latest rhythm-debug.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "최신 테스트 APK" \
+            --notes "브랜치 ${GITHUB_REF_NAME}의 커밋 ${GITHUB_SHA::7}로 만든 디버그 APK입니다. 아래 rhythm-debug.apk를 폰에서 눌러 설치하세요."

@@ -46,7 +46,7 @@
 | APK | Capacitor | 웹 빌드 결과를 그대로 Android 앱으로 감쌈 |
 | 저장 | localStorage | 최고 기록과 설정(싱크 오프셋, 노트 속도) 저장 |
 
-> **APK 자동 빌드 (확정)**: 브랜치에 push할 때마다 GitHub Actions(`.github/workflows/android.yml`)가 디버그 APK를 만듭니다. GitHub 저장소의 **Actions** 탭에서 실행 결과를 열고, **Artifacts**의 `rhythm-debug-apk`를 내려받아 폰에 설치합니다. Actions 탭의 **Run workflow** 버튼으로 직접 실행할 수도 있습니다.
+> **APK 자동 빌드 (확정)**: 브랜치에 push할 때마다 GitHub Actions(`.github/workflows/android.yml`)가 디버그 APK를 만듭니다. 폰에서는 저장소의 **Releases → 최신 테스트 APK**(https://github.com/dezang2009/Second/releases/tag/debug-latest)에서 `rhythm-debug.apk`를 눌러 바로 설치합니다. Actions 실행 결과의 **Artifacts**에도 zip으로 14일간 남습니다.
 
 ## 5. 게임플레이 규칙 (초안)
 
