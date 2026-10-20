@@ -7,9 +7,10 @@ import { createMetronomeBuffer } from "./audio/metronome";
 import { drawDotField, smoothPulse } from "./render/dotField";
 import { computeLayout, LANES, type Layout } from "./render/layout";
 import { Playfield } from "./render/playfield";
-import { alwaysWithMe } from "./songs/always-with-me";
+import { alwaysWithMe, matchesChart } from "./songs/always-with-me";
 import { buildDemoChart } from "./songs/demo";
-import { beatAt, type Chart } from "./songs/types";
+import { Meter } from "./songs/meter";
+import type { Chart } from "./songs/types";
 
 const METRONOME_BARS = 64;
 /** 노트가 화면 위에서 판정선까지 내려오는 시간. 나중에 노트 속도 설정으로 바꾼다. */
@@ -35,14 +36,16 @@ const ui = {
 };
 
 let chart: Chart = alwaysWithMe;
-let playfield = new Playfield(chart);
+let meter = new Meter(chart);
+let playfield = new Playfield(chart, meter);
 let beatDots: HTMLElement[] = [];
 
 function useChart(next: Chart): void {
   chart = next;
-  playfield = new Playfield(chart);
+  meter = new Meter(chart);
+  playfield = new Playfield(chart, meter);
   ui.title.textContent = chart.title.toUpperCase();
-  ui.meta.textContent = `${chart.bpm} BPM · ${chart.beatsPerBar}/4`;
+  ui.meta.textContent = `${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM · ${chart.beatsPerBar}/4`;
   ui.beats.replaceChildren();
   beatDots = Array.from({ length: chart.beatsPerBar }, () => ui.beats.appendChild(document.createElement("span")));
   lastBeat = -1;
@@ -88,14 +91,16 @@ ui.file.addEventListener("change", async () => {
   setStatus("불러오는 중…");
   try {
     const track = await loadAudioFile(c.ctx, file);
-    onLoaded(
-      track.name,
-      track.buffer,
-      alwaysWithMe,
-      alwaysWithMe.notes.length
-        ? ""
-        : "이 곡은 아직 채보가 없어서 노트가 나오지 않아요. 탭 녹음 단계에서 만들어요.",
-    );
+    if (matchesChart(alwaysWithMe, track.buffer.duration)) {
+      onLoaded(track.name, track.buffer, alwaysWithMe, `채보를 연결했어요. 노트 ${alwaysWithMe.notes.length}개`);
+    } else {
+      onLoaded(
+        track.name,
+        track.buffer,
+        { ...alwaysWithMe, notes: [], beats: undefined, bars: undefined, durationMs: track.buffer.duration * 1000 },
+        `채보를 만든 음원과 길이가 달라서 노트를 끄고 재생해요. (채보 ${formatTime(alwaysWithMe.durationMs / 1000, false)} · 고른 파일 ${formatTime(track.buffer.duration, false)})`,
+      );
+    }
   } catch (e) {
     setStatus(e instanceof AudioLoadError ? e.message : "음원을 불러오지 못했어요.", true);
   }
@@ -104,7 +109,8 @@ ui.file.addEventListener("change", async () => {
 ui.metronome.addEventListener("click", () => {
   const c = getClock();
   c.pause();
-  const { bpm, beatsPerBar } = alwaysWithMe;
+  const bpm = Math.round(alwaysWithMe.bpm);
+  const { beatsPerBar } = alwaysWithMe;
   const buffer = createMetronomeBuffer(c.ctx, bpm, beatsPerBar, METRONOME_BARS);
   const demo = buildDemoChart(bpm, beatsPerBar, METRONOME_BARS);
   onLoaded(
@@ -161,7 +167,7 @@ let lastBeat = -1;
 function frame(): void {
   const t = clock?.time() ?? 0;
   const playing = clock?.state === "playing";
-  const pos = beatAt(t, chart.bpm, chart.beatsPerBar, chart.offsetMs);
+  const pos = meter.at(t);
   const started = pos.beat >= 0 && clock !== null && clock.duration > 0;
 
   const pulse = playing && started ? smoothPulse(pos.phase) * (pos.beatInBar === 1 ? 1 : 0.6) : 0;
@@ -179,9 +185,9 @@ function frame(): void {
     if (clockText !== lastClockText) ui.clock.textContent = lastClockText = clockText;
     if (playing) ui.seek.value = String(t);
   }
-  const barText = started ? `마디 ${pos.bar} · ${pos.beatInBar}/${chart.beatsPerBar}` : "마디 -";
+  const barText = started && pos.bar > 0 ? `마디 ${pos.bar} · ${pos.beatInBar}/${chart.beatsPerBar}` : "마디 -";
   if (barText !== lastBarText) ui.bar.textContent = lastBarText = barText;
-  const beat = started ? pos.beatInBar - 1 : -1;
+  const beat = started && pos.bar > 0 ? pos.beatInBar - 1 : -1;
   if (beat !== lastBeat) {
     beatDots.forEach((d, i) => d.classList.toggle("on", i === beat));
     lastBeat = beat;

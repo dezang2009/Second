@@ -12,34 +12,17 @@ export interface ChartNote {
 export interface Chart {
   title: string;
   artist: string;
+  /** 이 채보를 만든 음원의 길이(ms). 사용자가 고른 파일과 짝을 맞출 때 쓴다 */
   durationMs: number;
+  /** 대표 템포. 실제 박은 beats를 따른다 */
   bpm: number;
   beatsPerBar: number;
-  /** 음원에서 첫 박이 나오는 시각(ms) */
+  /** 음원에서 첫 마디가 시작하는 시각(ms) */
   offsetMs: number;
   difficulty: { name: string; level: number };
+  /** 실제 연주의 박 시각(ms). 템포가 흔들리는 곡에서 박자선과 맥박을 맞추는 데 쓴다 */
+  beats?: number[];
+  /** 마디 첫 박 시각(ms). beats에 들어 있는 값만 쓴다 */
+  bars?: number[];
   notes: ChartNote[];
-}
-
-export interface BeatPosition {
-  /** 첫 박부터 센 박 번호(소수 포함). 첫 박 전이면 음수 */
-  beat: number;
-  /** 1부터 시작하는 마디 번호 */
-  bar: number;
-  /** 마디 안에서 1부터 시작하는 박 번호 */
-  beatInBar: number;
-  /** 현재 박 안에서 얼마나 지났는지 0~1 */
-  phase: number;
-}
-
-export function beatAt(timeSec: number, bpm: number, beatsPerBar: number, offsetMs: number): BeatPosition {
-  const beat = (timeSec - offsetMs / 1000) / (60 / bpm);
-  const whole = Math.floor(beat);
-  const inBar = ((whole % beatsPerBar) + beatsPerBar) % beatsPerBar;
-  return {
-    beat,
-    bar: Math.floor(whole / beatsPerBar) + 1,
-    beatInBar: inBar + 1,
-    phase: beat - whole,
-  };
 }

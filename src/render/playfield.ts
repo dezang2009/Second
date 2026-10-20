@@ -1,3 +1,4 @@
+import { Meter } from "../songs/meter";
 import type { Chart, ChartNote } from "../songs/types";
 import { LANES, type Layout, laneCenterX } from "./layout";
 import { theme } from "./theme";
@@ -18,12 +19,13 @@ export interface PlayfieldOptions {
 export class Playfield {
   private readonly notes: ChartNote[];
   private readonly maxLenMs: number;
-  private readonly beatSec: number;
 
-  constructor(private readonly chart: Chart) {
+  constructor(
+    chart: Chart,
+    private readonly meter: Meter,
+  ) {
     this.notes = [...chart.notes].sort((a, b) => a.t - b.t);
     this.maxLenMs = this.notes.reduce((m, n) => Math.max(m, n.len ?? 0), 0);
-    this.beatSec = 60 / chart.bpm;
   }
 
   get noteCount(): number {
@@ -39,14 +41,12 @@ export class Playfield {
     ctx.fillStyle = `rgba(${r},${g},${b},0.06)`;
     for (let i = 0; i <= LANES; i++) ctx.fillRect(Math.round(L.laneLeft + i * L.laneWidth), 0, 1, L.judgeY);
 
-    // 박자선: 마디 첫 박만 조금 진하게
-    const offsetSec = this.chart.offsetMs / 1000;
-    const firstBeat = Math.max(0, Math.ceil((t - offsetSec) / this.beatSec));
-    for (let beat = firstBeat; ; beat++) {
-      const dt = offsetSec + beat * this.beatSec - t;
+    // 박자선: 실제 연주의 박 위치에 긋고, 마디 첫 박만 조금 진하게
+    const { beats, downbeat } = this.meter;
+    for (let i = Math.max(0, Math.ceil(this.meter.at(t).beat)); i < beats.length; i++) {
+      const dt = beats[i] - t;
       if (dt > opt.scrollSec) break;
-      const downbeat = beat % this.chart.beatsPerBar === 0;
-      ctx.fillStyle = `rgba(${r},${g},${b},${downbeat ? 0.12 : 0.05})`;
+      ctx.fillStyle = `rgba(${r},${g},${b},${downbeat[i] ? 0.12 : 0.05})`;
       ctx.fillRect(L.laneLeft, Math.round(yOf(dt)), right - L.laneLeft, 1);
     }
 
