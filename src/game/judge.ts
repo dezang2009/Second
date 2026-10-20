@@ -48,7 +48,13 @@ export interface JudgeStats {
   accuracy: number;
   /** 친 노트의 평균 타이밍(ms). +면 늦게, -면 일찍 친 것. 친 노트가 없으면 null */
   meanOffsetMs: number | null;
+  /** 20ms보다 일찍 / 늦게 친 노트 수 (실력 문제인지 기기 지연인지 가늠할 때 쓴다) */
+  early: number;
+  late: number;
 }
+
+/** 이보다 작게 어긋나면 일찍/늦게로 세지 않는다(초) */
+const ON_TIME_SEC = 0.02;
 
 export function rankOf(score: number): string {
   if (score >= 950_000) return "S";
@@ -70,6 +76,8 @@ export class Judge {
   private total = 0;
   private offsetSum = 0;
   private offsetCount = 0;
+  private early = 0;
+  private late = 0;
   onJudge: ((e: JudgeEvent) => void) | null = null;
 
   constructor(chart: Chart, lanes: number) {
@@ -99,6 +107,8 @@ export class Judge {
     this.total = 0;
     this.offsetSum = 0;
     this.offsetCount = 0;
+    this.early = 0;
+    this.late = 0;
     this.cursor.fill(0);
     for (const n of this.notes) {
       n.pointer = null;
@@ -178,6 +188,8 @@ export class Judge {
       total: this.total,
       accuracy: this.judged ? (100 * this.weightSum) / this.judged : 100,
       meanOffsetMs: this.offsetCount ? (1000 * this.offsetSum) / this.offsetCount : null,
+      early: this.early,
+      late: this.late,
     };
   }
 
@@ -201,6 +213,8 @@ export class Judge {
     if (e.grade !== "miss" && e.part !== "tail") {
       this.offsetSum += e.offset;
       this.offsetCount++;
+      if (e.offset < -ON_TIME_SEC) this.early++;
+      else if (e.offset > ON_TIME_SEC) this.late++;
     }
     if (e.grade === "miss") this.combo = 0;
     else this.maxCombo = Math.max(this.maxCombo, ++this.combo);

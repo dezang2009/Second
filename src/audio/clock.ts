@@ -14,9 +14,13 @@ export class AudioClock {
   private lastReported = 0;
   private _state: ClockState = "idle";
   onEnded: (() => void) | null = null;
+  /** 음악 소리 크기를 정하는 출력 노드 */
+  readonly output: GainNode;
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx;
+    this.output = ctx.createGain();
+    this.output.connect(ctx.destination);
   }
 
   get state(): ClockState {
@@ -44,7 +48,7 @@ export class AudioClock {
 
     const source = this.ctx.createBufferSource();
     source.buffer = this.buffer;
-    source.connect(this.ctx.destination);
+    source.connect(this.output);
     source.onended = () => {
       if (this.source !== source) return; // pause/seek로 멈춘 경우
       this.source = null;

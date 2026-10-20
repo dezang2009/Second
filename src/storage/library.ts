@@ -81,6 +81,20 @@ export async function putSong(song: SongRecord): Promise<void> {
   await run("readwrite", (s) => s.put(song));
 }
 
+/** 모든 곡과 기록을 지운다 (데이터베이스를 통째로 삭제) */
+export async function wipeAll(): Promise<void> {
+  if (dbPromise) {
+    (await dbPromise).close();
+    dbPromise = null;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error("blocked"));
+  });
+}
+
 export async function deleteSong(id: string): Promise<void> {
   await run("readwrite", (s) => s.delete(id));
 }

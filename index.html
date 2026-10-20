@@ -31,6 +31,10 @@
             <span class="menu-card-title">메트로놈 연습</span>
             <span class="menu-card-sub">박자에 손을 풀어요</span>
           </button>
+          <button id="menu-settings" class="menu-card" type="button">
+            <span class="menu-card-title">설정</span>
+            <span class="menu-card-sub">싱크, 노트 속도, 소리를 맞춰요</span>
+          </button>
         </nav>
         <p class="menu-foot">음원과 기록은 이 기기에만 저장돼요</p>
       </section>
@@ -47,6 +51,17 @@
         <input id="file" type="file" accept="audio/*" hidden />
         <input id="import-file" type="file" accept=".json,application/json" hidden />
         <p id="list-status" class="status" role="status"></p>
+      </section>
+
+      <!-- 설정 -->
+      <section id="screen-settings" class="screen list-screen settings-screen" hidden>
+        <header class="list-head">
+          <button id="settings-back" class="back" type="button">‹ 메뉴</button>
+          <h1>설정</h1>
+          <p>이 기기에만 저장돼요</p>
+        </header>
+        <div class="settings-body"></div>
+        <p id="settings-status" class="status" role="status"></p>
       </section>
 
       <!-- 플레이 -->
@@ -95,6 +110,8 @@
             <div><dt>정확도</dt><dd id="r-acc" class="num">0%</dd></div>
           </dl>
           <p id="result-timing" class="timing"></p>
+          <p id="result-fastslow" class="timing fastslow num"></p>
+          <button id="apply-sync" class="btn ghost small apply-sync" type="button" hidden></button>
           <div class="result-actions">
             <button id="again" class="btn" type="button">다시 하기</button>
             <button id="result-back" class="btn ghost" type="button">목록으로</button>

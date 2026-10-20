@@ -1,4 +1,5 @@
-import { audio } from "../audio/audio";
+import { audio, playHitSound } from "../audio/audio";
+import { effectScale, scrollSecFor, settings } from "../settings";
 import { drawDotField, smoothPulse } from "../render/dotField";
 import { drawCombo, Effects } from "../render/effects";
 import { computeLayout, LANES, type Layout, laneCenterX } from "../render/layout";
@@ -31,8 +32,10 @@ const EMPTY = new Set<number>();
 export class Stage {
   layout: Layout = computeLayout(1, 1);
   readonly effects = new Effects();
-  /** 노트가 화면 위에서 판정선까지 내려오는 시간(초). 나중에 노트 속도 설정으로 바꾼다 */
-  scrollSec = 1.6;
+  /** 노트가 화면 위에서 판정선까지 내려오는 시간(초). 설정의 노트 속도에서 정한다 */
+  get scrollSec(): number {
+    return scrollSecFor(settings.noteSpeed);
+  }
   /** 매 프레임 그린 뒤 부른다. 화면의 글자(시계, 점수 등)를 고칠 때 쓴다 */
   onFrame: ((t: number) => void) | null = null;
 
@@ -65,7 +68,7 @@ export class Stage {
   songTimeOf(eventTimeStamp: number): number {
     const { clock } = audio();
     const lag = clock.state === "playing" ? Math.min(0.1, Math.max(0, (performance.now() - eventTimeStamp) / 1000)) : 0;
-    return clock.time() - lag;
+    return clock.time() - lag - settings.audioOffsetMs / 1000;
   }
 
   private resize(): void {
@@ -92,6 +95,7 @@ export class Stage {
       } catch {
         // 이미 떨어진 포인터면 캡처할 수 없다. 입력 처리는 그대로 한다
       }
+      if (this.scene && audio().clock.state === "playing") playHitSound();
       this.scene?.press(e.pointerId, this.laneAtX(e.clientX), this.songTimeOf(e.timeStamp), e.clientX, e.clientY);
     });
     c.addEventListener("pointermove", (e) => {
@@ -107,6 +111,7 @@ export class Stage {
       const lane = KEY_LANES[e.code];
       if (lane === undefined || e.repeat || !this.scene) return;
       const L = this.layout;
+      if (audio().clock.state === "playing") playHitSound();
       this.scene.press(keyId(lane), lane, this.songTimeOf(e.timeStamp), laneCenterX(L, lane), L.judgeY);
     });
     window.addEventListener("keyup", (e) => {
@@ -119,24 +124,28 @@ export class Stage {
     const { clock } = audio();
     const L = this.layout;
     const scene = this.scene;
-    const t = scene ? clock.time() : 0;
+    // 판정 시각: 소리가 실제로 들리는 곡 위치 (판정 싱크만큼 늦춘다)
+    const t = scene ? clock.time() - settings.audioOffsetMs / 1000 : 0;
+    // 그리는 시각: 화면이 늦게 보이는 만큼 앞당겨 그린다 (화면 싱크)
+    const drawT = t + settings.visualOffsetMs / 1000;
     const now = nowSec();
+    const fx = effectScale(settings.effects);
     scene?.update(t);
 
     let pulse = 0;
     if (scene && clock.state === "playing" && scene.meter.hasBeats) {
-      const pos = scene.meter.at(t);
-      if (pos.beat >= 0) pulse = smoothPulse(pos.phase) * (pos.beatInBar === 1 ? 1 : 0.6);
+      const pos = scene.meter.at(drawT);
+      if (pos.beat >= 0) pulse = smoothPulse(pos.phase) * (pos.beatInBar === 1 ? 1 : 0.6) * fx;
     }
-    drawDotField(this.ctx, L.width, L.height, { x: L.laneLeft, width: L.laneWidth * LANES, bottom: L.judgeY }, pulse, this.effects.waves(now));
+    drawDotField(this.ctx, L.width, L.height, { x: L.laneLeft, width: L.laneWidth * LANES, bottom: L.judgeY }, pulse, this.effects.waves(now, fx));
 
     if (scene) {
       if (scene.notesVersion() !== this.playfieldVersion) {
         this.playfield = new Playfield(scene.notes(), scene.meter);
         this.playfieldVersion = scene.notesVersion();
       }
-      this.playfield?.draw(this.ctx, L, t, { scrollSec: this.scrollSec, heldLanes: scene.heldLanes() ?? EMPTY });
-      this.effects.draw(this.ctx, now, L.width / 2, L.judgeY - 28);
+      this.playfield?.draw(this.ctx, L, drawT, { scrollSec: this.scrollSec, heldLanes: scene.heldLanes() ?? EMPTY, noteScale: settings.noteSize });
+      this.effects.draw(this.ctx, now, L.width / 2, L.judgeY - 28, fx);
       drawCombo(this.ctx, scene.combo(), L.width / 2, L.judgeY + (L.height - L.judgeY) * 0.55);
     }
     this.onFrame?.(t);

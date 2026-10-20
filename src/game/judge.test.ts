@@ -157,6 +157,7 @@ describe("score and combo", () => {
     judge.update(3.5); // miss는 평균 타이밍에 넣지 않는다
     const s = judge.stats();
     expect(s.meanOffsetMs).toBeCloseTo(30);
+    expect(s).toMatchObject({ early: 0, late: 2 });
     expect(s.accuracy).toBeCloseTo(66.67, 1);
   });
 

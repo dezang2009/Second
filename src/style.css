@@ -812,3 +812,212 @@ body.running .edit-panel * {
   background: linear-gradient(90deg, var(--accent), var(--rose));
   transition: width 200ms ease-out;
 }
+
+/* ---------- 설정 ---------- */
+
+.menu-list .menu-card:last-child:not(.primary) {
+  padding-block: 14px;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.set-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.set-group h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.set-row,
+.calib {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.set-group h2 + .set-row {
+  border-top: none;
+}
+
+.set-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.set-label {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.set-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.set-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.set-control input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.set-control .step {
+  flex: 0 0 38px;
+  padding: 0;
+  font-size: 18px;
+}
+
+.set-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.set-help[hidden] {
+  display: none;
+}
+
+.seg {
+  display: flex;
+  gap: 6px;
+}
+
+.seg-btn {
+  flex: 1;
+  min-height: 38px;
+  border: 1.5px solid transparent;
+  border-radius: 11px;
+  background: rgba(47, 53, 82, 0.05);
+  color: var(--muted);
+  font: 700 13px var(--font);
+  cursor: pointer;
+}
+
+.seg-btn.on {
+  border-color: var(--accent);
+  background: rgba(110, 127, 220, 0.14);
+  color: var(--accent);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(47, 53, 82, 0.18);
+  transition: background-color 150ms ease-out;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 150ms ease-out;
+}
+
+.toggle input:checked + .switch {
+  background: var(--accent);
+}
+
+.toggle input:checked + .switch::after {
+  transform: translateX(18px);
+}
+
+.toggle input:focus-visible + .switch {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.calib-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--rose);
+}
+
+.calib-pad {
+  min-height: 56px;
+}
+
+.calib-pad.tapping {
+  min-height: 120px;
+  font-size: 17px;
+  background: linear-gradient(135deg, var(--rose), var(--accent-2));
+}
+
+.calib-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.calib-result[hidden],
+.apply-sync[hidden] {
+  display: none;
+}
+
+.data-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.data-row .btn {
+  flex: 1;
+}
+
+.fastslow {
+  margin-top: -14px;
+  font-weight: 600;
+}
+
+.apply-sync {
+  align-self: center;
+}

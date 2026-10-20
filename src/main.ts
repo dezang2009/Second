@@ -15,8 +15,10 @@ import { buildDemoChart } from "./songs/demo";
 import { emptyChart } from "./songs/empty";
 import type { Chart } from "./songs/types";
 import { ChartFormatError, chartFileName, parseChart } from "./songs/validate";
-import { type Difficulty, deleteSong, getSong, listSongs, newId, putSong, type SongRecord, updateSong } from "./storage/library";
+import { onSettingsChange, settings, updateSettings } from "./settings";
+import { type Difficulty, deleteSong, getSong, listSongs, newId, putSong, type SongRecord, updateSong, wipeAll } from "./storage/library";
 import { exportTextFile } from "./storage/share";
+import { setupSettingsScreen } from "./ui/settingsScreen";
 
 const METRONOME_BARS = 64;
 const METRONOME_BPM = 120;
@@ -25,9 +27,10 @@ const DIFF_LABEL: Record<Difficulty, string> = { normal: "NORMAL", hard: "HARD",
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const stage = new Stage($<HTMLCanvasElement>("game"));
 
-type ScreenName = "menu" | "list" | "play" | "result" | "edit";
+type ScreenName = "menu" | "list" | "play" | "result" | "edit" | "settings";
 function show(name: ScreenName): void {
-  for (const s of ["menu", "list", "play", "result", "edit"] as const) $(`screen-${s}`).hidden = s !== name;
+  if (document.body.dataset.screen === "settings" && name !== "settings") settingsUi?.stop();
+  for (const s of ["menu", "list", "play", "result", "edit", "settings"] as const) $(`screen-${s}`).hidden = s !== name;
   document.body.dataset.screen = name;
   document.body.classList.remove("running");
 }
@@ -146,6 +149,11 @@ function openList(mode: "play" | "edit"): void {
 }
 
 $("menu-play").addEventListener("click", () => openList("play"));
+$("menu-settings").addEventListener("click", () => {
+  settingsUi.refresh();
+  show("settings");
+});
+$("settings-back").addEventListener("click", () => show("menu"));
 $("menu-edit").addEventListener("click", () => openList("edit"));
 $("list-back").addEventListener("click", () => show("menu"));
 
@@ -538,6 +546,16 @@ async function showResult(stats: JudgeStats): Promise<void> {
   $("r-combo").textContent = String(stats.maxCombo);
   $("r-acc").textContent = `${stats.accuracy.toFixed(1)}%`;
   $("result-timing").textContent = timingText(stats.meanOffsetMs);
+  $("result-fastslow").textContent = stats.early + stats.late ? `일찍 ${stats.early} · 늦게 ${stats.late}` : "";
+  // 한쪽으로 꾸준히 치우쳤다면 실력보다 기기 지연일 가능성이 크다 → 판정 싱크를 바로 고칠 수 있게
+  const hits = stats.perfect + stats.great + stats.good;
+  const syncBtn = $<HTMLButtonElement>("apply-sync");
+  syncBtn.hidden = !(stats.meanOffsetMs !== null && Math.abs(stats.meanOffsetMs) >= 15 && hits >= 20);
+  if (!syncBtn.hidden) {
+    const next = settings.audioOffsetMs + Math.round(stats.meanOffsetMs!);
+    syncBtn.dataset.value = String(next);
+    syncBtn.textContent = `판정 싱크를 ${next > 0 ? "+" : ""}${next}ms로 맞추기`;
+  }
   $("result-back").textContent = returnTo === "edit" ? "편집으로" : "목록으로";
 
   // 최고 기록은 목록의 곡을 플레이했을 때만, 난이도마다 따로 남긴다 (시험 플레이, 메트로놈 제외)
@@ -571,6 +589,13 @@ $("again").addEventListener("click", () => {
   void restartPlay();
 });
 $("result-back").addEventListener("click", leavePlay);
+$("apply-sync").addEventListener("click", () => {
+  const btn = $<HTMLButtonElement>("apply-sync");
+  const value = Number(btn.dataset.value);
+  updateSettings({ audioOffsetMs: value });
+  btn.hidden = true;
+  $("result-fastslow").textContent += ` · 판정 싱크를 ${value > 0 ? "+" : ""}${value}ms로 바꿨어요`;
+});
 
 // ---------- 채보 만들기 ----------
 
@@ -700,6 +725,19 @@ $("edit-test").addEventListener("click", () => {
   void startPlay(editScene.toChart());
 });
 confirmTwice($<HTMLButtonElement>("edit-exit"), "저장 안 하고 나가기", leaveEditor, () => dirty);
+
+// ---------- 설정 ----------
+
+const settingsUi = setupSettingsScreen($("screen-settings"), {
+  confirmTwice,
+  wipeAll: async () => {
+    queue.length = 0;
+    analysis.clear();
+    decoded = null;
+    await wipeAll();
+  },
+});
+onSettingsChange(() => settingsUi.refresh());
 
 // ---------- 매 프레임 글자 갱신 ----------
 

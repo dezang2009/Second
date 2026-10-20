@@ -1,3 +1,4 @@
+import { settings } from "../settings";
 import { Meter } from "../songs/meter";
 import type { Chart, ChartNote } from "../songs/types";
 import { ChartDraft } from "./draft";
@@ -191,7 +192,8 @@ export class EditScene implements Scene {
   /** 멈춘 화면에서 y 위치가 가리키는 곡 시각(초). 판정선이 지금 시각 t */
   private secAtY(t: number, y: number): number {
     const L = this.stage.layout;
-    return t + ((L.judgeY - y) * this.stage.scrollSec) / L.judgeY;
+    // 화면은 화면 싱크만큼 앞당겨 그리므로, 보이는 위치의 시각도 그만큼 더한다
+    return t + settings.visualOffsetMs / 1000 + ((L.judgeY - y) * this.stage.scrollSec) / L.judgeY;
   }
 
   private pickToleranceMs(): number {

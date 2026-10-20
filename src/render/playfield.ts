@@ -17,6 +17,8 @@ export interface PlayfieldOptions {
   scrollSec: number;
   /** 손가락이 닿아 있는 레인 */
   heldLanes: ReadonlySet<number>;
+  /** 노트 크기 배율 (설정) */
+  noteScale?: number;
 }
 
 export class Playfield {
@@ -33,7 +35,7 @@ export class Playfield {
     const yOf = (dt: number) => L.judgeY - (dt / opt.scrollSec) * L.judgeY;
     const right = L.laneLeft + L.laneWidth * LANES;
     const [r, g, b] = theme.dot;
-    const noteH = noteHeight(L);
+    const noteH = noteHeight(L) * (opt.noteScale ?? 1);
 
     // 레인 바탕과 경계
     ctx.fillStyle = theme.track;

@@ -35,13 +35,16 @@ export class Effects {
   }
 
   /** 점 격자에 넘길 물결 목록. 오래된 효과는 여기서 정리한다 */
-  waves(now: number): Wave[] {
+  /** @param scale 이펙트 세기 (설정: 끄기 0, 약하게 0.5, 보통 1) */
+  waves(now: number, scale = 1): Wave[] {
     this.hits = this.hits.filter((h) => now - h.at < WAVE_SEC);
-    return this.hits.map((h) => ({ x: h.x, y: h.y, age: now - h.at, life: WAVE_SEC, strength: h.grade === "good" ? 0.5 : 1 }));
+    if (scale <= 0) return [];
+    return this.hits.map((h) => ({ x: h.x, y: h.y, age: now - h.at, life: WAVE_SEC, strength: (h.grade === "good" ? 0.5 : 1) * scale }));
   }
 
-  draw(ctx: CanvasRenderingContext2D, now: number, labelX: number, labelY: number): void {
+  draw(ctx: CanvasRenderingContext2D, now: number, labelX: number, labelY: number, scale = 1): void {
     for (const h of this.hits) {
+      if (scale <= 0) break;
       const k = (now - h.at) / RING_SEC;
       if (k >= 1) continue;
       const ease = 1 - Math.pow(1 - k, 3);
@@ -49,13 +52,13 @@ export class Effects {
       // 부드럽게 퍼졌다 사라지는 빛 + 얇고 또렷한 고리
       const glowR = 14 + ease * 18;
       const glow = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, glowR);
-      glow.addColorStop(0, rgba(color, 0.35 * (1 - k)));
+      glow.addColorStop(0, rgba(color, 0.35 * (1 - k) * scale));
       glow.addColorStop(1, rgba(color, 0));
       ctx.fillStyle = glow;
       ctx.beginPath();
       ctx.arc(h.x, h.y, glowR, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = rgba(color, (h.grade === "perfect" ? 0.85 : 0.6) * (1 - k));
+      ctx.strokeStyle = rgba(color, (h.grade === "perfect" ? 0.85 : 0.6) * (1 - k) * scale);
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(h.x, h.y, 8 + ease * 26, 0, Math.PI * 2);
