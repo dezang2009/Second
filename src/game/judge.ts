@@ -44,6 +44,10 @@ export interface JudgeStats {
   /** 판정이 끝난 개수 / 전체 판정 개수 */
   judged: number;
   total: number;
+  /** 지금까지 판정한 것 기준 정확도(0~100) */
+  accuracy: number;
+  /** 친 노트의 평균 타이밍(ms). +면 늦게, -면 일찍 친 것. 친 노트가 없으면 null */
+  meanOffsetMs: number | null;
 }
 
 export function rankOf(score: number): string {
@@ -64,6 +68,8 @@ export class Judge {
   private maxCombo = 0;
   private judged = 0;
   private total = 0;
+  private offsetSum = 0;
+  private offsetCount = 0;
   onJudge: ((e: JudgeEvent) => void) | null = null;
 
   constructor(chart: Chart, lanes: number) {
@@ -91,6 +97,8 @@ export class Judge {
     this.maxCombo = 0;
     this.judged = 0;
     this.total = 0;
+    this.offsetSum = 0;
+    this.offsetCount = 0;
     this.cursor.fill(0);
     for (const n of this.notes) {
       n.pointer = null;
@@ -168,6 +176,8 @@ export class Judge {
       score: this.total ? Math.round((MAX_SCORE * this.weightSum) / this.total) : 0,
       judged: this.judged,
       total: this.total,
+      accuracy: this.judged ? (100 * this.weightSum) / this.judged : 100,
+      meanOffsetMs: this.offsetCount ? (1000 * this.offsetSum) / this.offsetCount : null,
     };
   }
 
@@ -188,6 +198,10 @@ export class Judge {
     this.counts[e.grade]++;
     this.weightSum += WEIGHT[e.grade];
     this.judged++;
+    if (e.grade !== "miss" && e.part !== "tail") {
+      this.offsetSum += e.offset;
+      this.offsetCount++;
+    }
     if (e.grade === "miss") this.combo = 0;
     else this.maxCombo = Math.max(this.maxCombo, ++this.combo);
     this.onJudge?.(e);

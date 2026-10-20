@@ -146,6 +146,20 @@ describe("score and combo", () => {
     expect(s).toMatchObject({ combo: 1, maxCombo: 2, miss: 1 });
   });
 
+  it("reports accuracy and the average timing of hit notes", () => {
+    const { judge } = judgeOf([
+      { t: 1000, lane: 0 },
+      { t: 2000, lane: 0 },
+      { t: 3000, lane: 0 },
+    ]);
+    judge.press(0, 1.02, 1);
+    judge.press(0, 2.04, 1);
+    judge.update(3.5); // miss는 평균 타이밍에 넣지 않는다
+    const s = judge.stats();
+    expect(s.meanOffsetMs).toBeCloseTo(30);
+    expect(s.accuracy).toBeCloseTo(66.67, 1);
+  });
+
   it("skips notes before the seek point and scores only the rest", () => {
     const { judge } = judgeOf([
       { t: 1000, lane: 0 },

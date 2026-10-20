@@ -1,307 +1,515 @@
-// 플레이 화면: 음원(또는 메트로놈)을 재생하면서 점 패턴 위에 노트를 떨어뜨리고,
-// 레인 터치(또는 D F J K 키)를 판정해 콤보와 점수를 센다.
+// 화면 흐름: 곡 목록 → 플레이 → 결과, 곡 목록 → 채보 만들기 (→ 시험 플레이 → 결과 → 채보 만들기).
+// 음원과 직접 만든 채보, 최고 기록은 이 기기에만 보관한다.
 
-import { AudioClock } from "./audio/clock";
-import { AudioLoadError, loadAudioFile } from "./audio/loader";
+import { audio, unlockAudio } from "./audio/audio";
+import { AudioLoadError, decodeAudio, stripExtension } from "./audio/loader";
 import { createMetronomeBuffer } from "./audio/metronome";
-import { Judge, rankOf, type JudgeStats } from "./game/judge";
-import { drawDotField, smoothPulse } from "./render/dotField";
-import { drawCombo, Effects } from "./render/effects";
-import { computeLayout, LANES, type Layout, laneCenterX } from "./render/layout";
-import { Playfield } from "./render/playfield";
-import { alwaysWithMe, matchesChart } from "./songs/always-with-me";
+import { EditScene } from "./game/editScene";
+import { rankOf, type JudgeStats } from "./game/judge";
+import { PlayScene } from "./game/playScene";
+import { Stage } from "./game/stage";
+import { BUILTIN_CHARTS, builtinById, emptyChart, findBuiltinFor } from "./songs/catalog";
 import { buildDemoChart } from "./songs/demo";
-import { Meter } from "./songs/meter";
 import type { Chart } from "./songs/types";
+import { deleteSong, getSong, listSongs, newId, putSong, type SongRecord, updateSong } from "./storage/library";
 
 const METRONOME_BARS = 64;
-/** 노트가 화면 위에서 판정선까지 내려오는 시간. 나중에 노트 속도 설정으로 바꾼다. */
-const SCROLL_SEC = 1.6;
-const KEY_LANES: Record<string, number> = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3 };
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const canvas = $<HTMLCanvasElement>("game");
-const ctx2d = canvas.getContext("2d")!;
-const ui = {
-  title: $("song-title"),
-  meta: $("song-meta"),
-  clock: $("clock"),
-  bar: $("bar"),
-  beats: $("beats"),
-  pause: $<HTMLButtonElement>("pause"),
-  score: $("score"),
-  file: $<HTMLInputElement>("file"),
-  metronome: $<HTMLButtonElement>("metronome"),
-  track: $("track"),
-  play: $<HTMLButtonElement>("play"),
-  seek: $<HTMLInputElement>("seek"),
-  duration: $("duration"),
-  status: $("status"),
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const stage = new Stage($<HTMLCanvasElement>("game"));
+
+type ScreenName = "list" | "play" | "result" | "edit";
+function show(name: ScreenName): void {
+  for (const s of ["list", "play", "result", "edit"] as const) $(`screen-${s}`).hidden = s !== name;
+  document.body.dataset.screen = name;
+  document.body.classList.remove("running");
+}
+
+/** 지금 다루는 곡. 메트로놈 연습은 song이 null */
+interface Current {
+  song: SongRecord | null;
+  title: string;
+  buffer: AudioBuffer;
+}
+let current: Current | null = null;
+let playScene: PlayScene | null = null;
+let editScene: EditScene | null = null;
+/** 결과 화면에서 돌아갈 곳. 에디터에서 시험 플레이했으면 에디터로 */
+let returnTo: "list" | "edit" = "list";
+
+function chartOf(song: SongRecord): Chart {
+  return song.userChart ?? builtinById(song.builtinId)?.chart ?? emptyChart(song.title, song.durationMs);
+}
+
+function chartLabel(song: SongRecord): string {
+  if (song.userChart) return `직접 만든 채보 · 노트 ${song.userChart.notes.length}개`;
+  const b = builtinById(song.builtinId);
+  return b ? `기본 채보 · 노트 ${b.chart.notes.length}개` : "채보 없음";
+}
+
+// 같은 곡을 다시 열 때 디코딩을 반복하지 않는다
+let decoded: { id: string; buffer: AudioBuffer } | null = null;
+async function bufferOf(song: SongRecord): Promise<AudioBuffer> {
+  if (decoded?.id !== song.id) decoded = { id: song.id, buffer: await decodeAudio(audio().ctx, song.audio) };
+  return decoded.buffer;
+}
+
+audio().clock.onEnded = () => {
+  if (playScene) playScene.finish();
+  else if (editScene) stopEditor();
 };
 
-let layout: Layout = computeLayout(1, 1);
-const effects = new Effects();
-let chart: Chart = alwaysWithMe;
-let meter = new Meter(chart);
-let judge = new Judge(chart, LANES);
-let playfield = new Playfield(judge.notes, meter);
-let beatDots: HTMLElement[] = [];
-/** 지금 눌려 있는 손가락(또는 키) → 레인 */
-const held = new Map<number, number>();
+// ---------- 곡 목록 ----------
 
-function useChart(next: Chart): void {
-  chart = next;
-  meter = new Meter(chart);
-  judge = new Judge(chart, LANES);
-  judge.onJudge = (e) => effects.add(laneCenterX(layout, e.lane), layout.judgeY, e.grade, nowSec());
-  playfield = new Playfield(judge.notes, meter);
-  effects.clear();
-  held.clear();
-  ui.title.textContent = chart.title.toUpperCase();
-  ui.meta.textContent = `${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM · ${chart.beatsPerBar}/4`;
-  ui.beats.replaceChildren();
-  beatDots = Array.from({ length: chart.beatsPerBar }, () => ui.beats.appendChild(document.createElement("span")));
-  lastBeat = -1;
+const list = {
+  ul: $("song-list"),
+  status: $("list-status"),
+  file: $<HTMLInputElement>("file"),
+};
+
+function setStatus(el: HTMLElement, text: string, isError = false): void {
+  el.textContent = text;
+  el.classList.toggle("error", isError);
 }
 
-// AudioContext는 첫 터치 때 만든다 (모바일은 사용자 동작 없이 소리를 막음)
-let clock: AudioClock | null = null;
-function getClock(): AudioClock {
-  if (!clock) {
-    clock = new AudioClock(new AudioContext({ latencyHint: "interactive" }));
-    clock.onEnded = () => {
-      updatePlayState();
-      if (judge.notes.length) setStatus(resultText(judge.stats()));
-    };
+async function renderList(): Promise<void> {
+  const songs = await listSongs();
+  list.ul.replaceChildren();
+  if (songs.length === 0) {
+    const li = document.createElement("li");
+    li.className = "song-empty";
+    li.textContent = "아직 곡이 없어요. 아래 + 음원 추가로 폰에 있는 음원을 골라주세요.";
+    list.ul.append(li);
+    return;
   }
-  return clock;
+  for (const song of songs) list.ul.append(songRow(song));
 }
 
-function setStatus(text: string, isError = false): void {
-  ui.status.textContent = text;
-  ui.status.classList.toggle("error", isError);
-}
-
-function onLoaded(name: string, buffer: AudioBuffer, nextChart: Chart, note: string): void {
-  const c = getClock();
-  c.load(buffer);
-  useChart(nextChart);
-  ui.track.textContent = name;
-  ui.track.classList.add("loaded");
-  ui.seek.max = String(buffer.duration);
-  ui.seek.value = "0";
-  ui.seek.disabled = false;
-  ui.play.disabled = false;
-  ui.duration.textContent = formatTime(buffer.duration, false);
-  updatePlayState();
-  setStatus(note);
-}
-
-ui.file.addEventListener("change", async () => {
-  const file = ui.file.files?.[0];
-  ui.file.value = ""; // 같은 파일을 다시 골라도 change가 오도록
-  if (!file) return;
-  const c = getClock();
-  c.pause();
-  updatePlayState();
-  setStatus("불러오는 중…");
-  try {
-    const track = await loadAudioFile(c.ctx, file);
-    if (matchesChart(alwaysWithMe, track.buffer.duration)) {
-      onLoaded(track.name, track.buffer, alwaysWithMe, `채보를 연결했어요. 노트 ${alwaysWithMe.notes.length}개`);
-    } else {
-      onLoaded(
-        track.name,
-        track.buffer,
-        { ...alwaysWithMe, notes: [], beats: undefined, bars: undefined, durationMs: track.buffer.duration * 1000 },
-        `채보를 만든 음원과 길이가 달라서 노트를 끄고 재생해요. (채보 ${formatTime(alwaysWithMe.durationMs / 1000, false)} · 고른 파일 ${formatTime(track.buffer.duration, false)})`,
-      );
-    }
-  } catch (e) {
-    setStatus(e instanceof AudioLoadError ? e.message : "음원을 불러오지 못했어요.", true);
-  }
-});
-
-ui.metronome.addEventListener("click", () => {
-  const c = getClock();
-  c.pause();
-  const bpm = Math.round(alwaysWithMe.bpm);
-  const { beatsPerBar } = alwaysWithMe;
-  const buffer = createMetronomeBuffer(c.ctx, bpm, beatsPerBar, METRONOME_BARS);
-  const demo = buildDemoChart(bpm, beatsPerBar, METRONOME_BARS);
-  onLoaded(
-    `메트로놈 연습 · ${bpm} BPM · ${beatsPerBar}/4 · 노트 ${demo.notes.length}개`,
-    buffer,
-    demo,
-    "두 마디 뒤부터 노트가 내려와요. 딸깍 소리와 고리가 퍼지는 순간이 같으면 싱크가 맞는 거예요.",
-  );
-});
-
-async function togglePlay(): Promise<void> {
-  const c = getClock();
-  if (c.state === "playing") {
-    c.pause();
-    releaseAll();
+function songRow(song: SongRecord): HTMLLIElement {
+  const li = document.createElement("li");
+  li.className = "song";
+  const chart = chartOf(song);
+  const hasNotes = chart.notes.length > 0;
+  li.innerHTML = `
+    <div class="song-main">
+      <span class="song-title"></span>
+      <span class="song-meta"></span>
+      <span class="song-best"></span>
+    </div>
+    <div class="song-actions">
+      <button class="btn small" data-act="play" type="button">플레이</button>
+      <button class="btn ghost small" data-act="edit" type="button"></button>
+      <button class="btn ghost small" data-act="delete" type="button">삭제</button>
+    </div>`;
+  const q = (sel: string) => li.querySelector(sel) as HTMLElement;
+  q(".song-title").textContent = song.title;
+  q(".song-meta").textContent = `${formatTime(song.durationMs / 1000)} · ${chartLabel(song)}`;
+  const best = q(".song-best");
+  if (song.best) {
+    best.textContent = `최고 ${song.best.score.toLocaleString("ko-KR")}점 · ${song.best.rank} · 최대 콤보 ${song.best.maxCombo}`;
+    best.classList.add("has");
   } else {
-    if (c.state === "ended") restartJudge(0);
-    await c.play();
+    best.textContent = hasNotes ? "아직 기록 없음" : "채보 만들기로 노트를 찍어주세요";
   }
-  updatePlayState();
+  const playBtn = q('[data-act="play"]') as HTMLButtonElement;
+  playBtn.disabled = !hasNotes;
+  playBtn.addEventListener("click", () => {
+    unlockAudio();
+    void startSong(song.id);
+  });
+  const editBtn = q('[data-act="edit"]') as HTMLButtonElement;
+  editBtn.textContent = hasNotes ? "채보 수정" : "채보 만들기";
+  editBtn.addEventListener("click", () => {
+    unlockAudio();
+    void openEditor(song.id);
+  });
+  const del = q('[data-act="delete"]') as HTMLButtonElement;
+  confirmTwice(del, "한 번 더 누르면 삭제", async () => {
+    await deleteSong(song.id);
+    if (decoded?.id === song.id) decoded = null;
+    setStatus(list.status, `${song.title}을(를) 목록에서 지웠어요.`);
+    await renderList();
+  });
+  return li;
 }
 
-function restartJudge(fromSec: number): void {
-  judge.reset(fromSec);
-  effects.clear();
-  releaseAll();
+/** 실수로 지우지 않도록 두 번 눌러야 실행되는 버튼. needsConfirm이 false면 바로 실행한다 */
+function confirmTwice(
+  btn: HTMLButtonElement,
+  askLabel: string,
+  action: () => void | Promise<void>,
+  needsConfirm: () => boolean = () => true,
+): void {
+  const label = btn.textContent ?? "";
+  let armed: number | null = null;
+  const disarm = () => {
+    if (armed !== null) window.clearTimeout(armed);
+    armed = null;
+    btn.textContent = label;
+    btn.classList.remove("warn");
+  };
+  btn.addEventListener("click", () => {
+    if (armed === null && needsConfirm()) {
+      btn.textContent = askLabel;
+      btn.classList.add("warn");
+      armed = window.setTimeout(disarm, 3000);
+      return;
+    }
+    disarm();
+    void action();
+  });
 }
-ui.play.addEventListener("click", togglePlay);
-ui.pause.addEventListener("click", togglePlay);
 
-let seeking = false;
-ui.seek.addEventListener("input", () => {
-  seeking = true;
-  ui.clock.textContent = formatTime(Number(ui.seek.value), true);
+list.file.addEventListener("change", async () => {
+  const file = list.file.files?.[0];
+  list.file.value = ""; // 같은 파일을 다시 골라도 change가 오도록
+  if (!file) return;
+  unlockAudio();
+  setStatus(list.status, "불러오는 중…");
+  try {
+    const buffer = await decodeAudio(audio().ctx, file);
+    const songs = await listSongs();
+    const dup = songs.find((s) => s.fileName === file.name && Math.abs(s.durationMs / 1000 - buffer.duration) < 0.1);
+    if (dup) {
+      setStatus(list.status, "이미 목록에 있는 음원이에요.");
+      return;
+    }
+    const builtin = findBuiltinFor(buffer.duration);
+    const song: SongRecord = {
+      id: newId(),
+      title: builtin?.chart.title ?? stripExtension(file.name),
+      fileName: file.name,
+      durationMs: Math.round(buffer.duration * 1000),
+      addedAt: Date.now(),
+      audio: file,
+      builtinId: builtin?.id ?? null,
+      userChart: null,
+      best: null,
+    };
+    await putSong(song);
+    decoded = { id: song.id, buffer };
+    setStatus(
+      list.status,
+      builtin
+        ? `추가했어요. 기본 채보를 연결했어요 (노트 ${builtin.chart.notes.length}개).`
+        : "추가했어요. 이 음원은 채보가 없어서 채보 만들기로 직접 만들 수 있어요.",
+    );
+    await renderList();
+  } catch (e) {
+    setStatus(list.status, e instanceof AudioLoadError ? e.message : "음원을 추가하지 못했어요.", true);
+  }
 });
-ui.seek.addEventListener("change", () => {
-  seeking = false;
-  getClock().seek(Number(ui.seek.value));
-  restartJudge(Number(ui.seek.value));
-  updatePlayState();
+
+$("metronome").addEventListener("click", () => {
+  unlockAudio();
+  const bpm = Math.round(BUILTIN_CHARTS[0].chart.bpm);
+  const beatsPerBar = BUILTIN_CHARTS[0].chart.beatsPerBar;
+  const buffer = createMetronomeBuffer(audio().ctx, bpm, beatsPerBar, METRONOME_BARS);
+  const demo = buildDemoChart(bpm, beatsPerBar, METRONOME_BARS);
+  current = { song: null, title: "메트로놈 연습", buffer };
+  returnTo = "list";
+  void startPlay(demo);
 });
 
-function updatePlayState(): void {
-  const state = clock?.state;
-  document.body.classList.toggle("playing", state === "playing");
-  ui.play.textContent = state === "playing" ? "일시정지" : state === "ended" ? "처음부터" : "재생";
+// ---------- 플레이 ----------
+
+const play = {
+  title: $("play-title"),
+  meta: $("play-meta"),
+  clock: $("play-clock"),
+  beats: $("play-beats"),
+  bar: $("play-bar"),
+  score: $("play-score"),
+  pause: $<HTMLButtonElement>("play-pause"),
+  menu: $("pause-menu"),
+};
+
+async function startSong(id: string): Promise<void> {
+  const song = await getSong(id);
+  if (!song) return;
+  try {
+    current = { song, title: song.title, buffer: await bufferOf(song) };
+  } catch (e) {
+    setStatus(list.status, e instanceof AudioLoadError ? e.message : "음원을 열지 못했어요.", true);
+    return;
+  }
+  editScene = null;
+  returnTo = "list";
+  await startPlay(chartOf(song));
 }
 
-// ---------- 입력 ----------
-
-/** 이벤트가 실제로 일어난 순간의 곡 시각. 프레임을 기다린 만큼 되돌린다 */
-function songTimeOf(eventTimeStamp: number): number {
-  const lag = Math.min(0.1, Math.max(0, (performance.now() - eventTimeStamp) / 1000));
-  return (clock?.time() ?? 0) - lag;
+async function startPlay(chart: Chart): Promise<void> {
+  if (!current) return;
+  playScene = new PlayScene(chart, stage);
+  playScene.onFinish = (stats) => void showResult(stats);
+  stage.setScene(playScene);
+  play.title.textContent = current.title.toUpperCase();
+  play.meta.textContent = chart.bpm ? `${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM · ${chart.beatsPerBar}/4` : "";
+  play.beats.replaceChildren(...Array.from({ length: chart.bpm ? chart.beatsPerBar : 0 }, () => document.createElement("span")));
+  lastBeat = -2;
+  lastScore = -1;
+  play.menu.hidden = true;
+  show("play");
+  const { clock } = audio();
+  clock.load(current.buffer);
+  await clock.play(playScene.leadIn);
 }
 
-function laneAtX(x: number): number {
-  const lane = Math.floor((x - layout.laneLeft) / layout.laneWidth);
-  return Math.min(LANES - 1, Math.max(0, lane)); // 레인 바깥을 눌러도 가장 가까운 레인으로
+function pauseGame(): void {
+  const { clock } = audio();
+  if (!playScene || clock.state !== "playing") return;
+  clock.pause();
+  playScene.releaseAll(clock.time());
+  play.menu.hidden = false;
 }
 
-function press(id: number, lane: number, timeStamp: number): void {
-  if (clock?.state !== "playing") return;
-  held.set(id, lane);
-  judge.press(lane, songTimeOf(timeStamp), id);
-}
-
-function release(id: number, timeStamp: number): void {
-  if (!held.delete(id)) return;
-  judge.release(id, songTimeOf(timeStamp));
-}
-
-function releaseAll(): void {
-  for (const id of [...held.keys()]) release(id, performance.now());
-}
-
-canvas.addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  press(e.pointerId, laneAtX(e.clientX), e.timeStamp);
+play.pause.addEventListener("click", pauseGame);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) return;
+  if (document.body.dataset.screen === "play") pauseGame(); // 앱을 내리면 자동으로 일시정지
+  else if (editScene && editScene.mode !== "idle") stopEditor();
 });
-canvas.addEventListener("pointerup", (e) => release(e.pointerId, e.timeStamp));
-canvas.addEventListener("pointercancel", (e) => release(e.pointerId, e.timeStamp));
-
-// 컴퓨터에서 시험할 때: D F J K
-const keyId = (lane: number) => -1 - lane;
-window.addEventListener("keydown", (e) => {
-  const lane = KEY_LANES[e.code];
-  if (lane === undefined || e.repeat) return;
-  press(keyId(lane), lane, e.timeStamp);
+$("resume").addEventListener("click", () => {
+  play.menu.hidden = true;
+  void audio().clock.play();
 });
-window.addEventListener("keyup", (e) => {
-  const lane = KEY_LANES[e.code];
-  if (lane !== undefined) release(keyId(lane), e.timeStamp);
+$("restart").addEventListener("click", () => void restartPlay());
+$("quit").addEventListener("click", () => {
+  audio().clock.pause();
+  leavePlay();
 });
 
-// ---------- 화면 ----------
-
-const nowSec = () => performance.now() / 1000;
-
-function resize(): void {
-  const dpr = Math.min(window.devicePixelRatio || 1, 3);
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
-  ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
-  layout = computeLayout(w, h);
+async function restartPlay(): Promise<void> {
+  if (!playScene) return;
+  const { clock } = audio();
+  play.menu.hidden = true;
+  show("play");
+  stage.setScene(playScene);
+  playScene.restart();
+  lastScore = -1;
+  clock.seek(0);
+  await clock.play(playScene.leadIn);
 }
 
-let lastClockText = "";
+function leavePlay(): void {
+  playScene = null;
+  stage.setScene(null);
+  if (returnTo === "edit") void backToEditor();
+  else {
+    show("list");
+    void renderList();
+  }
+}
+
+// ---------- 결과 ----------
+
+async function showResult(stats: JudgeStats): Promise<void> {
+  audio().clock.pause();
+  stage.setScene(null);
+  const rank = rankOf(stats.score);
+  $("result-title").textContent = (current?.title ?? "").toUpperCase() + (returnTo === "edit" ? " · 시험 플레이" : "");
+  $("result-rank").textContent = rank;
+  $("result-score").textContent = stats.score.toLocaleString("ko-KR");
+  $("r-perfect").textContent = String(stats.perfect);
+  $("r-great").textContent = String(stats.great);
+  $("r-good").textContent = String(stats.good);
+  $("r-miss").textContent = String(stats.miss);
+  $("r-combo").textContent = String(stats.maxCombo);
+  $("r-acc").textContent = `${stats.accuracy.toFixed(1)}%`;
+  $("result-timing").textContent = timingText(stats.meanOffsetMs);
+  $("result-back").textContent = returnTo === "edit" ? "편집으로" : "목록으로";
+
+  // 최고 기록은 목록의 곡을 플레이했을 때만 남긴다 (시험 플레이, 메트로놈 제외)
+  const badge = $("result-best");
+  const prevEl = $("result-prev");
+  badge.hidden = true;
+  prevEl.textContent = "";
+  const song = current?.song;
+  if (song && returnTo === "list") {
+    const prev = (await getSong(song.id))?.best ?? null;
+    if (!prev || stats.score > prev.score) {
+      await updateSong(song.id, { best: { score: stats.score, rank, maxCombo: stats.maxCombo, at: Date.now() } });
+      badge.hidden = false;
+    }
+    if (prev) prevEl.textContent = `이전 최고 ${prev.score.toLocaleString("ko-KR")}점`;
+  }
+  show("result");
+}
+
+function timingText(meanMs: number | null): string {
+  if (meanMs === null) return "친 노트가 없어서 타이밍을 잴 수 없어요.";
+  const ms = Math.round(Math.abs(meanMs));
+  if (ms <= 10) return `평균 타이밍 ${meanMs >= 0 ? "+" : "-"}${ms}ms · 박자에 잘 맞췄어요.`;
+  return `평균 타이밍 ${meanMs > 0 ? "+" : "-"}${ms}ms · 평균적으로 조금 ${meanMs > 0 ? "늦게" : "일찍"} 쳤어요.`;
+}
+
+$("again").addEventListener("click", () => {
+  unlockAudio();
+  void restartPlay();
+});
+$("result-back").addEventListener("click", leavePlay);
+
+// ---------- 채보 만들기 ----------
+
+const edit = {
+  title: $("edit-title"),
+  count: $("edit-count"),
+  clock: $("edit-clock"),
+  mode: $("edit-mode"),
+  status: $("edit-status"),
+  seek: $<HTMLInputElement>("edit-seek"),
+  snap: $<HTMLSelectElement>("edit-snap"),
+  undo: $<HTMLButtonElement>("edit-undo"),
+};
+let dirty = false;
+const HINT = "멈춘 상태에서 빈 곳을 누르면 노트 추가, 노트를 누르면 삭제. 녹음 중에는 치는 대로 기록되고, 길게 누르면 롱 노트가 돼요.";
+
+async function openEditor(id: string): Promise<void> {
+  const song = await getSong(id);
+  if (!song) return;
+  try {
+    current = { song, title: song.title, buffer: await bufferOf(song) };
+  } catch (e) {
+    setStatus(list.status, e instanceof AudioLoadError ? e.message : "음원을 열지 못했어요.", true);
+    return;
+  }
+  editScene = new EditScene(chartOf(song), stage);
+  editScene.onChange = () => {
+    dirty = true;
+    updateEditUi();
+  };
+  dirty = false;
+  edit.snap.value = String(editScene.division);
+  edit.snap.disabled = !editScene.meter.hasBeats;
+  edit.title.textContent = song.title.toUpperCase();
+  edit.seek.max = String(current.buffer.duration);
+  setStatus(edit.status, editScene.meter.hasBeats ? HINT : `${HINT} 이 곡은 박 정보가 없어서 박 맞추기는 꺼져 있어요.`);
+  await backToEditor();
+}
+
+async function backToEditor(): Promise<void> {
+  if (!editScene || !current) return;
+  playScene = null;
+  returnTo = "list";
+  stage.setScene(editScene);
+  audio().clock.load(current.buffer);
+  show("edit");
+  updateEditUi();
+}
+
+function updateEditUi(): void {
+  if (!editScene) return;
+  edit.count.textContent = `노트 ${editScene.draft.notes.length}개${dirty ? " · 저장 안 됨" : ""}`;
+  edit.undo.disabled = !editScene.draft.canUndo;
+  edit.mode.textContent = editScene.mode === "record" ? "● 녹음 중" : editScene.mode === "preview" ? "▶ 듣는 중" : "";
+  document.body.classList.toggle("running", editScene.mode !== "idle");
+}
+
+async function runEditor(mode: "record" | "preview"): Promise<void> {
+  if (!editScene) return;
+  const { clock } = audio();
+  if (clock.state === "ended") clock.seek(0);
+  editScene.begin(mode, clock.time());
+  updateEditUi();
+  await clock.play();
+}
+
+function stopEditor(): void {
+  if (!editScene) return;
+  const { clock } = audio();
+  clock.pause();
+  editScene.end(clock.time());
+  updateEditUi();
+}
+
+function leaveEditor(): void {
+  audio().clock.pause();
+  editScene = null;
+  stage.setScene(null);
+  show("list");
+  void renderList();
+}
+
+$("edit-record").addEventListener("click", () => void runEditor("record"));
+$("edit-preview").addEventListener("click", () => void runEditor("preview"));
+$("edit-stop").addEventListener("click", stopEditor);
+$("edit-back").addEventListener("click", () => audio().clock.seek(audio().clock.time() - 2));
+$("edit-fwd").addEventListener("click", () => audio().clock.seek(audio().clock.time() + 2));
+edit.seek.addEventListener("input", () => audio().clock.seek(Number(edit.seek.value)));
+edit.snap.addEventListener("change", () => {
+  if (editScene) editScene.division = Number(edit.snap.value);
+});
+edit.undo.addEventListener("click", () => {
+  if (editScene?.draft.undo()) {
+    dirty = true;
+    updateEditUi();
+  }
+});
+confirmTwice($<HTMLButtonElement>("edit-clear"), "한 번 더 누르면 지움", () => {
+  if (!editScene) return;
+  editScene.draft.checkpoint();
+  editScene.draft.clear();
+  dirty = true;
+  updateEditUi();
+  setStatus(edit.status, "노트를 모두 지웠어요. 되돌리기로 살릴 수 있어요.");
+});
+$("edit-save").addEventListener("click", async () => {
+  if (!editScene || !current?.song) return;
+  await updateSong(current.song.id, { userChart: editScene.toChart(), best: null });
+  dirty = false;
+  updateEditUi();
+  setStatus(edit.status, "저장했어요. 채보가 바뀌어서 이 곡의 최고 기록은 지웠어요.");
+});
+$("edit-test").addEventListener("click", () => {
+  if (!editScene || editScene.draft.notes.length === 0) {
+    setStatus(edit.status, "노트가 없어서 시험 플레이를 할 수 없어요.");
+    return;
+  }
+  unlockAudio();
+  returnTo = "edit";
+  void startPlay(editScene.toChart());
+});
+confirmTwice($<HTMLButtonElement>("edit-exit"), "저장 안 하고 나가기", leaveEditor, () => dirty);
+
+// ---------- 매 프레임 글자 갱신 ----------
+
+let lastText = "";
+let lastBeat = -2;
 let lastScore = -1;
-let lastBarText = "";
-let lastBeat = -1;
-
-function frame(): void {
-  const t = clock?.time() ?? 0;
-  const playing = clock?.state === "playing";
-  const pos = meter.at(t);
-  const started = pos.beat >= 0 && clock !== null && clock.duration > 0;
-
-  if (playing) judge.update(t);
-  const stats = judge.stats();
-  const now = nowSec();
-
-  const pulse = playing && started ? smoothPulse(pos.phase) * (pos.beatInBar === 1 ? 1 : 0.6) : 0;
-  drawDotField(
-    ctx2d,
-    layout.width,
-    layout.height,
-    { x: layout.laneLeft, width: layout.laneWidth * LANES, bottom: layout.judgeY },
-    pulse,
-    effects.waves(now),
-  );
-  playfield.draw(ctx2d, layout, t, { scrollSec: SCROLL_SEC, heldLanes: new Set(held.values()) });
-  effects.draw(ctx2d, now, layout.width / 2, layout.judgeY - 28);
-  drawCombo(ctx2d, stats.combo, layout.width / 2, layout.judgeY + (layout.height - layout.judgeY) * 0.55);
-
-  if (stats.score !== lastScore) {
-    ui.score.textContent = String(stats.score).padStart(7, "0");
-    lastScore = stats.score;
-  }
-
-  if (!seeking) {
+stage.onFrame = (t) => {
+  const screen = document.body.dataset.screen;
+  if (screen === "play" && playScene) {
     const clockText = formatTime(Math.max(0, t), true);
-    if (clockText !== lastClockText) ui.clock.textContent = lastClockText = clockText;
-    if (playing) ui.seek.value = String(t);
+    if (clockText !== lastText) play.clock.textContent = lastText = clockText;
+    const pos = playScene.meter.at(t);
+    const on = pos.beat >= 0 && pos.bar > 0 ? pos.beatInBar - 1 : -1;
+    if (on !== lastBeat) {
+      [...play.beats.children].forEach((d, i) => d.classList.toggle("on", i === on));
+      play.bar.textContent = on >= 0 ? `마디 ${pos.bar} · ${pos.beatInBar}/${playScene.chart.beatsPerBar}` : "마디 -";
+      lastBeat = on;
+    }
+    const score = playScene.judge.stats().score;
+    if (score !== lastScore) play.score.textContent = String((lastScore = score)).padStart(7, "0");
+  } else if (screen === "edit" && editScene) {
+    const clockText = formatTime(Math.max(0, t), true);
+    if (clockText !== lastText) edit.clock.textContent = lastText = clockText;
+    if (document.activeElement !== edit.seek) edit.seek.value = String(t);
   }
-  const barText = started && pos.bar > 0 ? `마디 ${pos.bar} · ${pos.beatInBar}/${chart.beatsPerBar}` : "마디 -";
-  if (barText !== lastBarText) ui.bar.textContent = lastBarText = barText;
-  const beat = started && pos.bar > 0 ? pos.beatInBar - 1 : -1;
-  if (beat !== lastBeat) {
-    beatDots.forEach((d, i) => d.classList.toggle("on", i === beat));
-    lastBeat = beat;
-  }
+};
 
-  requestAnimationFrame(frame);
-}
-
-function resultText(s: JudgeStats): string {
-  return `결과 · ${s.score.toLocaleString("ko-KR")}점 (${rankOf(s.score)}) · 최대 콤보 ${s.maxCombo} · perfect ${s.perfect} · great ${s.great} · good ${s.good} · miss ${s.miss}`;
-}
-
-function formatTime(sec: number, withHundredths: boolean): string {
+function formatTime(sec: number, withHundredths = false): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   const base = `${m}:${String(s).padStart(2, "0")}`;
   return withHundredths ? `${base}.${String(Math.floor((sec % 1) * 100)).padStart(2, "0")}` : base;
 }
 
-// 개발 서버에서만: 브라우저 자동 테스트가 시계와 판정 상태를 읽을 수 있게 한다
+// 개발 서버에서만: 브라우저 자동 테스트가 상태를 읽을 수 있게 한다
 if (import.meta.env.DEV) {
-  Object.assign(window, { __game: { time: () => clock?.time() ?? 0, judge: () => judge, layout: () => layout } });
+  Object.assign(window, {
+    __game: { time: () => audio().clock.time(), play: () => playScene, edit: () => editScene, stage },
+  });
 }
 
-useChart(chart);
-window.addEventListener("resize", resize);
-resize();
-requestAnimationFrame(frame);
+show("list");
+void renderList();

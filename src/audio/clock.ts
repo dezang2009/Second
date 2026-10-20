@@ -35,7 +35,8 @@ export class AudioClock {
     this._state = "paused";
   }
 
-  async play(): Promise<void> {
+  /** @param leadSec 곡 시작 전 여유 시간. 그동안 time()은 음수다 (첫 노트가 빨리 나오는 곡을 위해) */
+  async play(leadSec = 0): Promise<void> {
     if (!this.buffer || this._state === "playing") return;
     // 모바일 브라우저는 사용자 터치 안에서 resume해야 소리가 난다
     if (this.ctx.state !== "running") await this.ctx.resume();
@@ -51,7 +52,7 @@ export class AudioClock {
       this._state = "ended";
       this.onEnded?.();
     };
-    this.startedAt = this.ctx.currentTime + START_LEAD_SEC;
+    this.startedAt = this.ctx.currentTime + START_LEAD_SEC + leadSec;
     source.start(this.startedAt, this.startOffset);
     this.source = source;
     this.lastReported = this.startOffset;
@@ -60,7 +61,7 @@ export class AudioClock {
 
   pause(): void {
     if (this._state !== "playing") return;
-    this.startOffset = this.time();
+    this.startOffset = Math.max(0, this.time());
     this.stopSource();
     this._state = "paused";
   }

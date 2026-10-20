@@ -1,5 +1,6 @@
 :root {
   --bg: #171922;
+  --surface: rgba(23, 25, 34, 0.92);
   --ink: #cfd3e0;
   --muted: #80869e;
   --line: #2a2d3a;
@@ -35,19 +36,169 @@ body {
 .ui {
   position: fixed;
   inset: 0;
+  pointer-events: none;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  gap: 16px;
   padding: calc(env(safe-area-inset-top, 0px) + 16px) max(16px, env(safe-area-inset-right, 0px))
-    calc(env(safe-area-inset-bottom, 0px) + 20px) max(16px, env(safe-area-inset-left, 0px));
-  pointer-events: none;
+    calc(env(safe-area-inset-bottom, 0px) + 16px) max(16px, env(safe-area-inset-left, 0px));
+}
+
+.screen[hidden] {
+  display: none;
 }
 
 .ui button,
 .ui label,
-.ui input {
+.ui input,
+.ui select {
   pointer-events: auto;
 }
+
+/* ---------- 공통 ---------- */
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  font: 600 15px var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn.small {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.btn.warn {
+  border-color: #b98a8a;
+  color: #e3b4b4;
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.btn:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.status {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status.error {
+  color: #e3a1a1;
+}
+
+/* ---------- 곡 목록 ---------- */
+
+.list-screen {
+  pointer-events: auto;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+
+.list-head h1 {
+  margin: 8px 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.list-head p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.song-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.song {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.song-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.song-title {
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-meta,
+.song-best {
+  font: 500 12px var(--mono);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.song-best.has {
+  color: var(--accent);
+}
+
+.song-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.song-empty {
+  padding: 20px 0;
+  font-size: 14px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.list-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ---------- HUD (플레이, 에디터) ---------- */
 
 .hud {
   display: flex;
@@ -100,116 +251,207 @@ body {
   border-color: var(--accent);
 }
 
-/* 플레이 중에는 조작 패널을 숨겨 레인을 화면 전체에 보여준다 */
-.pause {
-  visibility: hidden;
-}
+/* ---------- 일시정지 메뉴 ---------- */
 
-body.playing .pause {
-  visibility: visible;
-}
-
-body.playing .panel {
-  opacity: 0;
-  transform: translateY(16px);
-  pointer-events: none;
-}
-
-body.playing .panel * {
-  pointer-events: none;
-}
-
-.panel {
+.menu {
+  margin: auto 0;
+  align-self: center;
+  width: min(280px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-  background: var(--bg);
-  transition: opacity 200ms ease-out, transform 200ms ease-out;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  pointer-events: auto;
 }
 
-.source {
+.menu[hidden] {
+  display: none;
+}
+
+.menu-title {
+  margin: 0 0 6px;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* ---------- 결과 ---------- */
+
+.result-screen {
+  pointer-events: auto;
+  justify-content: center;
+  gap: 22px;
+  background: rgba(23, 25, 34, 0.7);
+}
+
+.result-title {
+  margin: 0;
+  font: 500 12px var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-align: center;
+}
+
+.rank-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.rank {
+  font: 300 84px var(--mono);
+  line-height: 1;
+  color: var(--accent);
+}
+
+.rank-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.result-score {
+  font: 300 30px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge[hidden] {
+  display: none;
+}
+
+.prev {
+  font: 500 12px var(--mono);
+  color: var(--muted);
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: auto auto auto auto;
+  gap: 10px 16px;
+  margin: 0 auto;
+  font-size: 14px;
+}
+
+.result-grid dt {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  align-self: center;
+}
+
+.result-grid dd {
+  margin: 0;
+  font: 500 16px var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.timing {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.result-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
-.btn {
+/* ---------- 에디터 ---------- */
+
+.mode-label {
+  color: var(--accent);
+}
+
+.edit-status {
+  min-height: 1.2em;
+  font: 400 12px var(--sans);
+  letter-spacing: 0;
+}
+
+.edit-panel {
+  margin-top: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 48px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--bg);
-  font: 600 15px var(--sans);
-  white-space: nowrap;
-  cursor: pointer;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  pointer-events: auto; /* 패널 뒤의 레인이 눌려 노트가 생기지 않게 */
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
 }
 
-.btn.small {
-  min-height: 36px;
+.edit-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.edit-row > .btn {
+  flex: 1;
+  padding: 0 6px;
+}
+
+.seek-row > .btn {
+  flex: 0 0 auto;
   padding: 0 12px;
-  font-size: 13px;
-}
-
-.btn.ghost {
-  background: transparent;
-  color: var(--ink);
-  border-color: var(--line);
-}
-
-.btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
-}
-
-.track {
-  margin: 0;
-  font-size: 14px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.track.loaded {
-  color: var(--ink);
-}
-
-.transport {
-  display: grid;
-  grid-template-columns: 104px 1fr auto;
-  align-items: center;
-  gap: 12px;
 }
 
 .seek {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   accent-color: var(--accent);
 }
 
-.duration {
-  font: 500 12px var(--mono);
+.snap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.status {
-  margin: 0;
-  min-height: 1.4em;
+.snap select {
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
   font-size: 13px;
-  color: var(--muted);
 }
 
-.status.error {
-  color: #e3a1a1;
+/* 재생/녹음 중에는 패널을 숨기고 멈춤 버튼만 보인다 */
+#edit-stop {
+  visibility: hidden;
+}
+
+body.running #edit-stop {
+  visibility: visible;
+}
+
+body.running .edit-panel {
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+}
+
+body.running .edit-panel * {
+  pointer-events: none;
 }
