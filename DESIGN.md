@@ -23,7 +23,7 @@
 | APK | Capacitor | 웹 빌드 결과를 그대로 Android 앱으로 감쌈 |
 | 저장 | localStorage | 최고 기록과 설정(싱크 오프셋, 노트 속도) 저장 |
 
-> **APK 빌드 참고**: 이 클라우드 환경에는 Android SDK가 없을 가능성이 높습니다. GitHub Actions로 APK를 자동 빌드하거나, 로컬 PC의 Android Studio에서 빌드하는 방법 중에서 고릅니다.
+> **APK 자동 빌드 (확정)**: 브랜치에 push할 때마다 GitHub Actions(`.github/workflows/android.yml`)가 디버그 APK를 만듭니다. GitHub 저장소의 **Actions** 탭에서 실행 결과를 열고, **Artifacts**의 `rhythm-debug-apk`를 내려받아 폰에 설치합니다. Actions 탭의 **Run workflow** 버튼으로 직접 실행할 수도 있습니다.
 
 ## 3. 게임플레이 규칙 (초안)
 
@@ -71,7 +71,8 @@
 ## 5. 개발 단계
 
 ### 1단계: MVP (핵심 재미 확인)
-- [ ] 프로젝트 세팅 (Vite + TypeScript)
+- [x] 프로젝트 세팅 (Vite + TypeScript + Capacitor, 임시 4레인 터치 테스트 화면)
+- [x] APK 자동 빌드 (GitHub Actions)
 - [ ] 곡 1개 재생 + Web Audio 시계
 - [ ] 4레인 노트 낙하 렌더링
 - [ ] 터치 입력 + 판정 (PERFECT/GREAT/GOOD/MISS)
@@ -87,13 +88,20 @@
 - [ ] 타격음, 판정 이펙트 다듬기
 
 ### 3단계: APK와 도구
-- [ ] Capacitor로 Android APK 빌드
 - [ ] 간단한 채보 에디터 (곡을 들으며 탭해서 노트 찍기)
 - [ ] 곡 추가
 
-## 6. 미정 (같이 정할 것)
+## 6. 개발 명령어
+
+| 명령 | 하는 일 |
+|---|---|
+| `npm install` | 의존성 설치 |
+| `npm run dev` | 개발 서버 실행. 같은 Wi-Fi의 폰에서 표시되는 주소로 접속 |
+| `npm run build` | 타입 검사 후 `dist/`에 웹 빌드 |
+| `npm run android:sync` | 웹 빌드를 Android 프로젝트(`android/`)에 복사 |
+
+## 7. 미정 (같이 정할 것)
 
 - [ ] **분위기 / 컨셉**: 네온·사이버, 귀여운 캐릭터, 미니멀, 레트로 픽셀 등
 - [ ] **게임 이름**
 - [ ] **첫 곡**: 어떤 장르의 곡을 쓸지
-- [ ] **APK 빌드 방법**: GitHub Actions 자동 빌드 또는 로컬 Android Studio
