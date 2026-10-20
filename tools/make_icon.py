@@ -1,4 +1,4 @@
-"""앱 아이콘: 보라→하늘색 그라데이션 바탕 + 흰 축구공.
+"""앱 아이콘: 보라→하늘색 그라데이션 바탕 + 흰 선 축구장.
 적응형 아이콘(배경/전경)과 구형 런처용 아이콘을 만든다."""
 import math
 import os
@@ -16,42 +16,23 @@ def pent(cx, cy, r, rot):
 
 
 def foreground():
-    # 축구공: 흰 원 + 가운데 오각형 + 테두리에 걸친 오각형 5개 + 이음선
-    cx = cy = S / 2
-    R = S * 0.225
+    # 흰 선으로 그린 단순한 축구장: 외곽선 + 하프라인 + 센터서클 + 양쪽 페널티 박스
     img = Image.new('RGBA', (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.ellipse([cx - R, cy - R, cx + R, cy + R], fill=(255, 255, 255, 255))
-    pat = Image.new('RGBA', (S, S), (0, 0, 0, 0))
-    pd = ImageDraw.Draw(pat)
-    rp = R * 0.34
-    inner = pent(cx, cy, rp, 0)
-    pd.polygon(inner, fill=(*INK, 255))
-    lw = int(R * 0.06)
-    for k in range(5):
-        ang = k * 2 * math.pi / 5
-        vx, vy = inner[k]
-        ex, ey = cx + R * 0.97 * math.sin(ang), cy - R * 0.97 * math.cos(ang)
-        pd.line([(vx, vy), (ex, ey)], fill=(*INK, 255), width=lw)
-        pd.polygon(pent(ex, ey, rp * 0.9, ang + math.pi), fill=(*INK, 255))
-        # 바깥 오각형끼리 잇는 테두리 쪽 선
-        a2 = ang + math.pi / 5
-        mx, my = cx + R * 0.80 * math.sin(a2), cy - R * 0.80 * math.cos(a2)
-        for sgn in (-1, 1):
-            a3 = a2 + sgn * math.pi / 5
-            pd.line([(mx, my), (cx + R * 0.86 * math.sin(a3), cy - R * 0.86 * math.cos(a3))], fill=(*INK, 255), width=lw)
-        pd.line([(mx, my), (cx + R * 1.05 * math.sin(a2), cy - R * 1.05 * math.cos(a2))], fill=(*INK, 255), width=lw)
-    # 공 밖으로 나간 무늬는 잘라냄
-    mask = Image.new('L', (S, S), 0)
-    ImageDraw.Draw(mask).ellipse([cx - R, cy - R, cx + R, cy + R], fill=255)
-    pat.putalpha(ImageChops.multiply(pat.getchannel('A'), mask))
-    img = Image.alpha_composite(img, pat)
-    # 은은한 그림자
-    sh = Image.new('RGBA', (S, S), (0, 0, 0, 0))
-    ImageDraw.Draw(sh).ellipse([cx - R, cy - R + S * 0.02, cx + R, cy + R + S * 0.02], fill=(20, 10, 80, 70))
-    from PIL import ImageFilter
-    sh = sh.filter(ImageFilter.GaussianBlur(S * 0.015))
-    return Image.alpha_composite(sh, img)
+    W = (255, 255, 255, 255)
+    lw = int(S * 0.022)
+    cx = cy = S / 2
+    hw, hh = S * 0.17, S * 0.235
+    d.rounded_rectangle([cx - hw, cy - hh, cx + hw, cy + hh], radius=S * 0.03, outline=W, width=lw)
+    d.line([(cx - hw, cy), (cx + hw, cy)], fill=W, width=lw)
+    r = S * 0.065
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=W, width=lw)
+    r2 = S * 0.016
+    d.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], fill=W)
+    bw, bh = S * 0.075, S * 0.065
+    d.rectangle([cx - bw, cy - hh, cx + bw, cy - hh + bh], outline=W, width=lw)
+    d.rectangle([cx - bw, cy + hh - bh, cx + bw, cy + hh], outline=W, width=lw)
+    return img
 
 
 def background():
