@@ -1,7 +1,9 @@
 // 화면 흐름: 메뉴 → 곡 목록 → 플레이 → 결과, 곡 목록 → 채보 만들기 (→ 시험 플레이 → 결과 → 채보 만들기).
-// 음원과 직접 만든 채보, 최고 기록은 이 기기에만 보관한다.
+// 음원을 추가하면 자동으로 분석해 NORMAL / HARD 채보를 만든다.
+// 음원과 채보, 최고 기록은 이 기기에만 보관한다.
 
 import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+import { analyzeBuffer } from "./analysis/client";
 import { audio, unlockAudio } from "./audio/audio";
 import { AudioLoadError, decodeAudio, stripExtension } from "./audio/loader";
 import { createMetronomeBuffer } from "./audio/metronome";
@@ -9,14 +11,16 @@ import { EditScene } from "./game/editScene";
 import { rankOf, type JudgeStats } from "./game/judge";
 import { PlayScene } from "./game/playScene";
 import { Stage } from "./game/stage";
-import { BUILTIN_CHARTS, builtinById, emptyChart, findBuiltinFor } from "./songs/catalog";
 import { buildDemoChart } from "./songs/demo";
+import { emptyChart } from "./songs/empty";
 import type { Chart } from "./songs/types";
 import { ChartFormatError, chartFileName, parseChart } from "./songs/validate";
+import { type Difficulty, deleteSong, getSong, listSongs, newId, putSong, type SongRecord, updateSong } from "./storage/library";
 import { exportTextFile } from "./storage/share";
-import { deleteSong, getSong, listSongs, newId, putSong, type SongRecord, updateSong } from "./storage/library";
 
 const METRONOME_BARS = 64;
+const METRONOME_BPM = 120;
+const DIFF_LABEL: Record<Difficulty, string> = { normal: "NORMAL", hard: "HARD", user: "내 채보" };
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const stage = new Stage($<HTMLCanvasElement>("game"));
@@ -33,6 +37,7 @@ interface Current {
   song: SongRecord | null;
   title: string;
   buffer: AudioBuffer;
+  difficulty: Difficulty | null;
 }
 let current: Current | null = null;
 let playScene: PlayScene | null = null;
@@ -40,14 +45,13 @@ let editScene: EditScene | null = null;
 /** 결과 화면에서 돌아갈 곳. 에디터에서 시험 플레이했으면 에디터로 */
 let returnTo: "list" | "edit" = "list";
 
-function chartOf(song: SongRecord): Chart {
-  return song.userChart ?? builtinById(song.builtinId)?.chart ?? emptyChart(song.title, song.durationMs);
+function chartFor(song: SongRecord, diff: Difficulty): Chart | null {
+  if (diff === "user") return song.userChart;
+  return song.auto?.[diff] ?? null;
 }
 
-function chartChip(song: SongRecord): { text: string; kind: "builtin" | "user" | "none" } {
-  if (song.userChart) return { text: `내 채보 · 노트 ${song.userChart.notes.length}`, kind: "user" };
-  const b = builtinById(song.builtinId);
-  return b ? { text: `기본 채보 · 노트 ${b.chart.notes.length}`, kind: "builtin" } : { text: "채보 없음", kind: "none" };
+function selectedChart(song: SongRecord): Chart | null {
+  return chartFor(song, song.difficulty) ?? song.userChart ?? song.auto?.normal ?? null;
 }
 
 // 같은 곡을 다시 열 때 디코딩을 반복하지 않는다
@@ -62,6 +66,71 @@ audio().clock.onEnded = () => {
   else if (editScene) stopEditor();
 };
 
+function setStatus(el: HTMLElement, text: string, isError = false): void {
+  el.textContent = text;
+  el.classList.toggle("error", isError);
+}
+
+// ---------- 자동 채보 (한 번에 한 곡씩, 뒤에서) ----------
+
+interface AnalysisState {
+  ratio: number;
+  stage: string;
+  error?: string;
+}
+const analysis = new Map<string, AnalysisState>();
+const queue: string[] = [];
+let analyzing: string | null = null;
+
+function requestAnalysis(id: string): void {
+  if (analyzing === id || queue.includes(id)) return;
+  queue.push(id);
+  analysis.set(id, { ratio: 0, stage: "기다리는 중" });
+  updateProgress(id);
+  void pumpAnalysis();
+}
+
+async function pumpAnalysis(): Promise<void> {
+  if (analyzing || queue.length === 0) return;
+  const id = queue.shift()!;
+  analyzing = id;
+  try {
+    const song = await getSong(id);
+    if (!song) return;
+    const buffer = await bufferOf(song);
+    const result = await analyzeBuffer(buffer, song.title, (ratio, stage) => {
+      analysis.set(id, { ratio, stage });
+      updateProgress(id);
+    });
+    await updateSong(id, { auto: result.charts });
+    analysis.delete(id);
+    setStatus(
+      list.status,
+      `${song.title}: 자동 채보를 만들었어요. ${result.beatsPerBar}/4 · 약 ${Math.round(result.bpm)} BPM · NORMAL ${result.charts.normal.notes.length}개 · HARD ${result.charts.hard.notes.length}개`,
+    );
+  } catch (e) {
+    analysis.set(id, { ratio: 0, stage: "", error: e instanceof Error ? e.message : String(e) });
+  } finally {
+    analyzing = null;
+    if (document.body.dataset.screen === "list") await renderList();
+    void pumpAnalysis();
+  }
+}
+
+/** 목록을 다시 그리지 않고 진행 막대만 고친다 */
+function updateProgress(id: string): void {
+  const card = list.ul.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`);
+  const st = analysis.get(id);
+  if (!card || !st) return;
+  const box = card.querySelector<HTMLElement>(".analyze")!;
+  box.hidden = false;
+  box.querySelector<HTMLElement>(".bar span")!.style.width = `${Math.round(st.ratio * 100)}%`;
+  box.querySelector<HTMLElement>(".analyze-text")!.textContent = st.error
+    ? `자동 채보를 만들지 못했어요: ${st.error}`
+    : `자동 채보 만드는 중 · ${st.stage} ${Math.round(st.ratio * 100)}%`;
+  box.classList.toggle("error", Boolean(st.error));
+}
+
 // ---------- 메뉴 ----------
 
 /** 곡 목록을 연 목적: 플레이할 곡 고르기, 또는 채보를 만들 곡 고르기 */
@@ -70,7 +139,7 @@ let listMode: "play" | "edit" = "play";
 function openList(mode: "play" | "edit"): void {
   listMode = mode;
   $("list-heading").textContent = mode === "play" ? "곡 선택" : "채보 만들기";
-  $("list-sub").textContent = mode === "play" ? "플레이할 곡을 골라주세요" : "채보를 만들거나 고칠 곡을 골라주세요";
+  $("list-sub").textContent = mode === "play" ? "플레이할 곡과 난이도를 골라주세요" : "채보를 만들거나 고칠 곡을 골라주세요";
   setStatus(list.status, "");
   show("list");
   void renderList();
@@ -89,59 +158,93 @@ const list = {
   importFile: $<HTMLInputElement>("import-file"),
 };
 
-function setStatus(el: HTMLElement, text: string, isError = false): void {
-  el.textContent = text;
-  el.classList.toggle("error", isError);
-}
-
 async function renderList(): Promise<void> {
   const songs = await listSongs();
   list.ul.replaceChildren();
   if (songs.length === 0) {
     const li = document.createElement("li");
     li.className = "song-empty";
-    li.textContent = "아직 곡이 없어요. 아래 + 음원 추가로 폰에 있는 음원을 골라주세요.";
+    li.textContent = "아직 곡이 없어요. 아래 + 음원 추가로 폰에 있는 음원을 골라주세요. 추가하면 자동으로 채보를 만들어요.";
     list.ul.append(li);
     return;
   }
-  for (const song of songs) list.ul.append(songCard(song));
+  for (const song of songs) {
+    list.ul.append(songCard(song));
+    // 자동 채보가 없는 곡(예전에 추가한 곡 포함)은 알아서 분석을 시작한다
+    if (!song.auto && !analysis.get(song.id)?.error) requestAnalysis(song.id);
+    else if (analysis.has(song.id)) updateProgress(song.id);
+  }
 }
 
 function songCard(song: SongRecord): HTMLLIElement {
   const li = document.createElement("li");
   li.className = "song-card";
-  const chart = chartOf(song);
-  const hasNotes = chart.notes.length > 0;
+  li.dataset.id = song.id;
   li.innerHTML = `
     <div class="song-top">
       <div class="song-info">
         <span class="song-title"></span>
+        <form class="rename" hidden>
+          <input class="rename-input" maxlength="60" aria-label="곡 이름" />
+          <button class="btn small" type="submit">저장</button>
+          <button class="btn ghost small" data-act="rename-cancel" type="button">취소</button>
+        </form>
         <span class="song-meta"></span>
-        <span class="chip"></span>
       </div>
       <div class="song-rank"><span class="rank-letter"></span><span class="rank-score"></span></div>
     </div>
+    <div class="diff" role="radiogroup" aria-label="난이도"></div>
+    <div class="analyze" hidden><div class="bar"><span></span></div><span class="analyze-text"></span></div>
     <div class="song-actions">
       <button class="btn small" data-act="main" type="button"></button>
       <button class="btn ghost small" data-act="second" type="button"></button>
       <button class="btn ghost small more" data-act="more" type="button" aria-label="더보기" aria-expanded="false">···</button>
     </div>
     <div class="song-more" hidden>
+      <button class="btn ghost small" data-act="rename" type="button">이름 바꾸기</button>
+      <button class="btn ghost small" data-act="reanalyze" type="button">자동 채보 다시 만들기</button>
       <button class="btn ghost small" data-act="export" type="button">채보 내보내기</button>
       <button class="btn ghost small" data-act="import" type="button">채보 가져오기</button>
       <button class="btn ghost small" data-act="delete" type="button">삭제</button>
     </div>`;
   const q = <T extends HTMLElement = HTMLElement>(sel: string) => li.querySelector(sel) as T;
+  const chart = selectedChart(song);
+  const hasNotes = Boolean(chart && chart.notes.length);
+
   q(".song-title").textContent = song.title;
-  const meter = chart.bpm ? ` · ${chart.beatsPerBar}/4 · ${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM` : "";
+  const ref = song.auto?.normal ?? song.userChart;
+  const meter = ref?.bpm ? ` · ${ref.beatsPerBar}/4 · 약 ${Math.round(ref.bpm)} BPM` : "";
   q(".song-meta").textContent = `${formatTime(song.durationMs / 1000)}${meter}`;
-  const chip = chartChip(song);
-  q(".chip").textContent = chip.text;
-  q(".chip").classList.add(chip.kind);
+
+  // 난이도 고르기
+  const diffBox = q(".diff");
+  for (const d of ["normal", "hard", "user"] as const) {
+    const c = chartFor(song, d);
+    if (d === "user" && !c) continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `diff-btn ${d}`;
+    b.setAttribute("role", "radio");
+    const on = song.difficulty === d && Boolean(c);
+    b.setAttribute("aria-checked", String(on));
+    b.classList.toggle("on", on);
+    b.disabled = !c;
+    b.innerHTML = `<span class="diff-name"></span><span class="diff-lv"></span>`;
+    (b.firstElementChild as HTMLElement).textContent = DIFF_LABEL[d];
+    (b.lastElementChild as HTMLElement).textContent = c ? (d === "user" ? `${c.notes.length}개` : `Lv.${c.difficulty.level}`) : "분석 중";
+    b.addEventListener("click", async () => {
+      await updateSong(song.id, { difficulty: d });
+      await renderList();
+    });
+    diffBox.append(b);
+  }
+
+  // 그 난이도의 최고 기록
+  const best = song.bests[song.difficulty];
   const rank = q(".rank-letter");
-  if (song.best) {
-    rank.textContent = song.best.rank;
-    q(".rank-score").textContent = song.best.score.toLocaleString("ko-KR");
+  if (best && chartFor(song, song.difficulty)) {
+    rank.textContent = best.rank;
+    q(".rank-score").textContent = best.score.toLocaleString("ko-KR");
   } else {
     rank.textContent = "–";
     rank.classList.add("none");
@@ -168,6 +271,40 @@ function songCard(song: SongRecord): HTMLLIElement {
     panel.hidden = !panel.hidden;
     more.setAttribute("aria-expanded", String(!panel.hidden));
   });
+
+  // 이름 바꾸기
+  const form = q<HTMLFormElement>(".rename");
+  const input = q<HTMLInputElement>(".rename-input");
+  q('[data-act="rename"]').addEventListener("click", () => {
+    q(".song-title").hidden = true;
+    form.hidden = false;
+    input.value = song.title;
+    input.focus();
+    input.select();
+  });
+  q('[data-act="rename-cancel"]').addEventListener("click", () => {
+    form.hidden = true;
+    q(".song-title").hidden = false;
+  });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = input.value.trim();
+    if (!title) {
+      setStatus(list.status, "곡 이름을 입력해 주세요.", true);
+      return;
+    }
+    await updateSong(song.id, { title });
+    setStatus(list.status, `곡 이름을 "${title}"(으)로 바꿨어요.`);
+    await renderList();
+  });
+
+  const reanalyze = q<HTMLButtonElement>('[data-act="reanalyze"]');
+  reanalyze.disabled = analysis.has(song.id) && !analysis.get(song.id)?.error;
+  reanalyze.addEventListener("click", () => {
+    analysis.delete(song.id);
+    requestAnalysis(song.id);
+    q(".song-more").hidden = true;
+  });
   const exportBtn = q<HTMLButtonElement>('[data-act="export"]');
   exportBtn.disabled = !hasNotes;
   exportBtn.addEventListener("click", () => void exportChart(song));
@@ -185,11 +322,13 @@ function songCard(song: SongRecord): HTMLLIElement {
 }
 
 async function exportChart(song: SongRecord): Promise<void> {
-  const chart = { ...chartOf(song), title: song.title, durationMs: song.durationMs };
+  const chart = selectedChart(song);
+  if (!chart) return;
+  const name = chartFileName(`${song.title}-${song.difficulty}`);
   try {
-    const result = await exportTextFile(chartFileName(song.title), JSON.stringify(chart), `${song.title} 채보`);
+    const result = await exportTextFile(name, JSON.stringify({ ...chart, title: song.title, durationMs: song.durationMs }), `${song.title} 채보`);
     if (result === "shared") setStatus(list.status, "채보 파일을 보냈어요.");
-    else if (result === "downloaded") setStatus(list.status, `채보 파일(${chartFileName(song.title)})을 내려받았어요.`);
+    else if (result === "downloaded") setStatus(list.status, `채보 파일(${name})을 내려받았어요.`);
   } catch {
     setStatus(list.status, "채보를 내보내지 못했어요. 다시 시도해 주세요.", true);
   }
@@ -206,12 +345,14 @@ list.importFile.addEventListener("change", async () => {
   try {
     const chart = parseChart(await file.text());
     const diffSec = chart.durationMs ? Math.abs(chart.durationMs - song.durationMs) / 1000 : 0;
-    await updateSong(song.id, { userChart: { ...chart, title: song.title, durationMs: song.durationMs }, best: null });
+    const bests = { ...song.bests };
+    delete bests.user;
+    await updateSong(song.id, { userChart: { ...chart, title: song.title, durationMs: song.durationMs }, difficulty: "user", bests });
     setStatus(
       list.status,
       diffSec > 1.5
         ? `가져왔어요 (노트 ${chart.notes.length}개). 채보를 만든 음원과 길이가 ${diffSec.toFixed(1)}초 달라서 노트가 어긋날 수 있어요.`
-        : `채보를 가져왔어요 (노트 ${chart.notes.length}개). 이 곡의 최고 기록은 지웠어요.`,
+        : `채보를 '내 채보'로 가져왔어요 (노트 ${chart.notes.length}개).`,
     );
     await renderList();
   } catch (e) {
@@ -260,26 +401,21 @@ list.file.addEventListener("change", async () => {
       setStatus(list.status, "이미 목록에 있는 음원이에요.");
       return;
     }
-    const builtin = findBuiltinFor(buffer.duration);
     const song: SongRecord = {
       id: newId(),
-      title: builtin?.chart.title ?? stripExtension(file.name),
+      title: stripExtension(file.name),
       fileName: file.name,
       durationMs: Math.round(buffer.duration * 1000),
       addedAt: Date.now(),
       audio: file,
-      builtinId: builtin?.id ?? null,
+      auto: null,
       userChart: null,
-      best: null,
+      difficulty: "normal",
+      bests: {},
     };
     await putSong(song);
     decoded = { id: song.id, buffer };
-    setStatus(
-      list.status,
-      builtin
-        ? `추가했어요. 기본 채보를 연결했어요 (노트 ${builtin.chart.notes.length}개).`
-        : "추가했어요. 이 음원은 채보가 없어서 채보 만들기로 직접 만들 수 있어요.",
-    );
+    setStatus(list.status, "추가했어요. 자동 채보를 만들고 있어요. 이름은 ··· 에서 바꿀 수 있어요.");
     await renderList();
   } catch (e) {
     setStatus(list.status, e instanceof AudioLoadError ? e.message : "음원을 추가하지 못했어요.", true);
@@ -288,11 +424,9 @@ list.file.addEventListener("change", async () => {
 
 $("menu-metronome").addEventListener("click", () => {
   unlockAudio();
-  const bpm = Math.round(BUILTIN_CHARTS[0].chart.bpm);
-  const beatsPerBar = BUILTIN_CHARTS[0].chart.beatsPerBar;
-  const buffer = createMetronomeBuffer(audio().ctx, bpm, beatsPerBar, METRONOME_BARS);
-  const demo = buildDemoChart(bpm, beatsPerBar, METRONOME_BARS);
-  current = { song: null, title: "메트로놈 연습", buffer };
+  const buffer = createMetronomeBuffer(audio().ctx, METRONOME_BPM, 4, METRONOME_BARS);
+  const demo = buildDemoChart(METRONOME_BPM, 4, METRONOME_BARS);
+  current = { song: null, title: "메트로놈 연습", buffer, difficulty: null };
   returnTo = "list";
   void startPlay(demo);
 });
@@ -312,16 +446,17 @@ const play = {
 
 async function startSong(id: string): Promise<void> {
   const song = await getSong(id);
-  if (!song) return;
+  const chart = song && selectedChart(song);
+  if (!song || !chart) return;
   try {
-    current = { song, title: song.title, buffer: await bufferOf(song) };
+    current = { song, title: song.title, buffer: await bufferOf(song), difficulty: song.difficulty };
   } catch (e) {
     setStatus(list.status, e instanceof AudioLoadError ? e.message : "음원을 열지 못했어요.", true);
     return;
   }
   editScene = null;
   returnTo = "list";
-  await startPlay(chartOf(song));
+  await startPlay(chart);
 }
 
 async function startPlay(chart: Chart): Promise<void> {
@@ -329,7 +464,8 @@ async function startPlay(chart: Chart): Promise<void> {
   playScene = new PlayScene(chart, stage);
   playScene.onFinish = (stats) => void showResult(stats);
   stage.setScene(playScene);
-  play.title.textContent = current.title.toUpperCase();
+  const diff = current.difficulty ? ` · ${DIFF_LABEL[current.difficulty]}` : "";
+  play.title.textContent = current.title.toUpperCase() + diff;
   play.meta.textContent = chart.bpm ? `${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM · ${chart.beatsPerBar}/4` : "";
   play.beats.replaceChildren(...Array.from({ length: chart.bpm ? chart.beatsPerBar : 0 }, () => document.createElement("span")));
   lastBeat = -2;
@@ -391,7 +527,8 @@ async function showResult(stats: JudgeStats): Promise<void> {
   audio().clock.pause();
   stage.setScene(null);
   const rank = rankOf(stats.score);
-  $("result-title").textContent = (current?.title ?? "").toUpperCase() + (returnTo === "edit" ? " · 시험 플레이" : "");
+  const diff = current?.difficulty ? ` · ${DIFF_LABEL[current.difficulty]}` : "";
+  $("result-title").textContent = (current?.title ?? "").toUpperCase() + (returnTo === "edit" ? " · 시험 플레이" : diff);
   $("result-rank").textContent = rank;
   $("result-score").textContent = stats.score.toLocaleString("ko-KR");
   $("r-perfect").textContent = String(stats.perfect);
@@ -403,16 +540,18 @@ async function showResult(stats: JudgeStats): Promise<void> {
   $("result-timing").textContent = timingText(stats.meanOffsetMs);
   $("result-back").textContent = returnTo === "edit" ? "편집으로" : "목록으로";
 
-  // 최고 기록은 목록의 곡을 플레이했을 때만 남긴다 (시험 플레이, 메트로놈 제외)
+  // 최고 기록은 목록의 곡을 플레이했을 때만, 난이도마다 따로 남긴다 (시험 플레이, 메트로놈 제외)
   const badge = $("result-best");
   const prevEl = $("result-prev");
   badge.hidden = true;
   prevEl.textContent = "";
   const song = current?.song;
-  if (song && returnTo === "list") {
-    const prev = (await getSong(song.id))?.best ?? null;
-    if (!prev || stats.score > prev.score) {
-      await updateSong(song.id, { best: { score: stats.score, rank, maxCombo: stats.maxCombo, at: Date.now() } });
+  const d = current?.difficulty;
+  if (song && d && returnTo === "list") {
+    const fresh = await getSong(song.id);
+    const prev = fresh?.bests[d] ?? null;
+    if (fresh && (!prev || stats.score > prev.score)) {
+      await updateSong(song.id, { bests: { ...fresh.bests, [d]: { score: stats.score, rank, maxCombo: stats.maxCombo, at: Date.now() } } });
       badge.hidden = false;
     }
     if (prev) prevEl.textContent = `이전 최고 ${prev.score.toLocaleString("ko-KR")}점`;
@@ -446,18 +585,20 @@ const edit = {
   undo: $<HTMLButtonElement>("edit-undo"),
 };
 let dirty = false;
-const HINT = "멈춘 상태: 누르면 노트 추가/삭제, 노트를 위아래로 끌면 롱 노트 길이 조절. 녹음: 치는 대로 기록, 길게 누르면 롱 노트.";
+const HINT = "멈춘 상태: 누르면 노트 추가/삭제, 노트를 위아래로 끌면 롱 노트 길이 조절. 녹음: 치는 대로 기록, 길게 누르면 롱 노트. 저장하면 '내 채보'가 돼요.";
 
 async function openEditor(id: string): Promise<void> {
   const song = await getSong(id);
   if (!song) return;
   try {
-    current = { song, title: song.title, buffer: await bufferOf(song) };
+    current = { song, title: song.title, buffer: await bufferOf(song), difficulty: "user" };
   } catch (e) {
     setStatus(list.status, e instanceof AudioLoadError ? e.message : "음원을 열지 못했어요.", true);
     return;
   }
-  editScene = new EditScene(chartOf(song), stage);
+  // 고른 난이도의 채보에서 시작한다. 박 정보는 자동 분석 결과를 빌려 쓴다
+  const base = selectedChart(song) ?? { ...(song.auto?.normal ?? emptyChart(song.title, song.durationMs)), notes: [] };
+  editScene = new EditScene(base, stage);
   editScene.onChange = () => {
     dirty = true;
     updateEditUi();
@@ -465,9 +606,10 @@ async function openEditor(id: string): Promise<void> {
   dirty = false;
   edit.snap.value = String(editScene.division);
   edit.snap.disabled = !editScene.meter.hasBeats;
-  edit.title.textContent = song.title.toUpperCase();
+  const from = chartFor(song, song.difficulty) ? DIFF_LABEL[song.difficulty] : "새 채보";
+  edit.title.textContent = `${song.title.toUpperCase()} · ${from}에서 편집`;
   edit.seek.max = String(current.buffer.duration);
-  setStatus(edit.status, editScene.meter.hasBeats ? HINT : `${HINT} 이 곡은 박 정보가 없어서 박 맞추기는 꺼져 있어요.`);
+  setStatus(edit.status, editScene.meter.hasBeats ? HINT : `${HINT} 박 정보가 없어서 박 맞추기는 꺼져 있어요.`);
   await backToEditor();
 }
 
@@ -475,6 +617,7 @@ async function backToEditor(): Promise<void> {
   if (!editScene || !current) return;
   playScene = null;
   returnTo = "list";
+  current.difficulty = "user";
   stage.setScene(editScene);
   audio().clock.load(current.buffer);
   show("edit");
@@ -539,10 +682,13 @@ confirmTwice($<HTMLButtonElement>("edit-clear"), "한 번 더 누르면 지움",
 });
 $("edit-save").addEventListener("click", async () => {
   if (!editScene || !current?.song) return;
-  await updateSong(current.song.id, { userChart: editScene.toChart(), best: null });
+  const fresh = await getSong(current.song.id);
+  const bests = { ...(fresh?.bests ?? {}) };
+  delete bests.user;
+  await updateSong(current.song.id, { userChart: editScene.toChart(), difficulty: "user", bests });
   dirty = false;
   updateEditUi();
-  setStatus(edit.status, "저장했어요. 채보가 바뀌어서 이 곡의 최고 기록은 지웠어요.");
+  setStatus(edit.status, "'내 채보'로 저장했어요. 곡 목록에서 '내 채보'를 골라 플레이할 수 있어요.");
 });
 $("edit-test").addEventListener("click", () => {
   if (!editScene || editScene.draft.notes.length === 0) {
