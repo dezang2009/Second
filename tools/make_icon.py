@@ -1,57 +1,67 @@
-"""앱 아이콘: 흰 바탕 + 옅은 격자무늬 + 하늘색 평면 심볼(겹치는 부분은 진하게).
+"""앱 아이콘: 보라→하늘색 그라데이션 바탕 + 흰 축구공.
 적응형 아이콘(배경/전경)과 구형 런처용 아이콘을 만든다."""
+import math
 import os
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, 'android', 'res')
-S = 1728  # 108dp × 16 (4배 슈퍼샘플)
-LIGHT, DARK, BALL = (110, 193, 247), (64, 160, 238), (64, 160, 238)
+S = 1728  # 108dp × 16 (슈퍼샘플)
+C1, C2 = (108, 77, 245), (20, 190, 255)  # 왼쪽 위 보라 → 오른쪽 아래 하늘색
+INK = (52, 42, 140)
 
 
-def poly(pts):
-    m = Image.new('L', (S, S), 0)
-    ImageDraw.Draw(m).polygon([(x * S, y * S) for x, y in pts], fill=255)
-    return m
-
-
-def bar(x1, y1, x2, y2, w):
-    # 두 점을 잇는 일정한 두께의 막대 (끝은 직각)
-    import math
-    dx, dy = x2 - x1, y2 - y1
-    L = math.hypot(dx, dy)
-    nx, ny = -dy / L * w / 2, dx / L * w / 2
-    return poly([(x1 + nx, y1 + ny), (x2 + nx, y2 + ny), (x2 - nx, y2 - ny), (x1 - nx, y1 - ny)])
+def pent(cx, cy, r, rot):
+    return [(cx + r * math.sin(rot + k * 2 * math.pi / 5), cy - r * math.cos(rot + k * 2 * math.pi / 5)) for k in range(5)]
 
 
 def foreground():
-    # 'K' 모양: 세로 막대 + 위·아래 사선 막대, 겹친 곳은 진한 파랑 (가운데 약 37% 크기)
-    w = 0.072
-    x0, top, bot, mid = 0.36, 0.32, 0.68, 0.535
-    bars = [
-        bar(x0, top, x0, bot, w),
-        bar(x0 - 0.01, mid + 0.03, 0.655, top, w),
-        bar(x0 + 0.03, mid - 0.05, 0.655, bot, w),
-    ]
+    # 축구공: 흰 원 + 가운데 오각형 + 테두리에 걸친 오각형 5개 + 이음선
+    cx = cy = S / 2
+    R = S * 0.225
     img = Image.new('RGBA', (S, S), (0, 0, 0, 0))
-    px = img.load()
-    data = [m.load() for m in bars]
-    for y in range(S):
-        for x in range(S):
-            n = sum(1 for d in data if d[x, y] > 127)
-            if n:
-                px[x, y] = (*(DARK if n > 1 else LIGHT), 255)
-    return img
+    d = ImageDraw.Draw(img)
+    d.ellipse([cx - R, cy - R, cx + R, cy + R], fill=(255, 255, 255, 255))
+    pat = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    pd = ImageDraw.Draw(pat)
+    rp = R * 0.34
+    inner = pent(cx, cy, rp, 0)
+    pd.polygon(inner, fill=(*INK, 255))
+    lw = int(R * 0.06)
+    for k in range(5):
+        ang = k * 2 * math.pi / 5
+        vx, vy = inner[k]
+        ex, ey = cx + R * 0.97 * math.sin(ang), cy - R * 0.97 * math.cos(ang)
+        pd.line([(vx, vy), (ex, ey)], fill=(*INK, 255), width=lw)
+        pd.polygon(pent(ex, ey, rp * 0.9, ang + math.pi), fill=(*INK, 255))
+        # 바깥 오각형끼리 잇는 테두리 쪽 선
+        a2 = ang + math.pi / 5
+        mx, my = cx + R * 0.80 * math.sin(a2), cy - R * 0.80 * math.cos(a2)
+        for sgn in (-1, 1):
+            a3 = a2 + sgn * math.pi / 5
+            pd.line([(mx, my), (cx + R * 0.86 * math.sin(a3), cy - R * 0.86 * math.cos(a3))], fill=(*INK, 255), width=lw)
+        pd.line([(mx, my), (cx + R * 1.05 * math.sin(a2), cy - R * 1.05 * math.cos(a2))], fill=(*INK, 255), width=lw)
+    # 공 밖으로 나간 무늬는 잘라냄
+    mask = Image.new('L', (S, S), 0)
+    ImageDraw.Draw(mask).ellipse([cx - R, cy - R, cx + R, cy + R], fill=255)
+    pat.putalpha(ImageChops.multiply(pat.getchannel('A'), mask))
+    img = Image.alpha_composite(img, pat)
+    # 은은한 그림자
+    sh = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(sh).ellipse([cx - R, cy - R + S * 0.02, cx + R, cy + R + S * 0.02], fill=(20, 10, 80, 70))
+    from PIL import ImageFilter
+    sh = sh.filter(ImageFilter.GaussianBlur(S * 0.015))
+    return Image.alpha_composite(sh, img)
 
 
 def background():
-    img = Image.new('RGB', (S, S), (255, 255, 255))
-    d = ImageDraw.Draw(img)
-    step = S // 14
-    for k in range(-S, 2 * S, step):
-        d.line([(k, 0), (k + S, S)], fill=(232, 238, 245), width=6)
-        d.line([(k, S), (k + S, 0)], fill=(232, 238, 245), width=6)
-    return img
+    # 대각선 선형 그라데이션
+    g = Image.linear_gradient('L').resize((S, S))
+    g = g.rotate(45, resample=Image.BICUBIC, expand=True)
+    w = g.size[0]
+    g = g.crop(((w - S) // 2, (w - S) // 2, (w - S) // 2 + S, (w - S) // 2 + S))
+    a, b = Image.new('RGB', (S, S), C1), Image.new('RGB', (S, S), C2)
+    return Image.composite(b, a, g)
 
 
 def main():
