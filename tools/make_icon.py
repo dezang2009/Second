@@ -1,4 +1,4 @@
-"""앱 아이콘: 보라→하늘색 그라데이션 바탕 + 흰 K 모노그램.
+"""앱 아이콘: 흰 바탕 + 보라→하늘색 그라데이션 K 모노그램.
 적응형 아이콘(배경/전경)과 구형 런처용 아이콘을 만든다."""
 import math
 import os
@@ -7,7 +7,7 @@ from PIL import Image, ImageChops, ImageDraw
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, 'android', 'res')
 S = 1728  # 108dp × 16 (슈퍼샘플)
-C1, C2 = (170, 150, 255), (120, 214, 255)  # 왼쪽 위 보라 → 오른쪽 아래 하늘색
+C1, C2 = (140, 110, 255), (60, 190, 255)  # 왼쪽 위 보라 → 오른쪽 아래 하늘색
 INK = (52, 42, 140)
 
 
@@ -28,15 +28,25 @@ def foreground():
     d = ImageDraw.Draw(img)
     l, t, r, b = d.textbbox((0, 0), 'K', font=font)
     d.text(((S - (r - l)) / 2 - l, (S - (b - t)) / 2 - t), 'K', font=font, fill=(255, 255, 255, 255))
-    return img
+    # 글자 모양대로 그라데이션을 채움 (글자 영역 기준으로 왼쪽 위 → 오른쪽 아래)
+    l, t, r, b = img.getbbox()
+    g = gradient(r - l, b - t).convert('RGBA')
+    out = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    out.paste(g, (l, t))
+    out.putalpha(img.getchannel('A'))
+    return out
+
+
+def gradient(w, h):
+    # 대각선 선형 그라데이션 (왼쪽 위 C1 → 오른쪽 아래 C2)
+    import numpy as np
+    t = (np.arange(h)[:, None] / max(1, h - 1) + np.arange(w)[None, :] / max(1, w - 1)) / 2
+    arr = np.stack([C1[i] + (C2[i] - C1[i]) * t for i in range(3)], -1).astype('uint8')
+    return Image.fromarray(arr, 'RGB')
 
 
 def background():
-    # 대각선 선형 그라데이션 (왼쪽 위 C1 → 오른쪽 아래 C2)
-    import numpy as np
-    t = np.add.outer(np.arange(S), np.arange(S)) / (2 * (S - 1))
-    arr = np.stack([C1[i] + (C2[i] - C1[i]) * t for i in range(3)], -1).astype('uint8')
-    return Image.fromarray(arr, 'RGB')
+    return Image.new('RGB', (S, S), (255, 255, 255))
 
 
 def main():
