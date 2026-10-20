@@ -3,7 +3,8 @@ import type { ChartNote } from "../songs/types";
 // 박과 onset으로 NORMAL / HARD 채보를 만든다.
 // 원칙: 음악이 들리는 동안은 모든 박에 노트가 있다 (박자감이 끊기지 않게).
 //  - 그 박에 소리가 새로 시작되면 그 소리(멜로디 높이)로 레인을 정한다.
-//  - 소리가 이어지기만 하면(새 타격 없음) 두 박 이상이면 롱 노트, 한 박이면 박자 노트로 채운다.
+//  - 노래(멜로디)가 새로 시작되는 자리는 엇박이어도 노트를 둔다 (가사 한 글자마다 노트).
+//  - 소리가 이어지기만 하면(새 타격 없음) 두 박 이상이면 롱 노트(최대 한 마디), 한 박이면 박자 노트로 채운다.
 //  - HARD는 반박/1/4박의 뚜렷한 소리와 동시 노트를 더한다.
 
 const LANES = 4;
@@ -21,6 +22,10 @@ export interface Onset {
   kick?: number;
   /** 고음(스네어, 하이햇) 타격 세기 0~1 */
   snare?: number;
+  /** 노래(멜로디)가 새로 시작된 세기 0~1. 드럼 소리는 거의 0 */
+  melody?: number;
+  /** 이 음이 다음 노래 시작 전까지 이어진 시간(초). 재지 않았으면 없음 */
+  ring?: number;
 }
 
 export interface NoteInput {
@@ -30,6 +35,8 @@ export interface NoteInput {
   onsets: Onset[];
   /** 박마다 음악이 들리는지 */
   beatActive: boolean[];
+  /** 한 마디 박 수 (롱 노트 최대 길이). 없으면 4 */
+  beatsPerBar?: number;
 }
 
 export type Level = "normal" | "hard";
@@ -41,6 +48,10 @@ interface Rules {
   half: number;
   /** 1/4박 세기 하한 (null이면 안 씀) */
   quarter: number | null;
+  /** 노래가 새로 시작된 반박에 노트를 놓는 하한 (주변 4초 안 가장 뚜렷한 노래 시작에 대한 비율) */
+  melodyHalf: number;
+  /** 노래가 새로 시작된 1/4박 하한 (null이면 안 씀) */
+  melodyQuarter: number | null;
   /** 노트 사이 최소 간격(초) */
   minGap: number;
   /** 동시 노트를 놓는 마디 첫 박 세기 하한 */
@@ -48,6 +59,12 @@ interface Rules {
   chordEveryBars: number;
 }
 
+/** 이 길이 이상 소리가 남아 있어야(0.5초 뒤 세기 비율) 롱 노트로 잇는다. 금방 사라지는 소리는 박자 노트로 채운다 */
+const LONG_SUSTAIN = 0.15;
+/** 노래 음이 이만큼(박) 이상 이어지면 롱 노트 */
+const SUNG_HOLD_BEATS = 1.5;
+/** 끄는 노래 음 사이의 박을 '센 박'으로 보는 세기 하한. HARD는 롱 노트와 함께 치게 남기고, NORMAL은 롱 노트를 만들지 않는다 */
+const HOLD_KEEP_BEAT = 0.5;
 /** 2초 창 안에서 넘지 않도록 하는 초당 노트 수 (너무 빽빽하면 덜 중요한 노트부터 뺀다) */
 const MAX_NPS: Record<Level, number> = { normal: 4, hard: 8 };
 const DENSITY_WINDOW_SEC = 2;
@@ -55,8 +72,8 @@ const DENSITY_WINDOW_SEC = 2;
 const DRUM_WEIGHT = 0.9;
 
 const RULES: Record<Level, Rules> = {
-  normal: { half: 0.7, quarter: null, minGap: 0.24, chord: 0.9, chordEveryBars: 4 },
-  hard: { half: 0.2, quarter: 0.45, minGap: 0.11, chord: 0.7, chordEveryBars: 2 },
+  normal: { half: 0.7, quarter: null, melodyHalf: 0.2, melodyQuarter: null, minGap: 0.24, chord: 0.9, chordEveryBars: 4 },
+  hard: { half: 0.2, quarter: 0.45, melodyHalf: 0.12, melodyQuarter: 0.2, minGap: 0.11, chord: 0.7, chordEveryBars: 2 },
 };
 const LOCAL_SEC = 4;
 
@@ -78,6 +95,8 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
   const { beats, onsets } = input;
   if (beats.length < 2) return [];
   const rel = relativeStrength(onsets);
+  const mel = relativeMelody(onsets);
+  const isSung = (o: Onset | null, min: number | null) => o !== null && min !== null && (mel.get(o) ?? 0) >= min;
 
   // 1. 정박 슬롯: 들리는 박마다 하나씩
   const slots: Slot[] = [];
@@ -108,8 +127,9 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
       continue;
     }
     const kind = sub === 2 ? 1 : 2;
-    if (kind === 1 && rel.get(o)! < rules.half) continue;
-    if (kind === 2 && (rules.quarter === null || rel.get(o)! < rules.quarter || len / 4 < rules.minGap)) continue;
+    if (kind === 1 && rel.get(o)! < rules.half && !isSung(o, rules.melodyHalf)) continue;
+    const quarterOk = (rules.quarter !== null && rel.get(o)! >= rules.quarter) || isSung(o, rules.melodyQuarter);
+    if (kind === 2 && (!quarterOk || len / 4 < rules.minGap)) continue;
     if (!input.beatActive[i] && !input.beatActive[i + 1]) continue;
     slots.push({ time, kind, beat: i, onset: o });
   }
@@ -120,26 +140,51 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
   for (const s of slots) {
     const prev = kept[kept.length - 1];
     if (prev && s.time - prev.time < rules.minGap - 1e-6) {
-      const better = s.kind < prev.kind || (s.kind === prev.kind && (s.onset?.strength ?? 0) > (prev.onset?.strength ?? 0));
+      const score = (x: Slot) => Math.max(x.onset?.strength ?? 0, mel.get(x.onset!) ?? 0);
+      const better = s.kind < prev.kind || (s.kind === prev.kind && score(s) > score(prev));
       if (better && prev.kind !== 0) kept[kept.length - 1] = s;
       continue;
     }
     kept.push(s);
   }
 
-  // 4. 새 타격이 없는 정박이 두 박 이상 이어지면, 앞 노트를 그만큼 늘린 롱 노트로 바꾼다
+  // 4. 롱 노트 (한 마디보다 길게 끌지는 않는다)
+  //    - 노래 음이 1.5박 이상 끊기지 않고 이어지면 그 길이만큼
+  //    - 새 타격이 없는 정박이 두 박 이상 이어지고 앞 소리가 실제로 길게 남아 있으면, 앞 노트를 늘려서 (남은 박은 박자 노트로 채운다)
+  const maxHold = input.beatsPerBar ?? 4;
   type Draft = { slot: Slot; end: number | null };
   const drafts: Draft[] = [];
+  let holdEnd = -Infinity;
   for (let k = 0; k < kept.length; k++) {
     const s = kept[k];
+    // 끄는 노래 음 안쪽: NORMAL은 비우고, HARD는 노래가 아닌 타격(드럼)을 다른 레인에 남긴다 (센 정박, 이미 고른 엇박)
+    if (s.time < holdEnd - 0.05) {
+      const drum = s.onset !== null && !isSung(s.onset, rules.melodyHalf) && (s.kind !== 0 || rel.get(s.onset)! >= HOLD_KEEP_BEAT);
+      if (level === "hard" && drum) drafts.push({ slot: s, end: null });
+      continue;
+    }
+    let sungEnd = isSung(s.onset, rules.melodyHalf) ? sungHoldEnd(s, beats, maxHold) : null;
+    // NORMAL은 롱 노트가 센 박(드럼)을 덮으면 롱 노트 대신 박을 친다 (박자감 우선)
+    if (sungEnd !== null && level === "normal") {
+      const end = sungEnd;
+      const strongInside = kept.some((q) => q.time > s.time + 1e-6 && q.time < end - 0.05 && q.kind === 0 && q.onset && rel.get(q.onset)! >= HOLD_KEEP_BEAT);
+      if (strongInside) sungEnd = null;
+    }
+    if (sungEnd !== null) {
+      drafts.push({ slot: s, end: sungEnd });
+      holdEnd = sungEnd;
+      continue;
+    }
     if (s.kind === 0 && !s.onset) {
       const prev = drafts[drafts.length - 1];
       // 이어지는 '빈 박' 수를 센다
       let run = 0;
       while (k + run < kept.length && kept[k + run].kind === 0 && !kept[k + run].onset) run++;
-      const lastEmpty = kept[k + run - 1];
       // 빈 박들은 모두 소리가 들리는 박이다(조용한 박은 슬롯이 없다). 바로 앞 노트의 소리가 이어지는 것으로 본다
-      const sustained = prev && prev.end === null && prev.slot.onset && lastEmpty.beat - prev.slot.beat === run;
+      const sustained =
+        prev && prev.end === null && prev.slot.onset && prev.slot.onset.sustain >= LONG_SUSTAIN && kept[k + run - 1].beat - prev.slot.beat === run;
+      run = Math.min(run, maxHold);
+      const lastEmpty = kept[k + run - 1];
       if (run >= 2 && sustained) {
         prev.end = lastEmpty.time;
         k += run - 1;
@@ -150,7 +195,7 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
   }
 
   // 5. 노트가 지나치게 빽빽한 구간은 덜 중요한 노트부터 뺀다 (마디 첫 박은 남긴다)
-  limitDensity(drafts, input.barStarts, MAX_NPS[level], rel);
+  limitDensity(drafts, input.barStarts, MAX_NPS[level], rel, (o) => isSung(o, rules.melodyHalf));
 
   // 6. 레인 배치
   const notes: ChartNote[] = [];
@@ -212,7 +257,7 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
     const isBar = d.slot.kind === 0 && input.barStarts.includes(d.slot.beat);
     const barNo = input.barStarts.indexOf(d.slot.beat);
     const strong = d.slot.onset ? rel.get(d.slot.onset)! >= rules.chord : false;
-    if (isBar && strong && barNo - lastChordBar >= rules.chordEveryBars && heldUntil.every((h) => h <= t)) {
+    if (isBar && strong && barNo - lastChordBar >= rules.chordEveryBars && heldUntil.every((h) => h < t - 1e-6)) {
       const partner = freeLane(LANES - 1 - lane !== lane ? LANES - 1 - lane : (lane + 2) % LANES, t, heldUntil, lane);
       if (partner >= 0) {
         notes.push({ t: note.t, lane: partner });
@@ -221,6 +266,25 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
     }
   }
   return notes.sort((a, b) => a.t - b.t || a.lane - b.lane);
+}
+
+/**
+ * 노래 음이 SUNG_HOLD_BEATS박 이상 이어지면 롱 노트 끝 시각(반 박 격자, 최대 한 마디). 아니면 null
+ */
+function sungHoldEnd(s: Slot, beats: number[], maxHold: number): number | null {
+  const ring = s.onset?.ring;
+  if (!ring) return null;
+  const end = s.onset!.time + ring;
+  let i = upperIndex(beats, end);
+  if (i < 0) return null;
+  if (i >= beats.length - 1) i = beats.length - 2;
+  const len = beats[i + 1] - beats[i];
+  // 소리가 끝난 자리 바로 앞 반 박으로 (1/8박 정도 모자라도 그 반 박까지 친다)
+  let snapped = beats[i] + (Math.floor(((end - beats[i]) / len) * 2 + 0.25) / 2) * len;
+  const cap = beats[Math.min(beats.length - 1, s.beat + maxHold)] + (s.kind === 0 ? 0 : (beats[s.beat + 1] - beats[s.beat]) / 2);
+  snapped = Math.min(snapped, cap);
+  const beatLen = beats[Math.min(beats.length - 1, s.beat + 1)] - beats[s.beat];
+  return snapped - s.time >= SUNG_HOLD_BEATS * beatLen - 1e-6 ? snapped : null;
 }
 
 /**
@@ -251,21 +315,43 @@ function relativeStrength(onsets: Onset[]): Map<Onset, number> {
   return out;
 }
 
+/** onset마다 '주변 4초 안에서 가장 뚜렷한 노래 시작에 대한 비율'. 노래가 아닌 소리는 0 */
+function relativeMelody(onsets: Onset[]): Map<Onset, number> {
+  const out = new Map<Onset, number>();
+  let lo = 0;
+  let hi = 0;
+  for (const o of onsets) {
+    while (onsets[lo].time < o.time - LOCAL_SEC) lo++;
+    while (hi < onsets.length && onsets[hi].time <= o.time + LOCAL_SEC) hi++;
+    let max = 0;
+    for (let k = lo; k < hi; k++) max = Math.max(max, onsets[k].melody ?? 0);
+    out.set(o, max > 0 ? (o.melody ?? 0) / max : 0);
+  }
+  return out;
+}
+
 interface DensityItem {
   slot: { time: number; kind: 0 | 1 | 2; beat: number; onset: Onset | null };
   end: number | null;
 }
 
-/** 노트 중요도: 마디 첫 박 > 소리가 있는 박/롱 노트 > 박자 채움 > 반박 > 1/4박 */
-function priority(d: DensityItem, bars: ReadonlySet<number>): number {
-  if (d.slot.kind === 0 && bars.has(d.slot.beat)) return 5;
-  if (d.end !== null) return 4;
-  if (d.slot.kind === 0) return d.slot.onset ? 4 : 3;
+/** 노트 중요도: 마디 첫 박 > 소리가 있는 박/롱 노트 > 노래가 시작되는 엇박 > 박자 채움 > 반박 > 1/4박 */
+function priority(d: DensityItem, bars: ReadonlySet<number>, sung: (o: Onset) => boolean): number {
+  if (d.slot.kind === 0 && bars.has(d.slot.beat)) return 6;
+  if (d.end !== null) return 5;
+  if (d.slot.kind === 0) return d.slot.onset ? 5 : 3;
+  if (d.slot.onset && sung(d.slot.onset)) return 4;
   return d.slot.kind === 1 ? 2 : 1;
 }
 
 /** 2초 창 안의 노트 수가 maxNps × 2를 넘지 않을 때까지 가장 덜 중요한(같으면 약한) 노트를 뺀다 */
-export function limitDensity<T extends DensityItem>(items: T[], barStarts: readonly number[], maxNps: number, rel: Map<Onset, number>): void {
+export function limitDensity<T extends DensityItem>(
+  items: T[],
+  barStarts: readonly number[],
+  maxNps: number,
+  rel: Map<Onset, number>,
+  sung: (o: Onset) => boolean = () => false,
+): void {
   const bars = new Set(barStarts);
   const cap = maxNps * DENSITY_WINDOW_SEC;
   for (;;) {
@@ -277,8 +363,8 @@ export function limitDensity<T extends DensityItem>(items: T[], barStarts: reado
       // 이 창에서 뺄 노트를 고른다
       let bestScore = Infinity;
       for (let k = lo; k <= hi; k++) {
-        const p = priority(items[k], bars);
-        if (p >= 5) continue;
+        const p = priority(items[k], bars, sung);
+        if (p >= 6) continue;
         const score = p * 10 + (items[k].slot.onset ? rel.get(items[k].slot.onset!) ?? 0 : 0);
         if (score < bestScore) {
           bestScore = score;
@@ -299,7 +385,8 @@ function clamp(lane: number): number {
 /** 원하는 레인이 롱 노트로 막혀 있으면 가장 가까운 빈 레인. 없으면 -1 */
 function freeLane(want: number, t: number, heldUntil: number[], exclude = -1): number {
   const order = [0, 1, -1, 2, -2, 3, -3].map((d) => want + d).filter((l) => l >= 0 && l < LANES);
-  for (const l of order) if (l !== exclude && heldUntil[l] <= t + 1e-6) return l;
+  // 롱 노트가 끝나는 바로 그 순간에도 같은 레인은 비워 둔다 (손을 떼면서 다시 누를 수 없으니)
+  for (const l of order) if (l !== exclude && heldUntil[l] < t - 1e-6) return l;
   return -1;
 }
 

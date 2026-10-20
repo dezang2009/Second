@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Chart } from "../songs/types";
 import { analyzeSamples } from "./analyze";
-import { beatF, beatTimes, type DrumHit, renderDrums, renderNotes, type SynthNote } from "./synth";
+import { beatF, beatTimes, type DrumHit, renderDrums, renderNotes, renderVoice, type SynthNote, type VoiceNote } from "./synth";
 
 // 박 시각을 정확히 아는 합성 곡으로 자동 채보 품질을 잰다.
 // 곡: 박마다 멜로디 음, 마디 첫 박마다 바뀌는 베이스(화음 변화), 가끔 반박 장식음.
@@ -263,6 +263,87 @@ describe("very dense song", () => {
     expect(missing.length / beats.length).toBeLessThan(0.1);
   });
 });
+
+function makeVocalSong(bpm: number, drums: boolean) {
+  // 2마디(8박) 가사 리듬: 엇박, 16분음표, 같은 음 되풀이, 2.5박 끄는 음
+  const beats = beatTimes(1, 64, bpm);
+  const beatLen = 60 / bpm;
+  const RHYTHM = [0, 0.5, 1, 2, 2.5, 3.5, 3.75, 4, 7, 7.5];
+  const PITCH = [440, 440, 494, 523, 494, 440, 392, 440, 523, 587];
+  const syllables: VoiceNote[] = [];
+  for (let phrase = 0; phrase < 8; phrase++) {
+    const base = beats[phrase * 8];
+    RHYTHM.forEach((b, k) => {
+      const next = RHYTHM[k + 1] ?? 8;
+      // 다음 글자 직전까지 이어 부른다 (자음 자리만큼 살짝 끊김)
+      syllables.push({ t: base + b * beatLen, hz: PITCH[k] * (phrase % 2 ? 1.122 : 1), dur: (next - b) * beatLen - 0.04 });
+    });
+  }
+  const hits: DrumHit[] = [];
+  const backing: SynthNote[] = [];
+  beats.forEach((t, i) => {
+    if (drums) hits.push({ t, kind: i % 2 === 0 ? "kick" : "snare" }, { t, kind: "hat" }, { t: t + beatLen / 2, kind: "hat" });
+    if (i % 4 === 0) {
+      const root = [110, 98, 87, 98][(i / 4) % 4];
+      // 드럼 곡은 조용한 패드, 발라드는 마디마다 한 번 치고 길게 울리는 피아노 화음
+      for (const m of [1, 2, 2.52, 3]) backing.push({ t, hz: root * m, dur: 4 * beatLen, gain: drums ? 0.05 : 0.12, decay: drums ? 4 : 2.5 });
+    }
+  });
+  const samples = renderNotes(backing, beats[63] + 2, 0.001);
+  renderDrums(hits, samples);
+  renderVoice(syllables, samples);
+  return { samples, beats, beatLen, syllables };
+}
+
+for (const [name, bpm, drums] of [["vocal song with drums", 100, true], ["ballad with piano chords", 84, false]] as const) {
+  describe(name, () => {
+    const { samples, beatLen, syllables } = makeVocalSong(bpm, drums);
+    const result = analyzeSamples(samples, { title: name });
+    const { normal, hard } = result.charts;
+    const hasNote = (c: Chart, t: number) => c.notes.some((n) => Math.abs(n.t / 1000 - t) < 0.035);
+    const on8 = syllables.filter((v) => {
+      const x = ((v.t - 1) / beatLen) * 2;
+      return Math.abs(x - Math.round(x)) < 0.01;
+    });
+
+    it("tracks the beat", () => {
+      // 드럼 없는 느린 곡은 8분음표를 박으로 잡을 수도 있다 (84와 168은 120 BPM 기준에서 거의 같은 거리). 둘 다 박자는 맞다
+      const ok = [1, ...(drums ? [] : [2])].some((k) => Math.abs(result.bpm / (bpm * k) - 1) < 0.02);
+      expect(ok, `bpm ${result.bpm}`).toBe(true);
+    });
+
+    it("puts a note on every sung syllable on the 8th-note grid in NORMAL", () => {
+      const missed = on8.filter((v) => !hasNote(normal, v.t));
+      expect(missed.length / on8.length).toBeLessThan(0.1);
+    });
+
+    it("puts a note on almost every sung syllable in HARD", () => {
+      const missed = syllables.filter((v) => !hasNote(hard, v.t));
+      expect(missed.length / syllables.length).toBeLessThan(0.08);
+    });
+
+    it("holds a long sung note", () => {
+      // 각 소절 4박째에서 2.5박 끄는 음
+      const held = syllables.filter((v) => v.dur > 2 * beatLen);
+      // 드럼이 박마다 치는 곡의 NORMAL은 롱 노트 대신 박을 치므로 HARD로 본다
+      const chart = drums ? hard : normal;
+      const longs = held.filter((v) => chart.notes.some((n) => n.len && Math.abs(n.t / 1000 - v.t) < 0.035 && n.len / 1000 > beatLen * 1.5));
+      expect(longs.length / held.length).toBeGreaterThan(0.7);
+    });
+
+    it("never covers a new syllable with a long note", () => {
+      for (const c of [normal, hard]) {
+        const swallowed = syllables.filter((v) => c.notes.some((n) => n.len && n.t / 1000 + 0.04 < v.t && v.t < (n.t + n.len) / 1000 - 0.04));
+        expect(swallowed.map((v) => v.t.toFixed(2))).toEqual([]);
+      }
+    });
+
+    it("is playable", () => {
+      checkPlayable(normal);
+      checkPlayable(hard);
+    });
+  });
+}
 
 describe("speed", () => {
   it("analyzes a minute of audio quickly", () => {

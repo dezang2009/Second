@@ -1,6 +1,6 @@
 import type { Chart } from "../songs/types";
 import { estimateTempo, trackBeats } from "./beats";
-import { computeFeatures, FRAME_RATE, frameToSec, pitchAt, refineOnsetTime, SR } from "./features";
+import { computeFeatures, FRAME_RATE, frameToSec, pitchAt, refineOnsetTime, ringTime, SR } from "./features";
 import { detectMeter } from "./meter";
 import { buildNotes, type Level, type Onset } from "./notes";
 
@@ -17,6 +17,15 @@ export const ONSET_LAG_SEC = -0.025;
 const BEAT_SNAP_SEC = 0.06;
 /** 가장 큰 음량보다 이만큼 이상 작으면 조용한 구간으로 본다(dB) */
 const SILENCE_DB = 35;
+/** 노래 onset과 전체 onset을 같은 소리로 볼 거리(프레임, 약 46ms) */
+const MELODY_MATCH = 2;
+/** 전체 onset에 없던 노래 시작을 더할 때 필요한 전체 onset 세기 (가장 센 onset 대비) */
+const MELODY_MIN_STRENGTH = 0.06;
+/** 끄는 음인지 재 볼 노래 시작: 곡 전체 가장 뚜렷한 노래 시작의 이 비율 이상 */
+const RING_MIN_MELODY = 0.1;
+/** 다음 노래 시작까지 이만큼은 비어야 끄는 음 후보(초) */
+const MIN_RING_GAP_SEC = 0.5;
+const MAX_RING_SEC = 3;
 
 export interface AnalysisResult {
   charts: Record<Level, Chart>;
@@ -47,8 +56,22 @@ export function analyzeSamples(samples: Float32Array, opt: AnalyzeOptions): Anal
   const bandAt = (band: Float32Array, p: number) => Math.max(band[p - 1] ?? 0, band[p], band[p + 1] ?? 0);
   const maxKick = Math.max(1e-9, ...peaks.map((p) => bandAt(f.bassOnset, p)));
   const maxSnare = Math.max(1e-9, ...peaks.map((p) => bandAt(f.highOnset, p)));
-  const onsets: Onset[] = peaks.map((p, i) => {
-    if (i % 50 === 0) progress(0.7 + (0.25 * i) / peaks.length, "노트 찾기");
+  // 노래(멜로디) onset: 전체 onset에 이미 있으면 그 onset에 표시만 하고, 없으면(부드럽게 시작한 가사) 새로 더한다
+  const melodyPeaks = pickPeaks(f.melodyOnset);
+  const maxMelody = Math.max(1e-9, ...melodyPeaks.map((p) => f.melodyOnset[p]));
+  const melodySet = new Set(melodyPeaks);
+  const melodyAt = (p: number) => {
+    let m = 0;
+    for (let k = p - MELODY_MATCH; k <= p + MELODY_MATCH; k++) if (melodySet.has(k)) m = Math.max(m, f.melodyOnset[k] / maxMelody);
+    return m;
+  };
+  const frames = [...peaks];
+  // 전체 소리로는 거의 아무 변화가 없는 자리는 노래 시작으로 보지 않는다 (페달로 울리는 음의 흔들림 등)
+  const strengthAt = (p: number) => Math.max(f.onset[p - 1] ?? 0, f.onset[p], f.onset[p + 1] ?? 0) / maxStrength;
+  for (const p of melodyPeaks) if (!peaks.some((q) => Math.abs(q - p) <= MELODY_MATCH) && strengthAt(p) >= MELODY_MIN_STRENGTH) frames.push(p);
+  frames.sort((a, b) => a - b);
+  const onsets: Onset[] = frames.map((p, i) => {
+    if (i % 50 === 0) progress(0.7 + (0.25 * i) / frames.length, "노트 찾기");
     const { midi, sustain } = pitchAt(f.samples, p);
     return {
       time: refineOnsetTime(f.samples, frameToSec(p)),
@@ -57,7 +80,17 @@ export function analyzeSamples(samples: Float32Array, opt: AnalyzeOptions): Anal
       sustain,
       kick: bandAt(f.bassOnset, p) / maxKick,
       snare: bandAt(f.highOnset, p) / maxSnare,
+      melody: melodyAt(p),
     };
+  });
+  for (let i = 1; i < onsets.length; i++) if (onsets[i].time <= onsets[i - 1].time) onsets[i].time = onsets[i - 1].time + 0.001;
+  // 노래 음이 다음 '다른 음' 노래 시작까지 넉넉히 비면, 그 음이 실제로 얼마나 이어지는지 잰다 (끄는 음 → 롱 노트).
+  // 같은 음의 onset은 드럼 잡음에 잠깐 가려졌다 드러난 것일 수 있어 세지 않는다 (같은 음을 다시 부른 것은 ringTime이 끊김으로 찾는다)
+  const sung = onsets.map((o, i) => ({ o, frame: frames[i] })).filter(({ o }) => (o.melody ?? 0) >= RING_MIN_MELODY && o.midi !== null);
+  sung.forEach(({ o, frame }, k) => {
+    const next = sung.slice(k + 1).find(({ o: q }) => q.midi! % 12 !== o.midi! % 12);
+    const gap = (next?.o.time ?? o.time + MAX_RING_SEC) - o.time;
+    if (gap >= MIN_RING_GAP_SEC) o.ring = ringTime(f.samples, frame, o.midi!, Math.min(gap, MAX_RING_SEC));
   });
 
   // 박은 가까운 실제 소리 시작에 붙인다. onset으로 잡히지 않은 약한 소리는 파형에서 직접 찾고,
@@ -87,7 +120,7 @@ export function analyzeSamples(samples: Float32Array, opt: AnalyzeOptions): Anal
     return m >= loud - SILENCE_DB;
   });
   const meter = detectMeter(f.chroma, f.frames, beatFrames, f.bassOnset);
-  const input = { beats, barStarts: meter.barStarts, onsets, beatActive };
+  const input = { beats, barStarts: meter.barStarts, onsets, beatActive, beatsPerBar: meter.beatsPerBar };
 
   const intervals = beats.slice(1).map((b, i) => b - beats[i]).sort((a, b) => a - b);
   const medianBeat = intervals[intervals.length >> 1] ?? 60 / bpm;

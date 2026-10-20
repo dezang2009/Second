@@ -19,6 +19,11 @@ export interface Features {
   bassOnset: Float32Array;
   /** 2kHz 위(스네어, 하이햇) 대역만 본 onset */
   highOnset: Float32Array;
+  /**
+   * 노래(멜로디) onset: 스펙트럼의 뚜렷한 봉우리(음높이가 있는 소리)만으로, 300Hz~4kHz에서 새로 커진 정도.
+   * 부드럽게 시작하는 가사 한 글자, 같은 음을 다시 부르는 자리도 잡는다.
+   */
+  melodyOnset: Float32Array;
   rmsDb: Float32Array;
   /** frames × 12, 프레임마다 정규화하지 않은 12음 세기 */
   chroma: Float32Array;
@@ -78,6 +83,8 @@ export function computeFeatures(samples: Float32Array, onProgress?: (ratio: numb
   const power = new Float32Array(N_FFT / 2 + 1);
   const filters = melFilters();
   const melDb = new Float32Array(frames * N_MELS);
+  const tonalDb = new Float32Array(frames * N_MELS);
+  const tonal = new Float32Array(N_FFT / 2 + 1);
   const rmsDb = new Float32Array(frames);
   const chroma = new Float32Array(frames * 12);
 
@@ -105,6 +112,13 @@ export function computeFeatures(samples: Float32Array, onProgress?: (ratio: numb
       melDb[t * N_MELS + m] = db;
       if (db > maxDb) maxDb = db;
     }
+    tonalPeaks(power, tonal);
+    for (let m = 0; m < N_MELS; m++) {
+      const { start, weights } = filters[m];
+      let e = 0;
+      for (let i = 0; i < weights.length; i++) e += tonal[start + i] * weights[i];
+      tonalDb[t * N_MELS + m] = 10 * Math.log10(Math.max(1e-10, e));
+    }
     for (let k = 1; k <= N_FFT / 2; k++) {
       const pc = pcOfBin[k];
       if (pc >= 0) chroma[t * 12 + pc] += power[k];
@@ -114,7 +128,10 @@ export function computeFeatures(samples: Float32Array, onProgress?: (ratio: numb
 
   // 너무 작은 소리는 바닥값으로 묶는다 (librosa power_to_db의 top_db)
   const floor = maxDb - TOP_DB;
-  for (let i = 0; i < melDb.length; i++) if (melDb[i] < floor) melDb[i] = floor;
+  for (let i = 0; i < melDb.length; i++) {
+    if (melDb[i] < floor) melDb[i] = floor;
+    if (tonalDb[i] < floor) tonalDb[i] = floor;
+  }
 
   const bassBands = filters.filter((fl) => fl.center < 200).length;
   const highFrom = filters.findIndex((fl) => fl.center >= 2000);
@@ -139,7 +156,122 @@ export function computeFeatures(samples: Float32Array, onProgress?: (ratio: numb
     highOnset[t] = highBands > 0 ? high / highBands : 0;
   }
   onProgress?.(1);
-  return { frames, onset, bassOnset, highOnset, rmsDb, chroma, samples };
+  const melodyOnset = harmonicOnset(tonalDb, melDb, frames, filters.map((fl) => fl.center));
+  return { frames, onset, bassOnset, highOnset, melodyOnset, rmsDb, chroma, samples };
+}
+
+/** 주변보다 이만큼 이상 센 스펙트럼 봉우리만 '음'으로 본다 (약 8dB) */
+const TONAL_PROMINENCE = 6;
+
+/**
+ * 스펙트럼에서 뚜렷한 봉우리(노래, 악기의 배음)만 남긴다.
+ * 드럼처럼 넓게 퍼진 잡음 소리에는 이런 봉우리가 거의 없다.
+ */
+function tonalPeaks(power: Float32Array, out: Float32Array): void {
+  out.fill(0);
+  const n = power.length;
+  for (let k = 10; k < n - 10; k++) {
+    const p = power[k];
+    if (p < power[k - 1] || p < power[k + 1] || p < power[k - 2] || p < power[k + 2]) continue;
+    let side = 0;
+    for (let j = 4; j <= 9; j++) side += power[k - j] + power[k + j];
+    if (p < (TONAL_PROMINENCE * side) / 12) continue;
+    out[k - 1] = power[k - 1];
+    out[k] = p;
+    out[k + 1] = power[k + 1];
+  }
+}
+
+/** 멜로디 대역 아래 끝. 킥과 스네어 몸통(200Hz 안팎)의 울림을 피하고, 노래는 배음으로 잡는다 */
+const MELODY_LO_HZ = 300;
+
+/** 같은 음을 다시 부를 때 끊기는 길이(프레임)와, 그때 노래 대역 세기가 줄어야 하는 정도(dB) */
+const DIP_SPAN = 4;
+const DIP_DB = 1.5;
+
+/** 시간 방향 중앙값 창(프레임, 약 0.4초. 분석 창이 93ms라 짧은 타격도 여러 프레임에 걸치므로 넉넉히) */
+const HARM_WIN = 17;
+
+/**
+ * 멜로디 대역(300Hz~4kHz)의 뚜렷한 봉우리 세기에서 '길게 이어지는 소리'가 새로 시작된 정도를 구한다.
+ *  - 대역마다 앞뒤 0.4초 중앙값을 쓴다. 드럼처럼 짧게 튀는 소리는 중앙값을 넘지 못해 사라지고,
+ *    노래나 악기 음이 새로 시작되면 중앙값도 바로 그 자리에서 올라간다 (중앙값은 계단 모양을 그대로 둔다)
+ *  - 같은 음을 다시 부를 때의 짧은 끊김은 중앙값에서 사라지므로 따로 찾는다: 지금 세기가 잠깐 꺼졌다 돌아왔고,
+ *    그동안 노래 대역 전체 세기도 줄었을 때만 (드럼 잡음에 음이 잠깐 가려진 것은 전체 세기가 오히려 커진다)
+ *  - 비브라토처럼 음이 옆 대역으로 살짝 옮겨 가는 것은 새 소리로 치지 않는다
+ */
+function harmonicOnset(tonalDb: Float32Array, rawDb: Float32Array, frames: number, centers: number[]): Float32Array {
+  const from = centers.findIndex((c) => c >= MELODY_LO_HZ);
+  let to = centers.findIndex((c) => c > 4000);
+  if (to < 0) to = N_MELS;
+  let coreTo = centers.findIndex((c) => c > 2000);
+  if (coreTo < 0) coreTo = N_MELS;
+  const med = new Float32Array(frames * N_MELS);
+  const low = new Float32Array(frames * N_MELS);
+  const half = HARM_WIN >> 1;
+  const at = (k: number, m: number) => (k >= 0 && k < frames ? tonalDb[k * N_MELS + m] : -Infinity);
+  for (let m = from; m < to; m++) {
+    // 정렬된 창을 한 칸씩 밀며 중앙값을 구한다 (빠지는 값 하나 빼고, 들어오는 값 하나 끼움)
+    const win: number[] = [];
+    for (let k = -half; k <= half; k++) win.push(at(k, m));
+    win.sort((a, b) => a - b);
+    for (let t = 0; t < frames; t++) {
+      med[t * N_MELS + m] = win[half];
+      low[t * N_MELS + m] = Math.min(tonalDb[t * N_MELS + m], win[half]);
+      win.splice(lowerBound(win, at(t - half, m)), 1);
+      const v = at(t + half + 1, m);
+      win.splice(lowerBound(win, v), 0, v);
+    }
+  }
+  // 직전 프레임의 이웃 대역 중 가장 큰 값과 비교한 상승량 (SuperFlux). 비브라토로 음이 옆 대역에 걸치는 것은 새 소리가 아니다
+  const flux = (x: Float32Array, t: number) => {
+    let s = 0;
+    const p = (t - 1) * N_MELS;
+    for (let m = from; m < to; m++) {
+      const prev = Math.max(x[p + m], m > from ? x[p + m - 1] : -Infinity, m + 1 < to ? x[p + m + 1] : -Infinity);
+      const d = x[t * N_MELS + m] - prev;
+      if (d > 0) s += d;
+    }
+    return s / (to - from);
+  };
+  // 노래 핵심 대역(300Hz~2kHz)의 전체 세기. 짧게 끊긴 자리가 정말 소리가 줄어든 것인지(노래를 끊음),
+  // 드럼 잡음이 덮어 음만 가려진 것인지(전체 세기는 오히려 커짐) 가린다
+  const core = new Float32Array(frames);
+  for (let t = 0; t < frames; t++) {
+    let e = 0;
+    for (let m = from; m < coreTo; m++) e += 10 ** (rawDb[t * N_MELS + m] / 10);
+    core[t] = 10 * Math.log10(e + 1e-10);
+  }
+  const out = new Float32Array(frames);
+  for (let t = 1; t < frames; t++) {
+    const steady = flux(med, t);
+    const withDips = flux(low, t);
+    let rearticulated = 0;
+    if (withDips > steady && t > DIP_SPAN) {
+      const pre = core[t - DIP_SPAN - 1];
+      let dipMin = Infinity;
+      let dipMax = -Infinity;
+      for (let k = t - DIP_SPAN; k < t; k++) {
+        dipMin = Math.min(dipMin, core[k]);
+        dipMax = Math.max(dipMax, core[k]);
+      }
+      if (dipMin < pre - DIP_DB && dipMax < pre + DIP_DB) rearticulated = withDips - steady;
+    }
+    out[t] = steady + rearticulated;
+  }
+  return out;
+}
+
+/** 정렬된 배열에서 v 이상인 첫 위치 */
+function lowerBound(a: number[], v: number): number {
+  let lo = 0;
+  let hi = a.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (a[mid] < v) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /**
@@ -161,7 +293,8 @@ export function pitchAt(samples: Float32Array, frame: number): { midi: number | 
   fft.power(buf, later, win);
 
   const binHz = SR / N_FFT;
-  const lo = Math.ceil(130 / binHz);
+  // 킥 드럼(150Hz 아래)이 함께 쳐도 노래 음을 찾도록 200Hz부터 본다 (낮은 음은 배음으로 잡힌다)
+  const lo = Math.ceil(200 / binHz);
   const hi = Math.floor(2100 / binHz);
   let maxRise = 0;
   for (let k = lo; k <= hi; k++) maxRise = Math.max(maxRise, after[k] - before[k]);
@@ -216,4 +349,36 @@ export function refineOnsetTime(samples: Float32Array, approxSec: number): numbe
     }
   }
   return best < 0 ? approxSec : starts[best] / SR;
+}
+
+/**
+ * frame에서 시작한 음(midi)이 끊기지 않고 얼마나 오래 울리는지(초, 최대 maxSec).
+ * 그 음 주파수의 세기가 시작 직후의 20% 아래로 떨어지거나, 바로 앞 0.1초보다 갑자기 1/3 아래로 꺼지면
+ * (같은 음을 새로 부르려고 잠깐 끊은 자리) 거기서 끝으로 본다. 노래처럼 끄는 음은 길고, 피아노는 짧다.
+ */
+export function ringTime(samples: Float32Array, frame: number, midi: number, maxSec: number): number {
+  const fft = new FFT(N_FFT);
+  const win = hann(N_FFT);
+  const buf = new Float32Array(N_FFT);
+  const power = new Float32Array(N_FFT / 2 + 1);
+  const bin = Math.round((440 * 2 ** ((midi - 69) / 12)) / (SR / N_FFT));
+  const level = (f: number) => {
+    frameAt(samples, f, buf);
+    fft.power(buf, power, win);
+    // 비브라토로 한두 칸 흔들려도 같은 음으로 본다
+    return Math.max(power[bin - 2] ?? 0, power[bin - 1] ?? 0, power[bin], power[bin + 1] ?? 0, power[bin + 2] ?? 0);
+  };
+  const first = frame + 2;
+  const start = level(first);
+  if (start <= 0) return 0;
+  const recent: number[] = [start];
+  const last = first + secToFrame(maxSec);
+  let f = first + 1;
+  for (; f <= last; f++) {
+    const v = level(f);
+    if (v < start * 0.2 || v < Math.max(...recent) / 3) break;
+    recent.push(v);
+    if (recent.length > 4) recent.shift();
+  }
+  return frameToSec(f - 1 - frame);
 }

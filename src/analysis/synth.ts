@@ -108,3 +108,32 @@ export function renderDrums(hits: DrumHit[], out: Float32Array): void {
     }
   }
 }
+
+export interface VoiceNote {
+  t: number;
+  hz: number;
+  dur: number;
+  gain?: number;
+}
+
+/**
+ * 노랫소리 비슷한 음: 배음이 많고, 25ms에 걸쳐 부드럽게 시작하며(타격 없음),
+ * 150ms 뒤부터 비브라토가 걸리고, 끝날 때까지 세기가 거의 줄지 않는다.
+ */
+export function renderVoice(notes: VoiceNote[], out: Float32Array): void {
+  for (const n of notes) {
+    const start = Math.round(n.t * SR);
+    const len = Math.round(n.dur * SR);
+    const g = n.gain ?? 0.1;
+    let phase = 0;
+    for (let i = 0; i < len && start + i < out.length; i++) {
+      const t = i / SR;
+      const vib = t > 0.15 ? 1 + 0.012 * Math.sin(2 * Math.PI * 5.5 * t) : 1;
+      phase += (2 * Math.PI * n.hz * vib) / SR;
+      const env = Math.min(1, t / 0.025) * Math.min(1, (len - i) / (0.03 * SR)) * (1 - 0.15 * Math.min(1, t / 1.5));
+      let v = 0;
+      for (let h = 1; h <= 8; h++) v += Math.sin(h * phase) / h;
+      out[start + i] += g * env * v;
+    }
+  }
+}
