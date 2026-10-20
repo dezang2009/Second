@@ -36,13 +36,11 @@ def foreground():
 
 
 def background():
-    # 대각선 선형 그라데이션
-    g = Image.linear_gradient('L').resize((S, S))
-    g = g.rotate(45, resample=Image.BICUBIC, expand=True)
-    w = g.size[0]
-    g = g.crop(((w - S) // 2, (w - S) // 2, (w - S) // 2 + S, (w - S) // 2 + S))
-    a, b = Image.new('RGB', (S, S), C1), Image.new('RGB', (S, S), C2)
-    return Image.composite(b, a, g)
+    # 대각선 선형 그라데이션 (왼쪽 위 C1 → 오른쪽 아래 C2)
+    import numpy as np
+    t = np.add.outer(np.arange(S), np.arange(S)) / (2 * (S - 1))
+    arr = np.stack([C1[i] + (C2[i] - C1[i]) * t for i in range(3)], -1).astype('uint8')
+    return Image.fromarray(arr, 'RGB')
 
 
 def main():
