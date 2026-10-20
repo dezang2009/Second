@@ -1,13 +1,13 @@
-import { theme } from "./theme";
+import { paintBackground, theme } from "./theme";
 
 // 화면 전체를 덮는 점 격자. 박자에 맞춰 레인 쪽 점이 부드럽게 숨쉬고,
 // 노트를 치면 판정선에서 물결이 천천히 퍼진다.
 // 밝기 변화는 작게, 곡선은 매끄럽게 유지한다 (깜빡임 금지).
 
-const BASE_ALPHA = 0.09;
-const LANE_ALPHA = 0.05;
-const BEAT_ALPHA = 0.035;
-const WAVE_GAIN = 0.18;
+const BASE_ALPHA = 0.1;
+const LANE_ALPHA = 0.04;
+const BEAT_ALPHA = 0.05;
+const WAVE_GAIN = 0.22;
 /** 물결이 1초에 화면 폭의 몇 배만큼 퍼지는지 */
 const WAVE_SPEED = 0.7;
 const COLUMNS = 22;
@@ -40,8 +40,7 @@ export function drawDotField(
   pulse: number,
   waves: Wave[] = [],
 ): void {
-  ctx.fillStyle = theme.bg;
-  ctx.fillRect(0, 0, w, h);
+  paintBackground(ctx, w, h);
 
   const gap = w / COLUMNS;
   const band = gap * 2.6;

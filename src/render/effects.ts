@@ -1,30 +1,31 @@
 import type { Grade } from "../game/judge";
 import type { Wave } from "./dotField";
-import { theme } from "./theme";
+import { font, laneColors, rgba, theme } from "./theme";
 
-// 판정 효과: 판정선에서 퍼지는 고리, 점 격자 물결, 작은 판정 글자, 콤보 숫자.
+// 판정 효과: 판정선에서 퍼지는 고리, 점 격자 물결, 판정 글자, 콤보 숫자.
 // 모두 서서히 나타나고 사라지며 깜빡이지 않는다 (DESIGN.md 화면 규칙).
 
-const RING_SEC = 0.3;
+const RING_SEC = 0.32;
 const WAVE_SEC = 0.9;
-const LABEL_SEC = 0.45;
+const LABEL_SEC = 0.5;
 
 interface Hit {
   x: number;
   y: number;
+  lane: number;
   /** 효과가 시작된 화면 시각(초, performance.now 기준) */
   at: number;
   grade: Grade;
 }
 
-const LABEL: Record<Grade, string> = { perfect: "perfect", great: "great", good: "good", miss: "miss" };
+const LABEL: Record<Grade, string> = { perfect: "PERFECT", great: "GREAT", good: "GOOD", miss: "MISS" };
 
 export class Effects {
   private hits: Hit[] = [];
   private label: { grade: Grade; at: number } | null = null;
 
-  add(x: number, y: number, grade: Grade, now: number): void {
-    if (grade !== "miss") this.hits.push({ x, y, at: now, grade });
+  add(x: number, y: number, lane: number, grade: Grade, now: number): void {
+    if (grade !== "miss") this.hits.push({ x, y, lane, at: now, grade });
     this.label = { grade, at: now };
   }
 
@@ -44,11 +45,11 @@ export class Effects {
       const k = (now - h.at) / RING_SEC;
       if (k >= 1) continue;
       const ease = 1 - Math.pow(1 - k, 3);
-      const alpha = (h.grade === "perfect" ? 0.5 : 0.35) * (1 - k);
-      ctx.strokeStyle = `rgba(142,155,214,${alpha})`;
-      ctx.lineWidth = 1.5;
+      const color = laneColors(h.lane)[1];
+      ctx.strokeStyle = rgba(color, (h.grade === "perfect" ? 0.7 : 0.5) * (1 - k));
+      ctx.lineWidth = 3 * (1 - k) + 1;
       ctx.beginPath();
-      ctx.arc(h.x, h.y, 6 + ease * 24, 0, Math.PI * 2);
+      ctx.arc(h.x, h.y, 10 + ease * 30, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -58,11 +59,12 @@ export class Effects {
         this.label = null;
       } else {
         const g = this.label.grade;
-        ctx.globalAlpha = 0.75 * (1 - k);
-        ctx.fillStyle = g === "perfect" ? theme.accent : g === "miss" ? theme.muted : theme.ink;
-        ctx.font = "400 12px ui-monospace, Menlo, monospace";
+        const rise = 1 - Math.pow(1 - Math.min(1, k * 3), 2); // 처음에 살짝 떠오르고 멈춘다
+        ctx.globalAlpha = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+        ctx.fillStyle = g === "perfect" ? theme.accent : g === "miss" ? theme.miss : theme.ink;
+        ctx.font = font(800, 18);
         ctx.textAlign = "center";
-        ctx.fillText(LABEL[g], labelX, labelY - k * 10);
+        ctx.fillText(LABEL[g], labelX, labelY - rise * 8);
         ctx.globalAlpha = 1;
       }
     }
@@ -72,12 +74,10 @@ export class Effects {
 export function drawCombo(ctx: CanvasRenderingContext2D, combo: number, x: number, y: number): void {
   if (combo < 2) return;
   ctx.textAlign = "center";
-  ctx.fillStyle = theme.ink;
-  ctx.globalAlpha = 0.85;
-  ctx.font = "300 28px ui-monospace, Menlo, monospace";
+  ctx.fillStyle = rgba(theme.ink, 0.85);
+  ctx.font = font(800, 30);
   ctx.fillText(String(combo), x, y);
-  ctx.globalAlpha = 1;
   ctx.fillStyle = theme.muted;
-  ctx.font = "500 9px ui-monospace, Menlo, monospace";
+  ctx.font = font(700, 10);
   ctx.fillText("COMBO", x, y + 15);
 }

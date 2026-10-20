@@ -1,6 +1,7 @@
-// 화면 흐름: 곡 목록 → 플레이 → 결과, 곡 목록 → 채보 만들기 (→ 시험 플레이 → 결과 → 채보 만들기).
+// 화면 흐름: 메뉴 → 곡 목록 → 플레이 → 결과, 곡 목록 → 채보 만들기 (→ 시험 플레이 → 결과 → 채보 만들기).
 // 음원과 직접 만든 채보, 최고 기록은 이 기기에만 보관한다.
 
+import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 import { audio, unlockAudio } from "./audio/audio";
 import { AudioLoadError, decodeAudio, stripExtension } from "./audio/loader";
 import { createMetronomeBuffer } from "./audio/metronome";
@@ -11,6 +12,8 @@ import { Stage } from "./game/stage";
 import { BUILTIN_CHARTS, builtinById, emptyChart, findBuiltinFor } from "./songs/catalog";
 import { buildDemoChart } from "./songs/demo";
 import type { Chart } from "./songs/types";
+import { ChartFormatError, chartFileName, parseChart } from "./songs/validate";
+import { exportTextFile } from "./storage/share";
 import { deleteSong, getSong, listSongs, newId, putSong, type SongRecord, updateSong } from "./storage/library";
 
 const METRONOME_BARS = 64;
@@ -18,9 +21,9 @@ const METRONOME_BARS = 64;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const stage = new Stage($<HTMLCanvasElement>("game"));
 
-type ScreenName = "list" | "play" | "result" | "edit";
+type ScreenName = "menu" | "list" | "play" | "result" | "edit";
 function show(name: ScreenName): void {
-  for (const s of ["list", "play", "result", "edit"] as const) $(`screen-${s}`).hidden = s !== name;
+  for (const s of ["menu", "list", "play", "result", "edit"] as const) $(`screen-${s}`).hidden = s !== name;
   document.body.dataset.screen = name;
   document.body.classList.remove("running");
 }
@@ -41,10 +44,10 @@ function chartOf(song: SongRecord): Chart {
   return song.userChart ?? builtinById(song.builtinId)?.chart ?? emptyChart(song.title, song.durationMs);
 }
 
-function chartLabel(song: SongRecord): string {
-  if (song.userChart) return `직접 만든 채보 · 노트 ${song.userChart.notes.length}개`;
+function chartChip(song: SongRecord): { text: string; kind: "builtin" | "user" | "none" } {
+  if (song.userChart) return { text: `내 채보 · 노트 ${song.userChart.notes.length}`, kind: "user" };
   const b = builtinById(song.builtinId);
-  return b ? `기본 채보 · 노트 ${b.chart.notes.length}개` : "채보 없음";
+  return b ? { text: `기본 채보 · 노트 ${b.chart.notes.length}`, kind: "builtin" } : { text: "채보 없음", kind: "none" };
 }
 
 // 같은 곡을 다시 열 때 디코딩을 반복하지 않는다
@@ -59,12 +62,31 @@ audio().clock.onEnded = () => {
   else if (editScene) stopEditor();
 };
 
+// ---------- 메뉴 ----------
+
+/** 곡 목록을 연 목적: 플레이할 곡 고르기, 또는 채보를 만들 곡 고르기 */
+let listMode: "play" | "edit" = "play";
+
+function openList(mode: "play" | "edit"): void {
+  listMode = mode;
+  $("list-heading").textContent = mode === "play" ? "곡 선택" : "채보 만들기";
+  $("list-sub").textContent = mode === "play" ? "플레이할 곡을 골라주세요" : "채보를 만들거나 고칠 곡을 골라주세요";
+  setStatus(list.status, "");
+  show("list");
+  void renderList();
+}
+
+$("menu-play").addEventListener("click", () => openList("play"));
+$("menu-edit").addEventListener("click", () => openList("edit"));
+$("list-back").addEventListener("click", () => show("menu"));
+
 // ---------- 곡 목록 ----------
 
 const list = {
   ul: $("song-list"),
   status: $("list-status"),
   file: $<HTMLInputElement>("file"),
+  importFile: $<HTMLInputElement>("import-file"),
 };
 
 function setStatus(el: HTMLElement, text: string, isError = false): void {
@@ -82,49 +104,78 @@ async function renderList(): Promise<void> {
     list.ul.append(li);
     return;
   }
-  for (const song of songs) list.ul.append(songRow(song));
+  for (const song of songs) list.ul.append(songCard(song));
 }
 
-function songRow(song: SongRecord): HTMLLIElement {
+function songCard(song: SongRecord): HTMLLIElement {
   const li = document.createElement("li");
-  li.className = "song";
+  li.className = "song-card";
   const chart = chartOf(song);
   const hasNotes = chart.notes.length > 0;
   li.innerHTML = `
-    <div class="song-main">
-      <span class="song-title"></span>
-      <span class="song-meta"></span>
-      <span class="song-best"></span>
+    <div class="song-top">
+      <div class="song-info">
+        <span class="song-title"></span>
+        <span class="song-meta"></span>
+        <span class="chip"></span>
+      </div>
+      <div class="song-rank"><span class="rank-letter"></span><span class="rank-score"></span></div>
     </div>
     <div class="song-actions">
-      <button class="btn small" data-act="play" type="button">플레이</button>
-      <button class="btn ghost small" data-act="edit" type="button"></button>
+      <button class="btn small" data-act="main" type="button"></button>
+      <button class="btn ghost small" data-act="second" type="button"></button>
+      <button class="btn ghost small more" data-act="more" type="button" aria-label="더보기" aria-expanded="false">···</button>
+    </div>
+    <div class="song-more" hidden>
+      <button class="btn ghost small" data-act="export" type="button">채보 내보내기</button>
+      <button class="btn ghost small" data-act="import" type="button">채보 가져오기</button>
       <button class="btn ghost small" data-act="delete" type="button">삭제</button>
     </div>`;
-  const q = (sel: string) => li.querySelector(sel) as HTMLElement;
+  const q = <T extends HTMLElement = HTMLElement>(sel: string) => li.querySelector(sel) as T;
   q(".song-title").textContent = song.title;
-  q(".song-meta").textContent = `${formatTime(song.durationMs / 1000)} · ${chartLabel(song)}`;
-  const best = q(".song-best");
+  const meter = chart.bpm ? ` · ${chart.beatsPerBar}/4 · ${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM` : "";
+  q(".song-meta").textContent = `${formatTime(song.durationMs / 1000)}${meter}`;
+  const chip = chartChip(song);
+  q(".chip").textContent = chip.text;
+  q(".chip").classList.add(chip.kind);
+  const rank = q(".rank-letter");
   if (song.best) {
-    best.textContent = `최고 ${song.best.score.toLocaleString("ko-KR")}점 · ${song.best.rank} · 최대 콤보 ${song.best.maxCombo}`;
-    best.classList.add("has");
+    rank.textContent = song.best.rank;
+    q(".rank-score").textContent = song.best.score.toLocaleString("ko-KR");
   } else {
-    best.textContent = hasNotes ? "아직 기록 없음" : "채보 만들기로 노트를 찍어주세요";
+    rank.textContent = "–";
+    rank.classList.add("none");
+    q(".rank-score").textContent = hasNotes ? "기록 없음" : "";
   }
-  const playBtn = q('[data-act="play"]') as HTMLButtonElement;
+
+  const playBtn = listMode === "play" ? q<HTMLButtonElement>('[data-act="main"]') : q<HTMLButtonElement>('[data-act="second"]');
+  const editBtn = listMode === "play" ? q<HTMLButtonElement>('[data-act="second"]') : q<HTMLButtonElement>('[data-act="main"]');
+  playBtn.textContent = "플레이";
   playBtn.disabled = !hasNotes;
   playBtn.addEventListener("click", () => {
     unlockAudio();
     void startSong(song.id);
   });
-  const editBtn = q('[data-act="edit"]') as HTMLButtonElement;
   editBtn.textContent = hasNotes ? "채보 수정" : "채보 만들기";
   editBtn.addEventListener("click", () => {
     unlockAudio();
     void openEditor(song.id);
   });
-  const del = q('[data-act="delete"]') as HTMLButtonElement;
-  confirmTwice(del, "한 번 더 누르면 삭제", async () => {
+
+  const more = q<HTMLButtonElement>('[data-act="more"]');
+  more.addEventListener("click", () => {
+    const panel = q(".song-more");
+    panel.hidden = !panel.hidden;
+    more.setAttribute("aria-expanded", String(!panel.hidden));
+  });
+  const exportBtn = q<HTMLButtonElement>('[data-act="export"]');
+  exportBtn.disabled = !hasNotes;
+  exportBtn.addEventListener("click", () => void exportChart(song));
+  q('[data-act="import"]').addEventListener("click", () => {
+    importTarget = song.id;
+    list.importFile.click();
+  });
+  confirmTwice(q<HTMLButtonElement>('[data-act="delete"]'), "한 번 더 누르면 삭제", async () => {
     await deleteSong(song.id);
     if (decoded?.id === song.id) decoded = null;
     setStatus(list.status, `${song.title}을(를) 목록에서 지웠어요.`);
@@ -132,6 +183,41 @@ function songRow(song: SongRecord): HTMLLIElement {
   });
   return li;
 }
+
+async function exportChart(song: SongRecord): Promise<void> {
+  const chart = { ...chartOf(song), title: song.title, durationMs: song.durationMs };
+  try {
+    const result = await exportTextFile(chartFileName(song.title), JSON.stringify(chart), `${song.title} 채보`);
+    if (result === "shared") setStatus(list.status, "채보 파일을 보냈어요.");
+    else if (result === "downloaded") setStatus(list.status, `채보 파일(${chartFileName(song.title)})을 내려받았어요.`);
+  } catch {
+    setStatus(list.status, "채보를 내보내지 못했어요. 다시 시도해 주세요.", true);
+  }
+}
+
+/** 채보 가져오기를 누른 곡 */
+let importTarget: string | null = null;
+list.importFile.addEventListener("change", async () => {
+  const file = list.importFile.files?.[0];
+  list.importFile.value = "";
+  const song = importTarget ? await getSong(importTarget) : undefined;
+  importTarget = null;
+  if (!file || !song) return;
+  try {
+    const chart = parseChart(await file.text());
+    const diffSec = chart.durationMs ? Math.abs(chart.durationMs - song.durationMs) / 1000 : 0;
+    await updateSong(song.id, { userChart: { ...chart, title: song.title, durationMs: song.durationMs }, best: null });
+    setStatus(
+      list.status,
+      diffSec > 1.5
+        ? `가져왔어요 (노트 ${chart.notes.length}개). 채보를 만든 음원과 길이가 ${diffSec.toFixed(1)}초 달라서 노트가 어긋날 수 있어요.`
+        : `채보를 가져왔어요 (노트 ${chart.notes.length}개). 이 곡의 최고 기록은 지웠어요.`,
+    );
+    await renderList();
+  } catch (e) {
+    setStatus(list.status, e instanceof ChartFormatError ? e.message : "채보 파일을 읽지 못했어요.", true);
+  }
+});
 
 /** 실수로 지우지 않도록 두 번 눌러야 실행되는 버튼. needsConfirm이 false면 바로 실행한다 */
 function confirmTwice(
@@ -200,7 +286,7 @@ list.file.addEventListener("change", async () => {
   }
 });
 
-$("metronome").addEventListener("click", () => {
+$("menu-metronome").addEventListener("click", () => {
   unlockAudio();
   const bpm = Math.round(BUILTIN_CHARTS[0].chart.bpm);
   const beatsPerBar = BUILTIN_CHARTS[0].chart.beatsPerBar;
@@ -295,10 +381,8 @@ function leavePlay(): void {
   playScene = null;
   stage.setScene(null);
   if (returnTo === "edit") void backToEditor();
-  else {
-    show("list");
-    void renderList();
-  }
+  else if (current?.song) openList(listMode);
+  else show("menu"); // 메트로놈 연습
 }
 
 // ---------- 결과 ----------
@@ -362,7 +446,7 @@ const edit = {
   undo: $<HTMLButtonElement>("edit-undo"),
 };
 let dirty = false;
-const HINT = "멈춘 상태에서 빈 곳을 누르면 노트 추가, 노트를 누르면 삭제. 녹음 중에는 치는 대로 기록되고, 길게 누르면 롱 노트가 돼요.";
+const HINT = "멈춘 상태: 누르면 노트 추가/삭제, 노트를 위아래로 끌면 롱 노트 길이 조절. 녹음: 치는 대로 기록, 길게 누르면 롱 노트.";
 
 async function openEditor(id: string): Promise<void> {
   const song = await getSong(id);
@@ -400,6 +484,7 @@ async function backToEditor(): Promise<void> {
 function updateEditUi(): void {
   if (!editScene) return;
   edit.count.textContent = `노트 ${editScene.draft.notes.length}개${dirty ? " · 저장 안 됨" : ""}`;
+  edit.count.classList.toggle("dirty", dirty);
   edit.undo.disabled = !editScene.draft.canUndo;
   edit.mode.textContent = editScene.mode === "record" ? "● 녹음 중" : editScene.mode === "preview" ? "▶ 듣는 중" : "";
   document.body.classList.toggle("running", editScene.mode !== "idle");
@@ -426,8 +511,7 @@ function leaveEditor(): void {
   audio().clock.pause();
   editScene = null;
   stage.setScene(null);
-  show("list");
-  void renderList();
+  openList(listMode);
 }
 
 $("edit-record").addEventListener("click", () => void runEditor("record"));
@@ -511,5 +595,4 @@ if (import.meta.env.DEV) {
   });
 }
 
-show("list");
-void renderList();
+show("menu");

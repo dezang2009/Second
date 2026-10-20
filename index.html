@@ -3,26 +3,49 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#171922" />
+    <meta name="theme-color" content="#dde4f6" />
     <title>Rhythm</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-screen="list">
+  <body data-screen="menu">
     <canvas id="game"></canvas>
 
     <main class="ui">
+      <!-- 메뉴 -->
+      <section id="screen-menu" class="screen menu-screen">
+        <div class="title-block">
+          <p class="kicker">4 LANES RHYTHM</p>
+          <h1 class="game-title">Rhythm</h1>
+          <p class="title-sub">좋아하는 곡으로 즐기는 4키 리듬게임</p>
+        </div>
+        <nav class="menu-list" aria-label="메뉴">
+          <button id="menu-play" class="menu-card primary" type="button">
+            <span class="menu-card-title">게임 시작</span>
+            <span class="menu-card-sub">곡을 골라 플레이해요</span>
+          </button>
+          <button id="menu-edit" class="menu-card" type="button">
+            <span class="menu-card-title">채보 만들기</span>
+            <span class="menu-card-sub">곡을 들으며 노트를 찍어요</span>
+          </button>
+          <button id="menu-metronome" class="menu-card" type="button">
+            <span class="menu-card-title">메트로놈 연습</span>
+            <span class="menu-card-sub">박자에 손을 풀어요</span>
+          </button>
+        </nav>
+        <p class="menu-foot">음원과 기록은 이 기기에만 저장돼요</p>
+      </section>
+
       <!-- 곡 목록 -->
-      <section id="screen-list" class="screen list-screen">
+      <section id="screen-list" class="screen list-screen" hidden>
         <header class="list-head">
-          <h1>곡 목록</h1>
-          <p>추가한 음원은 이 기기에만 보관돼요.</p>
+          <button id="list-back" class="back" type="button">‹ 메뉴</button>
+          <h1 id="list-heading">곡 선택</h1>
+          <p id="list-sub">플레이할 곡을 골라주세요</p>
         </header>
         <ul id="song-list" class="song-list"></ul>
-        <div class="list-actions">
-          <label class="btn" for="file">+ 음원 추가</label>
-          <input id="file" type="file" accept="audio/*" hidden />
-          <button id="metronome" class="btn ghost" type="button">메트로놈 연습</button>
-        </div>
+        <label class="btn add-btn" for="file">+ 음원 추가</label>
+        <input id="file" type="file" accept="audio/*" hidden />
+        <input id="import-file" type="file" accept=".json,application/json" hidden />
         <p id="list-status" class="status" role="status"></p>
       </section>
 
@@ -30,21 +53,21 @@
       <section id="screen-play" class="screen play-screen" hidden>
         <header class="hud">
           <div class="hud-row">
-            <span id="play-title"></span>
+            <span id="play-title" class="hud-title"></span>
             <span id="play-meta"></span>
           </div>
           <div class="hud-row">
-            <span id="play-clock" class="clock">0:00.00</span>
+            <span id="play-clock" class="num">0:00.00</span>
             <div id="play-beats" class="beats" aria-hidden="true"></div>
-            <span id="play-bar" class="bar">마디 -</span>
+            <span id="play-bar" class="num">마디 -</span>
           </div>
           <div class="hud-row">
-            <span id="play-score" class="score">0000000</span>
+            <span id="play-score" class="score num">0000000</span>
             <button id="play-pause" class="btn ghost small" type="button">일시정지</button>
           </div>
         </header>
-        <div id="pause-menu" class="menu" hidden>
-          <p class="menu-title">일시정지</p>
+        <div id="pause-menu" class="pause-card" hidden>
+          <p class="pause-title">일시정지</p>
           <button id="resume" class="btn" type="button">계속하기</button>
           <button id="restart" class="btn ghost" type="button">처음부터</button>
           <button id="quit" class="btn ghost" type="button">나가기</button>
@@ -53,27 +76,29 @@
 
       <!-- 결과 -->
       <section id="screen-result" class="screen result-screen" hidden>
-        <p id="result-title" class="result-title"></p>
-        <div class="rank-row">
-          <span id="result-rank" class="rank">S</span>
-          <div class="rank-side">
-            <span id="result-score" class="result-score">0</span>
-            <span id="result-best" class="badge" hidden>새 최고 기록</span>
-            <span id="result-prev" class="prev"></span>
+        <div class="result-card">
+          <p id="result-title" class="result-title"></p>
+          <div class="rank-row">
+            <span id="result-rank" class="rank">S</span>
+            <div class="rank-side">
+              <span id="result-score" class="result-score num">0</span>
+              <span id="result-best" class="badge" hidden>새 최고 기록</span>
+              <span id="result-prev" class="prev num"></span>
+            </div>
           </div>
-        </div>
-        <dl class="result-grid">
-          <dt>perfect</dt><dd id="r-perfect">0</dd>
-          <dt>great</dt><dd id="r-great">0</dd>
-          <dt>good</dt><dd id="r-good">0</dd>
-          <dt>miss</dt><dd id="r-miss">0</dd>
-          <dt>최대 콤보</dt><dd id="r-combo">0</dd>
-          <dt>정확도</dt><dd id="r-acc">0%</dd>
-        </dl>
-        <p id="result-timing" class="timing"></p>
-        <div class="result-actions">
-          <button id="again" class="btn" type="button">다시 하기</button>
-          <button id="result-back" class="btn ghost" type="button">목록으로</button>
+          <dl class="result-grid">
+            <div><dt>PERFECT</dt><dd id="r-perfect" class="num">0</dd></div>
+            <div><dt>GREAT</dt><dd id="r-great" class="num">0</dd></div>
+            <div><dt>GOOD</dt><dd id="r-good" class="num">0</dd></div>
+            <div><dt>MISS</dt><dd id="r-miss" class="num">0</dd></div>
+            <div><dt>최대 콤보</dt><dd id="r-combo" class="num">0</dd></div>
+            <div><dt>정확도</dt><dd id="r-acc" class="num">0%</dd></div>
+          </dl>
+          <p id="result-timing" class="timing"></p>
+          <div class="result-actions">
+            <button id="again" class="btn" type="button">다시 하기</button>
+            <button id="result-back" class="btn ghost" type="button">목록으로</button>
+          </div>
         </div>
       </section>
 
@@ -81,11 +106,11 @@
       <section id="screen-edit" class="screen edit-screen" hidden>
         <header class="hud">
           <div class="hud-row">
-            <span id="edit-title"></span>
-            <span id="edit-count">노트 0개</span>
+            <span id="edit-title" class="hud-title"></span>
+            <span id="edit-count"></span>
           </div>
           <div class="hud-row">
-            <span id="edit-clock" class="clock">0:00.00</span>
+            <span id="edit-clock" class="num">0:00.00</span>
             <span id="edit-mode" class="mode-label"></span>
             <button id="edit-stop" class="btn ghost small" type="button">멈춤</button>
           </div>

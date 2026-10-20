@@ -18,6 +18,8 @@ export interface Scene {
   /** @param x,y 누른 화면 좌표 (에디터가 멈춘 상태에서 노트를 고를 때 쓴다) */
   press(id: number, lane: number, t: number, x: number, y: number): void;
   release(id: number, t: number): void;
+  /** 누른 채 움직일 때 (에디터에서 롱 노트 길이를 끌어서 바꿀 때) */
+  move?(id: number, t: number, x: number, y: number): void;
   heldLanes(): ReadonlySet<number>;
   /** 0이면 콤보를 숨긴다 */
   combo(): number;
@@ -56,7 +58,7 @@ export class Stage {
 
   /** 판정 효과를 레인에 띄운다 */
   hit(lane: number, grade: Grade): void {
-    this.effects.add(laneCenterX(this.layout, lane), this.layout.judgeY, grade, nowSec());
+    this.effects.add(laneCenterX(this.layout, lane), this.layout.judgeY, lane, grade, nowSec());
   }
 
   /** 이벤트가 실제로 일어난 순간의 곡 시각. 프레임을 기다린 만큼 되돌린다 */
@@ -85,7 +87,15 @@ export class Stage {
     const c = this.canvas;
     c.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      try {
+        c.setPointerCapture(e.pointerId); // 레인 밖으로 끌어도 move/up을 계속 받는다
+      } catch {
+        // 이미 떨어진 포인터면 캡처할 수 없다. 입력 처리는 그대로 한다
+      }
       this.scene?.press(e.pointerId, this.laneAtX(e.clientX), this.songTimeOf(e.timeStamp), e.clientX, e.clientY);
+    });
+    c.addEventListener("pointermove", (e) => {
+      if (e.buttons) this.scene?.move?.(e.pointerId, this.songTimeOf(e.timeStamp), e.clientX, e.clientY);
     });
     const up = (e: PointerEvent) => this.scene?.release(e.pointerId, this.songTimeOf(e.timeStamp));
     c.addEventListener("pointerup", up);

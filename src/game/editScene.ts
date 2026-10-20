@@ -4,10 +4,15 @@ import { ChartDraft } from "./draft";
 import type { NoteRuntime } from "./judge";
 import type { Scene, Stage } from "./stage";
 
+/** 에디터가 쓰는 Stage의 일부 (테스트에서 가짜로 바꿔 끼울 수 있게) */
+type StageLike = Pick<Stage, "layout" | "scrollSec" | "hit">;
+
 // 에디터 장면.
 // - 녹음: 곡을 들으며 레인을 치면 노트가 된다. 길게 누르면 롱 노트. 녹음을 시작한 지점부터 지나간 구간은 덮어쓴다.
 // - 미리듣기: 노트만 보여주고 아무것도 바꾸지 않는다.
 // - 멈춤: 빈 곳을 누르면 노트를 추가하고, 노트를 누르면 지운다.
+//   노트를 누른 채 위아래로 끌면 롱 노트 길이가 바뀐다 (끄는 손가락 위치가 롱 노트 끝).
+//   빈 곳에서 끌면 그 자리에 롱 노트를 새로 만든다.
 
 export type EditMode = "idle" | "preview" | "record";
 
@@ -17,11 +22,28 @@ const LONG_MIN_SEC = 0.3;
 const PICK_TOLERANCE_PX = 18;
 /** 녹음 중 같은 레인을 이 간격 안에 두 번 치면 하나로 본다(ms) */
 const DOUBLE_TAP_MS = 60;
+/** 이만큼 움직여야 탭이 아니라 끌기로 본다(px) */
+const DRAG_START_PX = 10;
+/** 끌어서 만든 롱 노트의 최소 길이(ms). 이보다 짧으면 탭 노트로 되돌린다 */
+const MIN_LONG_MS = 150;
 
 interface Hold {
   note: ChartNote;
   startSec: number;
   lane: number;
+}
+
+/** 멈춘 상태에서 손가락을 누른 뒤 뗄 때까지 */
+interface Gesture {
+  id: number;
+  lane: number;
+  startY: number;
+  /** 누른 위치의 곡 시각(초) */
+  startSec: number;
+  /** 누른 위치에 있던 노트 */
+  hit: ChartNote | undefined;
+  /** 끌기로 길이를 바꾸는 중인 노트 */
+  dragging: ChartNote | null;
 }
 
 export class EditScene implements Scene {
@@ -38,10 +60,11 @@ export class EditScene implements Scene {
   private recordFromMs = 0;
   private readonly recorded = new Set<ChartNote>();
   private readonly holds = new Map<number, Hold>();
+  private gesture: Gesture | null = null;
 
   constructor(
     readonly base: Chart,
-    private readonly stage: Stage,
+    private readonly stage: StageLike,
   ) {
     this.draft = new ChartDraft(base.notes);
     this.meter = new Meter(base);
@@ -102,10 +125,34 @@ export class EditScene implements Scene {
 
   press(id: number, lane: number, t: number, _x: number, y: number): void {
     if (this.mode === "record") this.recordPress(id, lane, t);
-    else if (this.mode === "idle") this.editAt(lane, t, y);
+    else if (this.mode === "idle" && !this.gesture) {
+      const sec = this.secAtY(t, y);
+      this.gesture = { id, lane, startY: y, startSec: sec, hit: this.draft.findAt(lane, sec * 1000, this.pickToleranceMs()), dragging: null };
+    }
+  }
+
+  move(id: number, t: number, _x: number, y: number): void {
+    const g = this.gesture;
+    if (!g || g.id !== id) return;
+    if (!g.dragging) {
+      if (Math.abs(y - g.startY) < DRAG_START_PX) return;
+      if (!g.hit && g.startSec < 0) return;
+      this.draft.checkpoint();
+      g.dragging = g.hit ?? this.draft.add({ t: this.snapMs(g.startSec), lane: g.lane });
+    }
+    const len = this.snapMs(this.secAtY(t, y)) - g.dragging.t;
+    this.draft.setLength(g.dragging, len >= MIN_LONG_MS ? len : 0);
+    this.onChange?.();
   }
 
   release(id: number, t: number): void {
+    const g = this.gesture;
+    if (g && g.id === id) {
+      this.gesture = null;
+      // 끌지 않고 뗐으면 탭: 노트가 있으면 지우고 없으면 만든다
+      if (!g.dragging) this.toggleAt(g);
+      return;
+    }
     const h = this.holds.get(id);
     if (!h) return;
     this.holds.delete(id);
@@ -133,17 +180,22 @@ export class EditScene implements Scene {
     this.onChange?.();
   }
 
-  /** 멈춘 화면에서 누른 위치의 시각을 계산해 노트를 넣거나 뺀다 */
-  private editAt(lane: number, t: number, y: number): void {
-    const L = this.stage.layout;
-    const secPerPx = this.stage.scrollSec / L.judgeY;
-    const sec = t + (L.judgeY - y) * secPerPx;
-    const existing = this.draft.findAt(lane, sec * 1000, PICK_TOLERANCE_PX * secPerPx * 1000);
-    if (!existing && sec < 0) return;
+  private toggleAt(g: Gesture): void {
+    if (!g.hit && g.startSec < 0) return;
     this.draft.checkpoint();
-    if (existing) this.draft.remove(existing);
-    else this.draft.add({ t: this.snapMs(sec), lane });
+    if (g.hit) this.draft.remove(g.hit);
+    else this.draft.add({ t: this.snapMs(g.startSec), lane: g.lane });
     this.onChange?.();
+  }
+
+  /** 멈춘 화면에서 y 위치가 가리키는 곡 시각(초). 판정선이 지금 시각 t */
+  private secAtY(t: number, y: number): number {
+    const L = this.stage.layout;
+    return t + ((L.judgeY - y) * this.stage.scrollSec) / L.judgeY;
+  }
+
+  private pickToleranceMs(): number {
+    return ((PICK_TOLERANCE_PX * this.stage.scrollSec) / this.stage.layout.judgeY) * 1000;
   }
 
   private snapMs(sec: number): number {
