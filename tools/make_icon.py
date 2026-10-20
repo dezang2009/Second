@@ -1,4 +1,4 @@
-"""앱 아이콘: 보라→하늘색 그라데이션 바탕 + 흰 선 축구장.
+"""앱 아이콘: 보라→하늘색 그라데이션 바탕 + 흰 K 모노그램.
 적응형 아이콘(배경/전경)과 구형 런처용 아이콘을 만든다."""
 import math
 import os
@@ -16,22 +16,18 @@ def pent(cx, cy, r, rot):
 
 
 def foreground():
-    # 흰 선으로 그린 단순한 축구장: 외곽선 + 하프라인 + 센터서클 + 양쪽 페널티 박스
+    # 흰 'K' 모노그램 (앱 글꼴 Poppins ExtraBold, woff2 → ttf 변환은 fonttools·brotli 필요)
+    import io
+    from PIL import ImageFont
+    from fontTools.ttLib import TTFont
+    ft = TTFont(os.path.join(ROOT, 'fonts', 'Poppins-ExtraBold.woff2'))
+    ft.flavor = None
+    buf = io.BytesIO(); ft.save(buf); buf.seek(0)
+    font = ImageFont.truetype(buf, int(S * 0.40))
     img = Image.new('RGBA', (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    W = (255, 255, 255, 255)
-    lw = int(S * 0.022)
-    cx = cy = S / 2
-    hw, hh = S * 0.17, S * 0.235
-    d.rounded_rectangle([cx - hw, cy - hh, cx + hw, cy + hh], radius=S * 0.03, outline=W, width=lw)
-    d.line([(cx - hw, cy), (cx + hw, cy)], fill=W, width=lw)
-    r = S * 0.065
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=W, width=lw)
-    r2 = S * 0.016
-    d.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], fill=W)
-    bw, bh = S * 0.075, S * 0.065
-    d.rectangle([cx - bw, cy - hh, cx + bw, cy - hh + bh], outline=W, width=lw)
-    d.rectangle([cx - bw, cy + hh - bh, cx + bw, cy + hh], outline=W, width=lw)
+    l, t, r, b = d.textbbox((0, 0), 'K', font=font)
+    d.text(((S - (r - l)) / 2 - l, (S - (b - t)) / 2 - t), 'K', font=font, fill=(255, 255, 255, 255))
     return img
 
 
