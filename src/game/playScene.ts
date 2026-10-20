@@ -56,10 +56,11 @@ export class PlayScene implements Scene {
     this.onFinish?.(this.judge.stats());
   }
 
-  restart(): void {
+  /** 처음부터(또는 연습할 위치부터) 다시. fromSec 앞의 노트는 건너뛴다 */
+  restart(fromSec = 0): void {
     this.finished = false;
     this.held.clear();
-    this.judge.reset(0);
+    this.judge.reset(fromSec);
   }
 
   press(id: number, lane: number, t: number): void {

@@ -97,7 +97,7 @@
             <span id="result-rank" class="rank">S</span>
             <div class="rank-side">
               <span id="result-score" class="result-score num">0</span>
-              <span id="result-best" class="badge" hidden>새 최고 기록</span>
+              <span class="badge-row"><span id="result-best" class="badge" hidden>새 최고 기록</span><span id="result-fc" class="badge fc" hidden></span></span>
               <span id="result-prev" class="prev num"></span>
             </div>
           </div>
@@ -112,6 +112,10 @@
           <p id="result-timing" class="timing"></p>
           <p id="result-fastslow" class="timing fastslow num"></p>
           <button id="apply-sync" class="btn ghost small apply-sync" type="button" hidden></button>
+          <div id="result-trouble" class="trouble" hidden>
+            <span id="trouble-text"></span>
+            <button id="practice" class="btn ghost small" type="button">이 구간 연습하기</button>
+          </div>
           <div class="result-actions">
             <button id="again" class="btn" type="button">다시 하기</button>
             <button id="result-back" class="btn ghost" type="button">목록으로</button>

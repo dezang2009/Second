@@ -1021,3 +1021,33 @@ body.running .edit-panel * {
 .apply-sync {
   align-self: center;
 }
+
+/* ---------- 결과: 배지, 연습 구간 ---------- */
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badge.fc {
+  background: linear-gradient(135deg, #f0b44c, #df82a6);
+}
+
+.trouble {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(223, 130, 166, 0.1);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  color: #b04a6c;
+}
+
+.trouble[hidden] {
+  display: none;
+}

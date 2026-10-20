@@ -19,6 +19,8 @@ export interface PlayfieldOptions {
   heldLanes: ReadonlySet<number>;
   /** 노트 크기 배율 (설정) */
   noteScale?: number;
+  /** 박자 맥박 0~1 (판정선 받침대가 박에 맞춰 은은하게 빛난다) */
+  pulse?: number;
 }
 
 export class Playfield {
@@ -92,8 +94,8 @@ export class Playfield {
       const held = opt.heldLanes.has(lane);
       const color = laneColors(lane)[1];
       ctx.save();
-      ctx.shadowColor = held ? rgba(color, 0.8) : "rgba(110,127,220,0.25)";
-      ctx.shadowBlur = held ? 16 : 6;
+      ctx.shadowColor = held ? rgba(color, 0.8) : rgba(color, 0.25 + 0.35 * (opt.pulse ?? 0));
+      ctx.shadowBlur = held ? 16 : 6 + 8 * (opt.pulse ?? 0);
       ctx.fillStyle = held ? color : "rgba(255,255,255,0.95)";
       roundRect(ctx, L.laneLeft + lane * L.laneWidth + NOTE_PAD + 2, L.judgeY - 2, L.laneWidth - NOTE_PAD * 2 - 4, 4, 2);
       ctx.fill();

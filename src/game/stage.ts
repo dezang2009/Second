@@ -1,7 +1,7 @@
 import { audio, playHitSound } from "../audio/audio";
 import { effectScale, scrollSecFor, settings } from "../settings";
 import { drawDotField, smoothPulse } from "../render/dotField";
-import { drawCombo, Effects } from "../render/effects";
+import { COMBO_STEP, Effects } from "../render/effects";
 import { computeLayout, LANES, type Layout, laneCenterX } from "../render/layout";
 import { Playfield } from "../render/playfield";
 import type { Meter } from "../songs/meter";
@@ -40,6 +40,7 @@ export class Stage {
   onFrame: ((t: number) => void) | null = null;
 
   private scene: Scene | null = null;
+  private lastCombo = 0;
   private playfield: Playfield | null = null;
   private playfieldVersion = NaN;
   private readonly ctx: CanvasRenderingContext2D;
@@ -56,7 +57,13 @@ export class Stage {
     this.scene = scene;
     this.playfield = null;
     this.playfieldVersion = NaN;
+    this.lastCombo = 0;
     this.effects.clear();
+  }
+
+  /** 새 기록 축하 꽃가루 */
+  celebrate(): void {
+    this.effects.celebrate(this.layout.width, this.layout.height, nowSec());
   }
 
   /** 판정 효과를 레인에 띄운다 */
@@ -144,10 +151,16 @@ export class Stage {
         this.playfield = new Playfield(scene.notes(), scene.meter);
         this.playfieldVersion = scene.notesVersion();
       }
-      this.playfield?.draw(this.ctx, L, drawT, { scrollSec: this.scrollSec, heldLanes: scene.heldLanes() ?? EMPTY, noteScale: settings.noteSize });
+      this.playfield?.draw(this.ctx, L, drawT, { scrollSec: this.scrollSec, heldLanes: scene.heldLanes() ?? EMPTY, noteScale: settings.noteSize, pulse });
       this.effects.draw(this.ctx, now, L.width / 2, L.judgeY - 28, fx);
-      drawCombo(this.ctx, scene.combo(), L.width / 2, L.judgeY + (L.height - L.judgeY) * 0.55);
+      const combo = scene.combo();
+      if (combo >= COMBO_STEP && Math.floor(combo / COMBO_STEP) > Math.floor(this.lastCombo / COMBO_STEP)) {
+        this.effects.comboMilestone(Math.floor(combo / COMBO_STEP) * COMBO_STEP, now);
+      }
+      this.lastCombo = combo;
+      this.effects.drawCombo(this.ctx, combo, L.width / 2, L.judgeY + (L.height - L.judgeY) * 0.58, now, fx);
     }
+    this.effects.drawConfetti(this.ctx, now, L.height, fx);
     this.onFrame?.(t);
     requestAnimationFrame(() => this.frame());
   }

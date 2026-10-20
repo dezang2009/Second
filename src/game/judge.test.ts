@@ -161,6 +161,26 @@ describe("score and combo", () => {
     expect(s.accuracy).toBeCloseTo(66.67, 1);
   });
 
+  it("finds the section with the most misses and goods", () => {
+    const notes = Array.from({ length: 20 }, (_, i) => ({ t: 1000 + i * 1000, lane: i % 4 }));
+    const { judge } = judgeOf(notes);
+    for (const n of notes) {
+      const t = n.t / 1000;
+      if (t >= 9 && t <= 12) continue; // 9~12초는 놓친다
+      judge.press(n.lane, t === 5 ? t + 0.13 : t, 1); // 5초는 GOOD 하나
+      judge.update(t + 0.01);
+    }
+    judge.update(25);
+    expect(judge.troubleSpot()).toEqual({ from: 9, to: 12, misses: 4, goods: 0 });
+  });
+
+  it("has no trouble spot for a clean run", () => {
+    const { judge } = judgeOf([{ t: 1000, lane: 0 }, { t: 2000, lane: 1 }]);
+    judge.press(0, 1, 1);
+    judge.press(1, 2, 1);
+    expect(judge.troubleSpot()).toBeNull();
+  });
+
   it("skips notes before the seek point and scores only the rest", () => {
     const { judge } = judgeOf([
       { t: 1000, lane: 0 },

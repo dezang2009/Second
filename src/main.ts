@@ -47,6 +47,10 @@ let playScene: PlayScene | null = null;
 let editScene: EditScene | null = null;
 /** 결과 화면에서 돌아갈 곳. 에디터에서 시험 플레이했으면 에디터로 */
 let returnTo: "list" | "edit" = "list";
+/** 구간 연습 중이면 시작 위치(초). 연습은 최고 기록에 남기지 않는다 */
+let practiceFrom: number | null = null;
+/** 연습 구간 앞에 두는 여유(초) */
+const PRACTICE_LEAD_SEC = 2;
 
 function chartFor(song: SongRecord, diff: Difficulty): Chart | null {
   if (diff === "user") return song.userChart;
@@ -469,6 +473,7 @@ async function startSong(id: string): Promise<void> {
 
 async function startPlay(chart: Chart): Promise<void> {
   if (!current) return;
+  practiceFrom = null;
   playScene = new PlayScene(chart, stage);
   playScene.onFinish = (stats) => void showResult(stats);
   stage.setScene(playScene);
@@ -515,14 +520,16 @@ async function restartPlay(): Promise<void> {
   play.menu.hidden = true;
   show("play");
   stage.setScene(playScene);
-  playScene.restart();
+  const from = practiceFrom ?? 0;
+  playScene.restart(from);
   lastScore = -1;
-  clock.seek(0);
-  await clock.play(playScene.leadIn);
+  clock.seek(from);
+  await clock.play(from > 0 ? 1 : playScene.leadIn);
 }
 
 function leavePlay(): void {
   playScene = null;
+  practiceFrom = null;
   stage.setScene(null);
   if (returnTo === "edit") void backToEditor();
   else if (current?.song) openList(listMode);
@@ -536,7 +543,8 @@ async function showResult(stats: JudgeStats): Promise<void> {
   stage.setScene(null);
   const rank = rankOf(stats.score);
   const diff = current?.difficulty ? ` · ${DIFF_LABEL[current.difficulty]}` : "";
-  $("result-title").textContent = (current?.title ?? "").toUpperCase() + (returnTo === "edit" ? " · 시험 플레이" : diff);
+  const mode = practiceFrom !== null ? ` · ${formatTime(practiceFrom)}부터 연습` : returnTo === "edit" ? " · 시험 플레이" : diff;
+  $("result-title").textContent = (current?.title ?? "").toUpperCase() + mode;
   $("result-rank").textContent = rank;
   $("result-score").textContent = stats.score.toLocaleString("ko-KR");
   $("r-perfect").textContent = String(stats.perfect);
@@ -558,6 +566,22 @@ async function showResult(stats: JudgeStats): Promise<void> {
   }
   $("result-back").textContent = returnTo === "edit" ? "편집으로" : "목록으로";
 
+  // 끝까지 한 번도 안 놓쳤으면
+  const fc = $("result-fc");
+  const complete = stats.total > 0 && stats.judged >= stats.total;
+  fc.hidden = !(complete && stats.miss === 0);
+  fc.textContent = stats.great + stats.good === 0 ? "ALL PERFECT" : "FULL COMBO";
+
+  // 가장 많이 흔들린 구간 → 바로 그 구간 연습
+  const spot = playScene?.judge.troubleSpot() ?? null;
+  const troubleBox = $("result-trouble");
+  troubleBox.hidden = !spot;
+  if (spot) {
+    const parts = [spot.misses ? `MISS ${spot.misses}` : "", spot.goods ? `GOOD ${spot.goods}` : ""].filter(Boolean).join(" · ");
+    $("trouble-text").textContent = `가장 많이 흔들린 구간 ${formatTime(spot.from)}~${formatTime(spot.to + 1)} · ${parts}`;
+    troubleBox.dataset.from = String(Math.max(0, spot.from - PRACTICE_LEAD_SEC));
+  }
+
   // 최고 기록은 목록의 곡을 플레이했을 때만, 난이도마다 따로 남긴다 (시험 플레이, 메트로놈 제외)
   const badge = $("result-best");
   const prevEl = $("result-prev");
@@ -565,16 +589,25 @@ async function showResult(stats: JudgeStats): Promise<void> {
   prevEl.textContent = "";
   const song = current?.song;
   const d = current?.difficulty;
-  if (song && d && returnTo === "list") {
+  let newBest = false;
+  if (song && d && returnTo === "list" && practiceFrom === null) {
     const fresh = await getSong(song.id);
     const prev = fresh?.bests[d] ?? null;
     if (fresh && (!prev || stats.score > prev.score)) {
       await updateSong(song.id, { bests: { ...fresh.bests, [d]: { score: stats.score, rank, maxCombo: stats.maxCombo, at: Date.now() } } });
       badge.hidden = false;
+      newBest = true;
     }
-    if (prev) prevEl.textContent = `이전 최고 ${prev.score.toLocaleString("ko-KR")}점`;
+    if (prev) {
+      const gap = stats.score - prev.score;
+      prevEl.textContent =
+        gap > 0
+          ? `이전 최고 ${prev.score.toLocaleString("ko-KR")}점 · +${gap.toLocaleString("ko-KR")}`
+          : `최고 ${prev.score.toLocaleString("ko-KR")}점까지 ${(-gap).toLocaleString("ko-KR")}점`;
+    }
   }
   show("result");
+  if (newBest) stage.celebrate();
 }
 
 function timingText(meanMs: number | null): string {
@@ -589,6 +622,11 @@ $("again").addEventListener("click", () => {
   void restartPlay();
 });
 $("result-back").addEventListener("click", leavePlay);
+$("practice").addEventListener("click", () => {
+  unlockAudio();
+  practiceFrom = Number($("result-trouble").dataset.from);
+  void restartPlay();
+});
 $("apply-sync").addEventListener("click", () => {
   const btn = $<HTMLButtonElement>("apply-sync");
   const value = Number(btn.dataset.value);

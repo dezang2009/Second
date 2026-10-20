@@ -31,6 +31,16 @@ export interface JudgeEvent {
   /** 입력 시각 - 노트 시각(초). 놓침이면 0 */
   offset: number;
   part: "tap" | "head" | "tail";
+  /** 그 판정이 걸린 노트 위치의 곡 시각 (탭/머리는 시작, 꼬리는 끝) */
+  at: number;
+}
+
+/** 결과 화면에서 보여줄 '가장 많이 흔들린 구간' */
+export interface TroubleSpot {
+  from: number;
+  to: number;
+  misses: number;
+  goods: number;
 }
 
 export interface JudgeStats {
@@ -78,6 +88,8 @@ export class Judge {
   private offsetCount = 0;
   private early = 0;
   private late = 0;
+  /** MISS와 GOOD이 난 노트 시각 */
+  private trouble: { at: number; grade: Grade }[] = [];
   onJudge: ((e: JudgeEvent) => void) | null = null;
 
   constructor(chart: Chart, lanes: number) {
@@ -109,6 +121,7 @@ export class Judge {
     this.offsetCount = 0;
     this.early = 0;
     this.late = 0;
+    this.trouble = [];
     this.cursor.fill(0);
     for (const n of this.notes) {
       n.pointer = null;
@@ -129,11 +142,11 @@ export class Judge {
     if (n.end === null) {
       n.status = "done";
       n.settledAt = t;
-      this.record({ lane, grade, time: t, offset, part: "tap" });
+      this.record({ lane, grade, time: t, offset, part: "tap", at: n.start });
     } else {
       n.status = "holding";
       n.pointer = pointer;
-      this.record({ lane, grade, time: t, offset, part: "head" });
+      this.record({ lane, grade, time: t, offset, part: "head", at: n.start });
     }
     return true;
   }
@@ -146,10 +159,10 @@ export class Judge {
       n.settledAt = t;
       if (t >= n.end - WINDOW.good) {
         n.status = "done";
-        this.record({ lane: n.note.lane, grade: "perfect", time: t, offset: 0, part: "tail" });
+        this.record({ lane: n.note.lane, grade: "perfect", time: t, offset: 0, part: "tail", at: n.end });
       } else {
         n.status = "missed";
-        this.record({ lane: n.note.lane, grade: "miss", time: t, offset: 0, part: "tail" });
+        this.record({ lane: n.note.lane, grade: "miss", time: t, offset: 0, part: "tail", at: n.end });
       }
     }
   }
@@ -164,13 +177,13 @@ export class Judge {
         if (n.status === "pending" && t - n.start > WINDOW.good) {
           n.status = "missed";
           n.settledAt = n.start + WINDOW.good;
-          this.record({ lane, grade: "miss", time: t, offset: 0, part: n.end === null ? "tap" : "head" });
-          if (n.end !== null) this.record({ lane, grade: "miss", time: t, offset: 0, part: "tail" });
+          this.record({ lane, grade: "miss", time: t, offset: 0, part: n.end === null ? "tap" : "head", at: n.start });
+          if (n.end !== null) this.record({ lane, grade: "miss", time: t, offset: 0, part: "tail", at: n.end });
         } else if (n.status === "holding" && n.end !== null && t >= n.end) {
           n.status = "done";
           n.settledAt = n.end;
           n.pointer = null;
-          this.record({ lane, grade: "perfect", time: n.end, offset: 0, part: "tail" });
+          this.record({ lane, grade: "perfect", time: n.end, offset: 0, part: "tail", at: n.end });
         }
       }
       // 끝난 노트는 다음부터 보지 않는다
@@ -193,6 +206,29 @@ export class Judge {
     };
   }
 
+  /**
+   * MISS(가중치 2)와 GOOD(가중치 1)이 가장 많이 몰린 windowSec초 구간.
+   * 두 개 이상 몰리지 않았으면 null (연습할 구간이 딱히 없음)
+   */
+  troubleSpot(windowSec = 5): TroubleSpot | null {
+    const list = [...this.trouble].sort((a, b) => a.at - b.at);
+    let best: TroubleSpot | null = null;
+    let bestScore = 0;
+    let lo = 0;
+    for (let hi = 0; hi < list.length; hi++) {
+      while (list[hi].at - list[lo].at > windowSec) lo++;
+      const slice = list.slice(lo, hi + 1);
+      const misses = slice.filter((x) => x.grade === "miss").length;
+      const goods = slice.length - misses;
+      const score = misses * 2 + goods;
+      if (score > bestScore && slice.length >= 2) {
+        bestScore = score;
+        best = { from: list[lo].at, to: list[hi].at, misses, goods };
+      }
+    }
+    return best;
+  }
+
   /** 이 레인에서 아직 판정하지 않은 가장 이른 노트 */
   private firstPending(lane: number, t: number): number {
     const list = this.byLane[lane];
@@ -210,6 +246,7 @@ export class Judge {
     this.counts[e.grade]++;
     this.weightSum += WEIGHT[e.grade];
     this.judged++;
+    if (e.grade === "miss" || e.grade === "good") this.trouble.push({ at: e.at, grade: e.grade });
     if (e.grade !== "miss" && e.part !== "tail") {
       this.offsetSum += e.offset;
       this.offsetCount++;
