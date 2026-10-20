@@ -73,3 +73,38 @@ export function beatF(found: number[], truth: number[], tol = 0.07): number {
   const r = truth.length ? hit / truth.length : 0;
   return p + r ? (2 * p * r) / (p + r) : 0;
 }
+
+export interface DrumHit {
+  t: number;
+  kind: "kick" | "snare" | "hat";
+}
+
+/** 킥(낮게 떨어지는 사인), 스네어(잡음 + 낮은 음), 하이햇(짧은 고음 잡음) */
+export function renderDrums(hits: DrumHit[], out: Float32Array): void {
+  let seed = 3;
+  const noise = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed / 2147483647) * 2 - 1;
+  };
+  for (const h of hits) {
+    const start = Math.round(h.t * SR);
+    const len = Math.round((h.kind === "hat" ? 0.05 : 0.2) * SR);
+    let prev = 0;
+    let phase = 0;
+    for (let i = 0; i < len && start + i < out.length; i++) {
+      const t = i / SR;
+      let v = 0;
+      if (h.kind === "kick") {
+        phase += (2 * Math.PI * (50 + 100 * Math.exp(-t / 0.03))) / SR;
+        v = 0.8 * Math.sin(phase) * Math.exp(-t / 0.12);
+      } else if (h.kind === "snare") {
+        v = (0.45 * noise() + 0.3 * Math.sin(2 * Math.PI * 190 * t)) * Math.exp(-t / 0.07);
+      } else {
+        const n = noise();
+        v = 0.25 * (n - prev) * Math.exp(-t / 0.015); // 차분으로 고음만 남긴다
+        prev = n;
+      }
+      out[start + i] += v * Math.min(1, i / (0.001 * SR));
+    }
+  }
+}

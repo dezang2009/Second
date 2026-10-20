@@ -268,6 +268,7 @@ function songCard(song: SongRecord): HTMLLIElement {
       <button class="btn ghost small more" data-act="more" type="button" aria-label="더보기" aria-expanded="false">···</button>
     </div>
     <div class="song-more" hidden>
+      <button class="btn ghost small" data-act="preview" type="button">자동 플레이로 미리 보기</button>
       <button class="btn ghost small" data-act="rename" type="button">이름 바꾸기</button>
       <button class="btn ghost small" data-act="reanalyze" type="button">자동 채보 다시 만들기</button>
       <button class="btn ghost small" data-act="export" type="button">채보 내보내기</button>
@@ -346,6 +347,13 @@ function songCard(song: SongRecord): HTMLLIElement {
     const panel = q(".song-more");
     panel.hidden = !panel.hidden;
     more.setAttribute("aria-expanded", String(!panel.hidden));
+  });
+
+  const preview = q<HTMLButtonElement>('[data-act="preview"]');
+  preview.disabled = !hasNotes;
+  preview.addEventListener("click", () => {
+    unlockAudio();
+    void startSong(song.id, true);
   });
 
   // 이름 바꾸기
@@ -523,7 +531,8 @@ const play = {
   menu: $("pause-menu"),
 };
 
-async function startSong(id: string): Promise<void> {
+/** auto: 자동 플레이로 채보만 미리 본다 (기록, 플레이 횟수에 남기지 않음) */
+async function startSong(id: string, auto = false): Promise<void> {
   const song = await getSong(id);
   const chart = song && selectedChart(song);
   if (!song || !chart) return;
@@ -535,18 +544,19 @@ async function startSong(id: string): Promise<void> {
   }
   editScene = null;
   returnTo = "list";
-  await updateSong(song.id, { lastPlayedAt: Date.now(), playCount: song.playCount + 1 });
-  await startPlay(chart);
+  if (!auto) await updateSong(song.id, { lastPlayedAt: Date.now(), playCount: song.playCount + 1 });
+  await startPlay(chart, auto);
 }
 
-async function startPlay(chart: Chart): Promise<void> {
+async function startPlay(chart: Chart, auto = false): Promise<void> {
   if (!current) return;
   practiceFrom = null;
-  playScene = new PlayScene(chart, stage);
-  playScene.onFinish = (stats) => void showResult(stats);
+  playScene = new PlayScene(chart, stage, auto);
+  // 미리 보기는 결과 화면 없이 바로 목록으로
+  playScene.onFinish = auto ? () => (audio().clock.pause(), leavePlay()) : (stats) => void showResult(stats);
   stage.setScene(playScene);
   const diff = current.difficulty ? ` · ${DIFF_LABEL[current.difficulty]}` : "";
-  play.title.textContent = current.title.toUpperCase() + diff;
+  play.title.textContent = current.title.toUpperCase() + diff + (auto ? " · 자동 플레이" : "");
   play.meta.textContent = chart.bpm ? `${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM · ${chart.beatsPerBar}/4` : "";
   play.beats.replaceChildren(...Array.from({ length: chart.bpm ? chart.beatsPerBar : 0 }, () => document.createElement("span")));
   lastBeat = -2;

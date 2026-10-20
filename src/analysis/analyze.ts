@@ -44,10 +44,20 @@ export function analyzeSamples(samples: Float32Array, opt: AnalyzeOptions): Anal
   progress(0.7, "노트 찾기");
   const peaks = pickPeaks(f.onset);
   const maxStrength = Math.max(1e-9, ...peaks.map((p) => f.onset[p]));
+  const bandAt = (band: Float32Array, p: number) => Math.max(band[p - 1] ?? 0, band[p], band[p + 1] ?? 0);
+  const maxKick = Math.max(1e-9, ...peaks.map((p) => bandAt(f.bassOnset, p)));
+  const maxSnare = Math.max(1e-9, ...peaks.map((p) => bandAt(f.highOnset, p)));
   const onsets: Onset[] = peaks.map((p, i) => {
     if (i % 50 === 0) progress(0.7 + (0.25 * i) / peaks.length, "노트 찾기");
     const { midi, sustain } = pitchAt(f.samples, p);
-    return { time: refineOnsetTime(f.samples, frameToSec(p)), strength: f.onset[p] / maxStrength, midi, sustain };
+    return {
+      time: refineOnsetTime(f.samples, frameToSec(p)),
+      strength: f.onset[p] / maxStrength,
+      midi,
+      sustain,
+      kick: bandAt(f.bassOnset, p) / maxKick,
+      snare: bandAt(f.highOnset, p) / maxSnare,
+    };
   });
 
   // 박은 가까운 실제 소리 시작에 붙인다. onset으로 잡히지 않은 약한 소리는 파형에서 직접 찾고,

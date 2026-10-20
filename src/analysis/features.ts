@@ -15,8 +15,10 @@ const TOP_DB = 80;
 export interface Features {
   frames: number;
   onset: Float32Array;
-  /** 200Hz 아래(베이스) 대역만 본 onset. 베이스는 보통 마디 첫 박에 친다 */
+  /** 200Hz 아래(베이스, 킥 드럼) 대역만 본 onset. 베이스는 보통 마디 첫 박에 친다 */
   bassOnset: Float32Array;
+  /** 2kHz 위(스네어, 하이햇) 대역만 본 onset */
+  highOnset: Float32Array;
   rmsDb: Float32Array;
   /** frames × 12, 프레임마다 정규화하지 않은 12음 세기 */
   chroma: Float32Array;
@@ -115,23 +117,29 @@ export function computeFeatures(samples: Float32Array, onProgress?: (ratio: numb
   for (let i = 0; i < melDb.length; i++) if (melDb[i] < floor) melDb[i] = floor;
 
   const bassBands = filters.filter((fl) => fl.center < 200).length;
+  const highFrom = filters.findIndex((fl) => fl.center >= 2000);
+  const highBands = N_MELS - highFrom;
   const onset = new Float32Array(frames);
   const bassOnset = new Float32Array(frames);
+  const highOnset = new Float32Array(frames);
   for (let t = 1; t < frames; t++) {
     let s = 0;
     let bass = 0;
+    let high = 0;
     for (let m = 0; m < N_MELS; m++) {
       const d = melDb[t * N_MELS + m] - melDb[(t - 1) * N_MELS + m];
       if (d > 0) {
         s += d;
         if (m < bassBands) bass += d;
+        if (m >= highFrom) high += d;
       }
     }
     onset[t] = s / N_MELS;
     bassOnset[t] = bassBands ? bass / bassBands : 0;
+    highOnset[t] = highBands > 0 ? high / highBands : 0;
   }
   onProgress?.(1);
-  return { frames, onset, bassOnset, rmsDb, chroma, samples };
+  return { frames, onset, bassOnset, highOnset, rmsDb, chroma, samples };
 }
 
 /**

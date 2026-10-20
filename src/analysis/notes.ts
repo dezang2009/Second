@@ -17,6 +17,10 @@ export interface Onset {
   midi: number | null;
   /** 0.5초 뒤 남은 비율 */
   sustain: number;
+  /** 저음(킥 드럼, 베이스) 타격 세기 0~1 */
+  kick?: number;
+  /** 고음(스네어, 하이햇) 타격 세기 0~1 */
+  snare?: number;
 }
 
 export interface NoteInput {
@@ -43,6 +47,12 @@ interface Rules {
   chord: number;
   chordEveryBars: number;
 }
+
+/** 2초 창 안에서 넘지 않도록 하는 초당 노트 수 (너무 빽빽하면 덜 중요한 노트부터 뺀다) */
+const MAX_NPS: Record<Level, number> = { normal: 4, hard: 8 };
+const DENSITY_WINDOW_SEC = 2;
+/** 드럼(킥/스네어) 세기는 이 비율로 쳐서 전체 세기와 비교한다 */
+const DRUM_WEIGHT = 0.9;
 
 const RULES: Record<Level, Rules> = {
   normal: { half: 0.7, quarter: null, minGap: 0.24, chord: 0.9, chordEveryBars: 4 },
@@ -139,7 +149,10 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
     drafts.push({ slot: s, end: null });
   }
 
-  // 5. 레인 배치
+  // 5. 노트가 지나치게 빽빽한 구간은 덜 중요한 노트부터 뺀다 (마디 첫 박은 남긴다)
+  limitDensity(drafts, input.barStarts, MAX_NPS[level], rel);
+
+  // 6. 레인 배치
   const notes: ChartNote[] = [];
   const heldUntil = new Array(LANES).fill(-Infinity);
   const pitches = drafts.map((d) => d.slot.onset?.midi ?? null);
@@ -210,19 +223,73 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
   return notes.sort((a, b) => a.t - b.t || a.lane - b.lane);
 }
 
-/** onset마다 주변 4초 안에서 가장 센 소리에 대한 세기 비율 */
+/**
+ * onset마다 '주변 4초 안에서 가장 센 소리에 대한 세기 비율'.
+ * 전체 세기, 킥(저음) 세기, 스네어(고음) 세기를 각각 따로 견줘 가장 큰 값을 쓴다.
+ * 그래서 멜로디가 조용해도 드럼이 박자를 이끄는 곡은 드럼 타격에 노트가 놓인다.
+ */
 function relativeStrength(onsets: Onset[]): Map<Onset, number> {
   const out = new Map<Onset, number>();
+  const keys: [(o: Onset) => number, number][] = [
+    [(o) => o.strength, 1],
+    [(o) => o.kick ?? 0, DRUM_WEIGHT],
+    [(o) => o.snare ?? 0, DRUM_WEIGHT],
+  ];
   let lo = 0;
   let hi = 0;
   for (const o of onsets) {
     while (onsets[lo].time < o.time - LOCAL_SEC) lo++;
     while (hi < onsets.length && onsets[hi].time <= o.time + LOCAL_SEC) hi++;
-    let max = 0;
-    for (let k = lo; k < hi; k++) max = Math.max(max, onsets[k].strength);
-    out.set(o, max > 0 ? o.strength / max : 0);
+    let best = 0;
+    for (const [get, weight] of keys) {
+      let max = 0;
+      for (let k = lo; k < hi; k++) max = Math.max(max, get(onsets[k]));
+      if (max > 0) best = Math.max(best, (weight * get(o)) / max);
+    }
+    out.set(o, best);
   }
   return out;
+}
+
+interface DensityItem {
+  slot: { time: number; kind: 0 | 1 | 2; beat: number; onset: Onset | null };
+  end: number | null;
+}
+
+/** 노트 중요도: 마디 첫 박 > 소리가 있는 박/롱 노트 > 박자 채움 > 반박 > 1/4박 */
+function priority(d: DensityItem, bars: ReadonlySet<number>): number {
+  if (d.slot.kind === 0 && bars.has(d.slot.beat)) return 5;
+  if (d.end !== null) return 4;
+  if (d.slot.kind === 0) return d.slot.onset ? 4 : 3;
+  return d.slot.kind === 1 ? 2 : 1;
+}
+
+/** 2초 창 안의 노트 수가 maxNps × 2를 넘지 않을 때까지 가장 덜 중요한(같으면 약한) 노트를 뺀다 */
+export function limitDensity<T extends DensityItem>(items: T[], barStarts: readonly number[], maxNps: number, rel: Map<Onset, number>): void {
+  const bars = new Set(barStarts);
+  const cap = maxNps * DENSITY_WINDOW_SEC;
+  for (;;) {
+    let worst = -1;
+    let lo = 0;
+    for (let hi = 0; hi < items.length && worst < 0; hi++) {
+      while (items[hi].slot.time - items[lo].slot.time >= DENSITY_WINDOW_SEC) lo++;
+      if (hi - lo + 1 <= cap) continue;
+      // 이 창에서 뺄 노트를 고른다
+      let bestScore = Infinity;
+      for (let k = lo; k <= hi; k++) {
+        const p = priority(items[k], bars);
+        if (p >= 5) continue;
+        const score = p * 10 + (items[k].slot.onset ? rel.get(items[k].slot.onset!) ?? 0 : 0);
+        if (score < bestScore) {
+          bestScore = score;
+          worst = k;
+        }
+      }
+      if (worst < 0) return; // 뺄 수 있는 노트가 없다
+    }
+    if (worst < 0) return;
+    items.splice(worst, 1);
+  }
 }
 
 function clamp(lane: number): number {

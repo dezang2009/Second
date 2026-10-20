@@ -1,4 +1,4 @@
-import { audio } from "../audio/audio";
+import { audio, playHitSound } from "../audio/audio";
 import { LANES } from "../render/layout";
 import { Meter } from "../songs/meter";
 import type { Chart } from "../songs/types";
@@ -9,6 +9,10 @@ import type { Scene, Stage } from "./stage";
 
 /** 마지막 노트 뒤 이만큼 지나면 곡이 남아 있어도 결과로 넘어간다(초) */
 const FINISH_AFTER_SEC = 2;
+/** 자동 플레이에서 탭 노트를 누르고 있는 것처럼 보여 줄 시간(초) */
+const AUTO_TAP_SEC = 0.08;
+/** 자동 플레이 손가락 번호 (실제 포인터와 겹치지 않게) */
+const autoPointer = (lane: number) => -100 - lane;
 
 export class PlayScene implements Scene {
   readonly judge: Judge;
@@ -17,10 +21,14 @@ export class PlayScene implements Scene {
   private finished = false;
   private readonly held = new Map<number, number>();
   private readonly lastNoteEnd: number;
+  /** 자동 플레이: 레인마다 손을 뗄 시각 */
+  private readonly autoUntil = new Map<number, number>();
 
+  /** auto: 노트를 스스로 정확히 쳐서 채보를 미리 보여 준다 (입력은 무시) */
   constructor(
     readonly chart: Chart,
     stage: Stage,
+    readonly auto = false,
   ) {
     this.judge = new Judge(chart, LANES);
     this.judge.onJudge = (e) => stage.hit(e.lane, e.grade);
@@ -44,9 +52,28 @@ export class PlayScene implements Scene {
 
   update(t: number): void {
     if (audio().clock.state !== "playing") return;
+    if (this.auto) this.autoPlay(t);
     this.judge.update(t);
     const s = this.judge.stats();
     if (s.total > 0 && s.judged >= s.total && t > this.lastNoteEnd + FINISH_AFTER_SEC) this.finish();
+  }
+
+  private autoPlay(t: number): void {
+    for (const [lane, until] of this.autoUntil) {
+      if (t < until) continue;
+      this.autoUntil.delete(lane);
+      this.judge.release(autoPointer(lane), until);
+    }
+    for (const n of this.judge.notes) {
+      if (n.start > t) break;
+      if (n.status !== "pending") continue;
+      const lane = n.note.lane;
+      if (this.autoUntil.has(lane)) this.judge.release(autoPointer(lane), n.start);
+      // 실제 노트 시각에 친 것으로 기록해 모두 PERFECT. 롱 노트는 끝에서 judge가 알아서 마무리한다
+      this.judge.press(lane, n.start, autoPointer(lane));
+      this.autoUntil.set(lane, n.end ?? n.start + AUTO_TAP_SEC);
+      playHitSound();
+    }
   }
 
   /** 곡이 끝났거나 모든 노트를 지나갔을 때. 한 번만 알린다 */
@@ -60,11 +87,12 @@ export class PlayScene implements Scene {
   restart(fromSec = 0): void {
     this.finished = false;
     this.held.clear();
+    this.autoUntil.clear();
     this.judge.reset(fromSec);
   }
 
   press(id: number, lane: number, t: number): void {
-    if (audio().clock.state !== "playing") return;
+    if (this.auto || audio().clock.state !== "playing") return;
     this.held.set(id, lane);
     this.judge.press(lane, t, id);
   }
@@ -78,6 +106,7 @@ export class PlayScene implements Scene {
   }
 
   heldLanes(): ReadonlySet<number> {
+    if (this.auto) return new Set(this.autoUntil.keys());
     return new Set(this.held.values());
   }
 

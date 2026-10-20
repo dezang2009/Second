@@ -15,12 +15,23 @@ const MAX_BPM = 240;
 const TIGHTNESS = 100;
 
 /** 구간마다 onset의 자기상관을 구해 평균한 뒤, 사전 분포를 곱해 가장 그럴듯한 템포를 고른다 */
-export function estimateTempo(onset: Float32Array): number {
+export function estimateTempo(onsetIn: Float32Array): number {
+  let onset = onsetIn;
   const maxLag = TEMPO_WIN;
   const acf = new Float64Array(maxLag + 1);
   const win = new Float64Array(TEMPO_WIN);
   for (let i = 0; i < TEMPO_WIN; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / TEMPO_WIN);
   const seg = new Float64Array(TEMPO_WIN);
+  // onset 봉우리는 한 프레임 폭이라, 박 간격이 프레임의 정수배가 아니면(예: 4.3프레임) 자기상관이 어긋나 약해진다.
+  // 살짝 퍼뜨려서 거의 맞는 간격도 제대로 쳐준다
+  const smooth = new Float32Array(onset.length);
+  const k = [0.25, 0.6, 1, 0.6, 0.25];
+  for (let i = 0; i < onset.length; i++) {
+    let v = 0;
+    for (let j = -2; j <= 2; j++) v += (onset[i + j] ?? 0) * k[j + 2];
+    smooth[i] = v;
+  }
+  onset = smooth;
   let count = 0;
   for (let start = 0; start + TEMPO_WIN <= Math.max(onset.length, TEMPO_WIN); start += TEMPO_HOP) {
     for (let i = 0; i < TEMPO_WIN; i++) seg[i] = (onset[start + i] ?? 0) * win[i];
@@ -43,7 +54,10 @@ export function estimateTempo(onset: Float32Array): number {
   for (let lag = lo; lag <= Math.min(hi, maxLag); lag++) {
     const bpm = (60 * FRAME_RATE) / lag;
     const logPrior = -0.5 * Math.log2(bpm / PRIOR_BPM) ** 2;
-    const score = Math.log1p((1e6 * acf[lag]) / count) + logPrior;
+    // 진짜 박이라면 2박, 4박 뒤에도 같은 모양이 되풀이된다 (마디 구조). 그 반복도 함께 본다.
+    // 일정하게 쏟아지는 16분음표처럼 강세가 약한 곡에서 엉뚱한 박(예: 150 대신 100)을 고르지 않게 한다
+    const meter = acf[lag] + 0.5 * (acf[lag * 2] ?? 0) + 0.25 * (acf[lag * 4] ?? 0);
+    const score = Math.log1p((1e6 * meter) / count) + logPrior;
     if (score > best) {
       best = score;
       bestLag = lag;

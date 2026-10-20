@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Chart } from "../songs/types";
 import { analyzeSamples } from "./analyze";
-import { beatF, beatTimes, renderNotes, type SynthNote } from "./synth";
+import { beatF, beatTimes, type DrumHit, renderDrums, renderNotes, type SynthNote } from "./synth";
 
 // 박 시각을 정확히 아는 합성 곡으로 자동 채보 품질을 잰다.
 // 곡: 박마다 멜로디 음, 마디 첫 박마다 바뀌는 베이스(화음 변화), 가끔 반박 장식음.
@@ -182,6 +182,85 @@ describe("silence and held chords", () => {
   it("is playable", () => {
     checkPlayable(normal);
     checkPlayable(hard);
+  });
+});
+
+describe("drum-driven song", () => {
+  // 킥 1·3박, 스네어 2·4박, 하이햇 8분음표, 아주 작은 패드 화음
+  const bpm = 110;
+  const beats = beatTimes(1, 64, bpm);
+  const hits: DrumHit[] = [];
+  const hats: number[] = [];
+  const pads: SynthNote[] = [];
+  beats.forEach((t, i) => {
+    hits.push({ t, kind: i % 2 === 0 ? "kick" : "snare" }, { t, kind: "hat" });
+    const off = t + 30 / bpm;
+    hits.push({ t: off, kind: "hat" });
+    hats.push(off);
+    if (i % 4 === 0) pads.push({ t, hz: [220, 196, 247, 175][(i / 4) % 4], dur: 240 / bpm, gain: 0.05, decay: 3 });
+  });
+  const samples = renderNotes(pads, beats[63] + 1.5, 0.001);
+  renderDrums(hits, samples);
+  const result = analyzeSamples(samples, { title: "drums" });
+  const { normal, hard } = result.charts;
+  const hasNote = (c: Chart, t: number) => c.notes.some((n) => Math.abs(n.t / 1000 - t) < 0.03);
+
+  it("tracks the groove", () => {
+    expect(result.bpm).toBeGreaterThan(bpm * 0.98);
+    expect(result.bpm).toBeLessThan(bpm * 1.02);
+    expect(beatF(chartBeats(normal), beats, 0.05)).toBeGreaterThan(0.95);
+  });
+
+  it("puts a note on every kick and snare", () => {
+    expect(beats.filter((t) => !hasNote(normal, t)).length).toBeLessThanOrEqual(1);
+  });
+
+  it("adds the hi-hat off-beats in HARD but keeps NORMAL calm", () => {
+    expect(hats.filter((t) => hasNote(hard, t)).length / hats.length).toBeGreaterThan(0.8);
+    expect(hats.filter((t) => hasNote(normal, t)).length / hats.length).toBeLessThan(0.2);
+  });
+
+  it("is playable", () => {
+    checkPlayable(normal);
+    checkPlayable(hard);
+  });
+});
+
+describe("very dense song", () => {
+  // 150 BPM 16분음표 멜로디 (초당 10음)
+  const bpm = 150;
+  const beats = beatTimes(1, 48, bpm);
+  const notes: SynthNote[] = [];
+  beats.forEach((t, i) => {
+    for (let q = 0; q < 4; q++) notes.push({ t: t + (q * 15) / bpm, hz: SCALE[(i * 4 + q) % SCALE.length], dur: 0.09, gain: q === 0 ? 0.3 : 0.24 });
+    if (i % 4 === 0) notes.push({ t, hz: BASS[(i / 4) % BASS.length], dur: 1.5, gain: 0.3 });
+  });
+  const result = analyzeSamples(renderNotes(notes, beats[47] + 1.5, 0.001), { title: "dense" });
+  const maxIn2s = (c: Chart) => {
+    const ts = c.notes.map((n) => n.t / 1000);
+    let best = 0;
+    for (let i = 0, j = 0; i < ts.length; i++) {
+      while (ts[i] - ts[j] >= 2) j++;
+      best = Math.max(best, i - j + 1);
+    }
+    return best;
+  };
+
+  it("finds the real tempo, not a slower multiple", () => {
+    expect(result.bpm).toBeGreaterThan(bpm * 0.98);
+    expect(result.bpm).toBeLessThan(bpm * 1.02);
+  });
+
+  it("keeps note density within each difficulty's limit", () => {
+    // 동시 노트(최대 2개)까지 세므로 한도에 약간 여유를 둔다
+    expect(maxIn2s(result.charts.normal)).toBeLessThanOrEqual(4 * 2 + 2);
+    expect(maxIn2s(result.charts.hard)).toBeLessThanOrEqual(8 * 2 + 2);
+    expect(result.charts.hard.notes.length).toBeGreaterThan(result.charts.normal.notes.length);
+  });
+
+  it("still keeps the beat in NORMAL", () => {
+    const missing = beats.filter((t) => !result.charts.normal.notes.some((n) => Math.abs(n.t / 1000 - t) < 0.03));
+    expect(missing.length / beats.length).toBeLessThan(0.1);
   });
 });
 
