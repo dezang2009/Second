@@ -18,6 +18,7 @@ import { ChartFormatError, chartFileName, parseChart } from "./songs/validate";
 import { onSettingsChange, settings, updateSettings } from "./settings";
 import { type Difficulty, deleteSong, getSong, listSongs, newId, putSong, type SongRecord, updateSong, wipeAll } from "./storage/library";
 import { exportTextFile } from "./storage/share";
+import { type ListQuery, querySongs, type SongSort, timeAgo } from "./storage/sortSongs";
 import { setupSettingsScreen } from "./ui/settingsScreen";
 
 const METRONOME_BARS = 64;
@@ -168,10 +169,53 @@ const list = {
   status: $("list-status"),
   file: $<HTMLInputElement>("file"),
   importFile: $<HTMLInputElement>("import-file"),
+  search: $<HTMLInputElement>("song-search"),
+  sort: $<HTMLSelectElement>("song-sort"),
+  favOnly: $<HTMLButtonElement>("fav-only"),
 };
 
+// 목록 검색/정렬 상태. 정렬과 즐겨찾기 보기는 다음에 열 때도 그대로 둔다
+const LIST_PREFS_KEY = "rhythm.list.v1";
+const listQuery: ListQuery = { sort: "recent", search: "", favoritesOnly: false };
+try {
+  const saved = JSON.parse(localStorage.getItem(LIST_PREFS_KEY) ?? "{}") as Partial<ListQuery>;
+  if (saved.sort && ["recent", "added", "name", "score"].includes(saved.sort)) listQuery.sort = saved.sort;
+  listQuery.favoritesOnly = saved.favoritesOnly === true;
+} catch {
+  // 저장된 값이 없거나 읽을 수 없으면 기본값
+}
+function saveListPrefs(): void {
+  try {
+    localStorage.setItem(LIST_PREFS_KEY, JSON.stringify({ sort: listQuery.sort, favoritesOnly: listQuery.favoritesOnly }));
+  } catch {
+    // 저장이 막혀도 이번 실행 동안은 유지된다
+  }
+}
+list.sort.value = listQuery.sort;
+list.favOnly.setAttribute("aria-pressed", String(listQuery.favoritesOnly));
+list.search.addEventListener("input", () => {
+  listQuery.search = list.search.value;
+  void renderList();
+});
+list.sort.addEventListener("change", () => {
+  listQuery.sort = list.sort.value as SongSort;
+  saveListPrefs();
+  void renderList();
+});
+list.favOnly.addEventListener("click", () => {
+  listQuery.favoritesOnly = !listQuery.favoritesOnly;
+  list.favOnly.setAttribute("aria-pressed", String(listQuery.favoritesOnly));
+  saveListPrefs();
+  void renderList();
+});
+
+/** 목록을 그리는 중에 또 그리라는 요청이 오면 앞의 것은 버린다 (늦게 끝난 옛 결과가 덮어쓰지 않게) */
+let renderToken = 0;
+
 async function renderList(): Promise<void> {
+  const token = ++renderToken;
   const songs = await listSongs();
+  if (token !== renderToken) return;
   list.ul.replaceChildren();
   if (songs.length === 0) {
     const li = document.createElement("li");
@@ -180,7 +224,17 @@ async function renderList(): Promise<void> {
     list.ul.append(li);
     return;
   }
-  for (const song of songs) {
+  // 목록에 안 보이는 곡도 자동 채보는 만든다
+  for (const song of songs) if (!song.auto && !analysis.get(song.id)?.error) requestAnalysis(song.id);
+  const shown = querySongs(songs, listQuery);
+  if (shown.length === 0) {
+    const li = document.createElement("li");
+    li.className = "song-empty";
+    li.textContent = listQuery.favoritesOnly && !listQuery.search ? "즐겨찾기한 곡이 없어요. 곡 카드의 ☆를 눌러 추가해 보세요." : "검색한 이름의 곡이 없어요.";
+    list.ul.append(li);
+    return;
+  }
+  for (const song of shown) {
     list.ul.append(songCard(song));
     // 자동 채보가 없는 곡(예전에 추가한 곡 포함)은 알아서 분석을 시작한다
     if (!song.auto && !analysis.get(song.id)?.error) requestAnalysis(song.id);
@@ -204,6 +258,7 @@ function songCard(song: SongRecord): HTMLLIElement {
         <span class="song-meta"></span>
       </div>
       <div class="song-rank"><span class="rank-letter"></span><span class="rank-score"></span></div>
+      <button class="fav" type="button" aria-label="즐겨찾기" aria-pressed="false">☆</button>
     </div>
     <div class="diff" role="radiogroup" aria-label="난이도"></div>
     <div class="analyze" hidden><div class="bar"><span></span></div><span class="analyze-text"></span></div>
@@ -226,7 +281,16 @@ function songCard(song: SongRecord): HTMLLIElement {
   q(".song-title").textContent = song.title;
   const ref = song.auto?.normal ?? song.userChart;
   const meter = ref?.bpm ? ` · ${ref.beatsPerBar}/4 · 약 ${Math.round(ref.bpm)} BPM` : "";
-  q(".song-meta").textContent = `${formatTime(song.durationMs / 1000)}${meter}`;
+  const played = song.lastPlayedAt ? ` · ${timeAgo(song.lastPlayedAt)} 플레이` : "";
+  q(".song-meta").textContent = `${formatTime(song.durationMs / 1000)}${meter}${played}`;
+  const fav = q<HTMLButtonElement>(".fav");
+  fav.textContent = song.favorite ? "★" : "☆";
+  fav.setAttribute("aria-pressed", String(song.favorite));
+  fav.classList.toggle("on", song.favorite);
+  fav.addEventListener("click", async () => {
+    await updateSong(song.id, { favorite: !song.favorite });
+    await renderList();
+  });
 
   // 난이도 고르기
   const diffBox = q(".diff");
@@ -256,7 +320,7 @@ function songCard(song: SongRecord): HTMLLIElement {
   const rank = q(".rank-letter");
   if (best && chartFor(song, song.difficulty)) {
     rank.textContent = best.rank;
-    q(".rank-score").textContent = best.score.toLocaleString("ko-KR");
+    q(".rank-score").textContent = best.score.toLocaleString("ko-KR") + (best.accuracy !== undefined ? ` · ${best.accuracy.toFixed(1)}%` : "");
   } else {
     rank.textContent = "–";
     rank.classList.add("none");
@@ -424,6 +488,9 @@ list.file.addEventListener("change", async () => {
       userChart: null,
       difficulty: "normal",
       bests: {},
+      favorite: false,
+      lastPlayedAt: null,
+      playCount: 0,
     };
     await putSong(song);
     decoded = { id: song.id, buffer };
@@ -468,6 +535,7 @@ async function startSong(id: string): Promise<void> {
   }
   editScene = null;
   returnTo = "list";
+  await updateSong(song.id, { lastPlayedAt: Date.now(), playCount: song.playCount + 1 });
   await startPlay(chart);
 }
 
@@ -594,7 +662,7 @@ async function showResult(stats: JudgeStats): Promise<void> {
     const fresh = await getSong(song.id);
     const prev = fresh?.bests[d] ?? null;
     if (fresh && (!prev || stats.score > prev.score)) {
-      await updateSong(song.id, { bests: { ...fresh.bests, [d]: { score: stats.score, rank, maxCombo: stats.maxCombo, at: Date.now() } } });
+      await updateSong(song.id, { bests: { ...fresh.bests, [d]: { score: stats.score, rank, maxCombo: stats.maxCombo, at: Date.now(), accuracy: stats.accuracy } } });
       badge.hidden = false;
       newBest = true;
     }

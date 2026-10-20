@@ -8,6 +8,8 @@ export interface BestRecord {
   rank: string;
   maxCombo: number;
   at: number;
+  /** 정확도(0~100). 예전 기록에는 없다 */
+  accuracy?: number;
 }
 
 /** 곡마다 고를 수 있는 채보: 자동 NORMAL, 자동 HARD, 직접 만든 채보 */
@@ -29,6 +31,11 @@ export interface SongRecord {
   difficulty: Difficulty;
   /** 난이도마다 최고 기록 */
   bests: Partial<Record<Difficulty, BestRecord>>;
+  /** 즐겨찾기 */
+  favorite: boolean;
+  /** 마지막으로 플레이를 시작한 시각 (아직 안 했으면 null) */
+  lastPlayedAt: number | null;
+  playCount: number;
 }
 
 /** 예전 형식(기본 채보 연결, 최고 기록 하나)으로 저장된 곡을 지금 형식으로 맞춘다 */
@@ -40,6 +47,9 @@ function upgrade(raw: SongRecord & { builtinId?: unknown; best?: unknown }): Son
     userChart: rest.userChart ?? null,
     difficulty: rest.difficulty ?? (rest.userChart ? "user" : "normal"),
     bests: rest.bests ?? {},
+    favorite: rest.favorite ?? false,
+    lastPlayedAt: rest.lastPlayedAt ?? null,
+    playCount: rest.playCount ?? 0,
   };
 }
 

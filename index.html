@@ -46,6 +46,18 @@
           <h1 id="list-heading">곡 선택</h1>
           <p id="list-sub">플레이할 곡을 골라주세요</p>
         </header>
+        <div class="list-tools">
+          <input id="song-search" class="search" type="search" placeholder="곡 이름 검색" aria-label="곡 이름 검색" autocomplete="off" />
+          <div class="tool-row">
+            <select id="song-sort" aria-label="정렬">
+              <option value="recent">최근 플레이 순</option>
+              <option value="added">추가한 순</option>
+              <option value="name">이름 순</option>
+              <option value="score">최고 점수 순</option>
+            </select>
+            <button id="fav-only" class="chip-toggle" type="button" aria-pressed="false">★ 즐겨찾기만</button>
+          </div>
+        </div>
         <ul id="song-list" class="song-list"></ul>
         <label class="btn add-btn" for="file">+ 음원 추가</label>
         <input id="file" type="file" accept="audio/*" hidden />
