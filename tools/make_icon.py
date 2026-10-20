@@ -7,7 +7,7 @@ from PIL import Image, ImageChops, ImageDraw
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, 'android', 'res')
 S = 1728  # 108dp × 16 (슈퍼샘플)
-C1, C2 = (108, 77, 245), (20, 190, 255)  # 왼쪽 위 보라 → 오른쪽 아래 하늘색
+C1, C2 = (170, 150, 255), (120, 214, 255)  # 왼쪽 위 보라 → 오른쪽 아래 하늘색
 INK = (52, 42, 140)
 
 
