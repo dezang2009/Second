@@ -103,7 +103,7 @@
 ### 1단계: MVP (핵심 재미 확인)
 - [x] 프로젝트 세팅 (Vite + TypeScript + Capacitor, 임시 4레인 터치 테스트 화면)
 - [x] APK 자동 빌드 (GitHub Actions)
-- [ ] 폰에서 음원 파일 불러오기 + Web Audio 시계
+- [x] 폰에서 음원 파일 불러오기 + Web Audio 시계 (메트로놈 테스트 포함)
 - [ ] 4레인 노트 낙하 렌더링 (눈 편한 점 패턴 화면)
 - [ ] 터치 입력 + 판정 (PERFECT/GREAT/GOOD/MISS)
 - [ ] 콤보, 점수, 판정 표시
