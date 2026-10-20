@@ -65,17 +65,19 @@ body {
   gap: 12px;
 }
 
-.hud-row.end {
-  justify-content: flex-end;
-}
-
 .clock,
-.bar {
+.bar,
+.score {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }
 
 .clock {
+  color: var(--ink);
+}
+
+.score {
+  font-size: 13px;
   color: var(--ink);
 }
 

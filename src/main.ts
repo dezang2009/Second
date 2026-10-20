@@ -1,11 +1,13 @@
-// 플레이 화면: 음원(또는 메트로놈)을 재생하면서 점 패턴 위에 노트를 떨어뜨린다.
-// 판정은 다음 단계에서 붙인다. 지금은 노트가 판정선에 닿는 순간 고리가 퍼져 타이밍을 눈으로 확인할 수 있다.
+// 플레이 화면: 음원(또는 메트로놈)을 재생하면서 점 패턴 위에 노트를 떨어뜨리고,
+// 레인 터치(또는 D F J K 키)를 판정해 콤보와 점수를 센다.
 
 import { AudioClock } from "./audio/clock";
 import { AudioLoadError, loadAudioFile } from "./audio/loader";
 import { createMetronomeBuffer } from "./audio/metronome";
+import { Judge, rankOf, type JudgeStats } from "./game/judge";
 import { drawDotField, smoothPulse } from "./render/dotField";
-import { computeLayout, LANES, type Layout } from "./render/layout";
+import { drawCombo, Effects } from "./render/effects";
+import { computeLayout, LANES, type Layout, laneCenterX } from "./render/layout";
 import { Playfield } from "./render/playfield";
 import { alwaysWithMe, matchesChart } from "./songs/always-with-me";
 import { buildDemoChart } from "./songs/demo";
@@ -15,6 +17,7 @@ import type { Chart } from "./songs/types";
 const METRONOME_BARS = 64;
 /** 노트가 화면 위에서 판정선까지 내려오는 시간. 나중에 노트 속도 설정으로 바꾼다. */
 const SCROLL_SEC = 1.6;
+const KEY_LANES: Record<string, number> = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("game");
@@ -26,6 +29,7 @@ const ui = {
   bar: $("bar"),
   beats: $("beats"),
   pause: $<HTMLButtonElement>("pause"),
+  score: $("score"),
   file: $<HTMLInputElement>("file"),
   metronome: $<HTMLButtonElement>("metronome"),
   track: $("track"),
@@ -35,15 +39,24 @@ const ui = {
   status: $("status"),
 };
 
+let layout: Layout = computeLayout(1, 1);
+const effects = new Effects();
 let chart: Chart = alwaysWithMe;
 let meter = new Meter(chart);
-let playfield = new Playfield(chart, meter);
+let judge = new Judge(chart, LANES);
+let playfield = new Playfield(judge.notes, meter);
 let beatDots: HTMLElement[] = [];
+/** 지금 눌려 있는 손가락(또는 키) → 레인 */
+const held = new Map<number, number>();
 
 function useChart(next: Chart): void {
   chart = next;
   meter = new Meter(chart);
-  playfield = new Playfield(chart, meter);
+  judge = new Judge(chart, LANES);
+  judge.onJudge = (e) => effects.add(laneCenterX(layout, e.lane), layout.judgeY, e.grade, nowSec());
+  playfield = new Playfield(judge.notes, meter);
+  effects.clear();
+  held.clear();
   ui.title.textContent = chart.title.toUpperCase();
   ui.meta.textContent = `${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM · ${chart.beatsPerBar}/4`;
   ui.beats.replaceChildren();
@@ -56,7 +69,10 @@ let clock: AudioClock | null = null;
 function getClock(): AudioClock {
   if (!clock) {
     clock = new AudioClock(new AudioContext({ latencyHint: "interactive" }));
-    clock.onEnded = () => updatePlayState();
+    clock.onEnded = () => {
+      updatePlayState();
+      if (judge.notes.length) setStatus(resultText(judge.stats()));
+    };
   }
   return clock;
 }
@@ -123,9 +139,20 @@ ui.metronome.addEventListener("click", () => {
 
 async function togglePlay(): Promise<void> {
   const c = getClock();
-  if (c.state === "playing") c.pause();
-  else await c.play();
+  if (c.state === "playing") {
+    c.pause();
+    releaseAll();
+  } else {
+    if (c.state === "ended") restartJudge(0);
+    await c.play();
+  }
   updatePlayState();
+}
+
+function restartJudge(fromSec: number): void {
+  judge.reset(fromSec);
+  effects.clear();
+  releaseAll();
 }
 ui.play.addEventListener("click", togglePlay);
 ui.pause.addEventListener("click", togglePlay);
@@ -138,6 +165,7 @@ ui.seek.addEventListener("input", () => {
 ui.seek.addEventListener("change", () => {
   seeking = false;
   getClock().seek(Number(ui.seek.value));
+  restartJudge(Number(ui.seek.value));
   updatePlayState();
 });
 
@@ -147,9 +175,57 @@ function updatePlayState(): void {
   ui.play.textContent = state === "playing" ? "일시정지" : state === "ended" ? "처음부터" : "재생";
 }
 
+// ---------- 입력 ----------
+
+/** 이벤트가 실제로 일어난 순간의 곡 시각. 프레임을 기다린 만큼 되돌린다 */
+function songTimeOf(eventTimeStamp: number): number {
+  const lag = Math.min(0.1, Math.max(0, (performance.now() - eventTimeStamp) / 1000));
+  return (clock?.time() ?? 0) - lag;
+}
+
+function laneAtX(x: number): number {
+  const lane = Math.floor((x - layout.laneLeft) / layout.laneWidth);
+  return Math.min(LANES - 1, Math.max(0, lane)); // 레인 바깥을 눌러도 가장 가까운 레인으로
+}
+
+function press(id: number, lane: number, timeStamp: number): void {
+  if (clock?.state !== "playing") return;
+  held.set(id, lane);
+  judge.press(lane, songTimeOf(timeStamp), id);
+}
+
+function release(id: number, timeStamp: number): void {
+  if (!held.delete(id)) return;
+  judge.release(id, songTimeOf(timeStamp));
+}
+
+function releaseAll(): void {
+  for (const id of [...held.keys()]) release(id, performance.now());
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  press(e.pointerId, laneAtX(e.clientX), e.timeStamp);
+});
+canvas.addEventListener("pointerup", (e) => release(e.pointerId, e.timeStamp));
+canvas.addEventListener("pointercancel", (e) => release(e.pointerId, e.timeStamp));
+
+// 컴퓨터에서 시험할 때: D F J K
+const keyId = (lane: number) => -1 - lane;
+window.addEventListener("keydown", (e) => {
+  const lane = KEY_LANES[e.code];
+  if (lane === undefined || e.repeat) return;
+  press(keyId(lane), lane, e.timeStamp);
+});
+window.addEventListener("keyup", (e) => {
+  const lane = KEY_LANES[e.code];
+  if (lane !== undefined) release(keyId(lane), e.timeStamp);
+});
+
 // ---------- 화면 ----------
 
-let layout: Layout = computeLayout(1, 1);
+const nowSec = () => performance.now() / 1000;
+
 function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const w = canvas.clientWidth;
@@ -161,6 +237,7 @@ function resize(): void {
 }
 
 let lastClockText = "";
+let lastScore = -1;
 let lastBarText = "";
 let lastBeat = -1;
 
@@ -170,6 +247,10 @@ function frame(): void {
   const pos = meter.at(t);
   const started = pos.beat >= 0 && clock !== null && clock.duration > 0;
 
+  if (playing) judge.update(t);
+  const stats = judge.stats();
+  const now = nowSec();
+
   const pulse = playing && started ? smoothPulse(pos.phase) * (pos.beatInBar === 1 ? 1 : 0.6) : 0;
   drawDotField(
     ctx2d,
@@ -177,8 +258,16 @@ function frame(): void {
     layout.height,
     { x: layout.laneLeft, width: layout.laneWidth * LANES, bottom: layout.judgeY },
     pulse,
+    effects.waves(now),
   );
-  playfield.draw(ctx2d, layout, t, { scrollSec: SCROLL_SEC });
+  playfield.draw(ctx2d, layout, t, { scrollSec: SCROLL_SEC, heldLanes: new Set(held.values()) });
+  effects.draw(ctx2d, now, layout.width / 2, layout.judgeY - 28);
+  drawCombo(ctx2d, stats.combo, layout.width / 2, layout.judgeY + (layout.height - layout.judgeY) * 0.55);
+
+  if (stats.score !== lastScore) {
+    ui.score.textContent = String(stats.score).padStart(7, "0");
+    lastScore = stats.score;
+  }
 
   if (!seeking) {
     const clockText = formatTime(Math.max(0, t), true);
@@ -196,11 +285,20 @@ function frame(): void {
   requestAnimationFrame(frame);
 }
 
+function resultText(s: JudgeStats): string {
+  return `결과 · ${s.score.toLocaleString("ko-KR")}점 (${rankOf(s.score)}) · 최대 콤보 ${s.maxCombo} · perfect ${s.perfect} · great ${s.great} · good ${s.good} · miss ${s.miss}`;
+}
+
 function formatTime(sec: number, withHundredths: boolean): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   const base = `${m}:${String(s).padStart(2, "0")}`;
   return withHundredths ? `${base}.${String(Math.floor((sec % 1) * 100)).padStart(2, "0")}` : base;
+}
+
+// 개발 서버에서만: 브라우저 자동 테스트가 시계와 판정 상태를 읽을 수 있게 한다
+if (import.meta.env.DEV) {
+  Object.assign(window, { __game: { time: () => clock?.time() ?? 0, judge: () => judge, layout: () => layout } });
 }
 
 useChart(chart);
