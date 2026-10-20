@@ -11,22 +11,26 @@
     <canvas id="game"></canvas>
 
     <main class="ui">
-      <header class="song-head">
-        <span id="song-title">ALWAYS WITH ME</span>
-        <span id="song-meta">131 BPM · 3/4</span>
+      <header class="hud">
+        <div class="hud-row">
+          <span id="song-title">ALWAYS WITH ME</span>
+          <span id="song-meta">131 BPM · 3/4</span>
+        </div>
+        <div class="hud-row">
+          <span id="clock" class="clock">0:00.00</span>
+          <div id="beats" class="beats" aria-hidden="true"></div>
+          <span id="bar" class="bar">마디 -</span>
+        </div>
+        <div class="hud-row end">
+          <button id="pause" class="btn ghost small" type="button">일시정지</button>
+        </div>
       </header>
-
-      <section class="readout" aria-live="off">
-        <div id="clock" class="clock">0:00.00</div>
-        <div id="bar" class="bar">마디 - · -/3</div>
-        <div id="beats" class="beats" aria-hidden="true"></div>
-      </section>
 
       <section class="panel">
         <div class="source">
           <label class="btn" for="file">음원 파일 고르기</label>
           <input id="file" type="file" accept="audio/*" hidden />
-          <button id="metronome" class="btn ghost" type="button">메트로놈으로 테스트</button>
+          <button id="metronome" class="btn ghost" type="button">메트로놈으로 연습</button>
         </div>
 
         <p id="track" class="track">음원을 고르면 여기에 표시돼요.</p>

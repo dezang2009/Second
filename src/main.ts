@@ -1,15 +1,19 @@
-// 1단계 화면: 음원 불러오기 + 오디오 시계 확인.
-// 시계가 맞는지 눈과 귀로 확인할 수 있게 마디/박 표시와 점 격자 맥박을 같이 보여준다.
+// 플레이 화면: 음원(또는 메트로놈)을 재생하면서 점 패턴 위에 노트를 떨어뜨린다.
+// 판정은 다음 단계에서 붙인다. 지금은 노트가 판정선에 닿는 순간 고리가 퍼져 타이밍을 눈으로 확인할 수 있다.
 
 import { AudioClock } from "./audio/clock";
 import { AudioLoadError, loadAudioFile } from "./audio/loader";
 import { createMetronomeBuffer } from "./audio/metronome";
 import { drawDotField, smoothPulse } from "./render/dotField";
+import { computeLayout, LANES, type Layout } from "./render/layout";
+import { Playfield } from "./render/playfield";
 import { alwaysWithMe } from "./songs/always-with-me";
-import { beatAt } from "./songs/types";
+import { buildDemoChart } from "./songs/demo";
+import { beatAt, type Chart } from "./songs/types";
 
-const chart = alwaysWithMe;
 const METRONOME_BARS = 64;
+/** 노트가 화면 위에서 판정선까지 내려오는 시간. 나중에 노트 속도 설정으로 바꾼다. */
+const SCROLL_SEC = 1.6;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("game");
@@ -20,6 +24,7 @@ const ui = {
   clock: $("clock"),
   bar: $("bar"),
   beats: $("beats"),
+  pause: $<HTMLButtonElement>("pause"),
   file: $<HTMLInputElement>("file"),
   metronome: $<HTMLButtonElement>("metronome"),
   track: $("track"),
@@ -29,16 +34,26 @@ const ui = {
   status: $("status"),
 };
 
-ui.title.textContent = chart.title.toUpperCase();
-ui.meta.textContent = `${chart.bpm} BPM · ${chart.beatsPerBar}/4`;
-const beatDots = Array.from({ length: chart.beatsPerBar }, () => ui.beats.appendChild(document.createElement("span")));
+let chart: Chart = alwaysWithMe;
+let playfield = new Playfield(chart);
+let beatDots: HTMLElement[] = [];
+
+function useChart(next: Chart): void {
+  chart = next;
+  playfield = new Playfield(chart);
+  ui.title.textContent = chart.title.toUpperCase();
+  ui.meta.textContent = `${chart.bpm} BPM · ${chart.beatsPerBar}/4`;
+  ui.beats.replaceChildren();
+  beatDots = Array.from({ length: chart.beatsPerBar }, () => ui.beats.appendChild(document.createElement("span")));
+  lastBeat = -1;
+}
 
 // AudioContext는 첫 터치 때 만든다 (모바일은 사용자 동작 없이 소리를 막음)
 let clock: AudioClock | null = null;
 function getClock(): AudioClock {
   if (!clock) {
     clock = new AudioClock(new AudioContext({ latencyHint: "interactive" }));
-    clock.onEnded = () => updatePlayButton();
+    clock.onEnded = () => updatePlayState();
   }
   return clock;
 }
@@ -48,13 +63,10 @@ function setStatus(text: string, isError = false): void {
   ui.status.classList.toggle("error", isError);
 }
 
-// 박자 표시 기준이 되는 첫 박 위치. 메트로놈은 0, 사용자 음원은 채보의 offsetMs
-let meterOffsetMs = chart.offsetMs;
-
-function onLoaded(name: string, buffer: AudioBuffer, offsetMs: number, note: string): void {
+function onLoaded(name: string, buffer: AudioBuffer, nextChart: Chart, note: string): void {
   const c = getClock();
   c.load(buffer);
-  meterOffsetMs = offsetMs;
+  useChart(nextChart);
   ui.track.textContent = name;
   ui.track.classList.add("loaded");
   ui.seek.max = String(buffer.duration);
@@ -62,7 +74,7 @@ function onLoaded(name: string, buffer: AudioBuffer, offsetMs: number, note: str
   ui.seek.disabled = false;
   ui.play.disabled = false;
   ui.duration.textContent = formatTime(buffer.duration, false);
-  updatePlayButton();
+  updatePlayState();
   setStatus(note);
 }
 
@@ -72,10 +84,18 @@ ui.file.addEventListener("change", async () => {
   if (!file) return;
   const c = getClock();
   c.pause();
+  updatePlayState();
   setStatus("불러오는 중…");
   try {
     const track = await loadAudioFile(c.ctx, file);
-    onLoaded(track.name, track.buffer, chart.offsetMs, "박자 표시는 아직 이 음원에 맞추지 않았어요. 탭 녹음 단계에서 맞춰요.");
+    onLoaded(
+      track.name,
+      track.buffer,
+      alwaysWithMe,
+      alwaysWithMe.notes.length
+        ? ""
+        : "이 곡은 아직 채보가 없어서 노트가 나오지 않아요. 탭 녹음 단계에서 만들어요.",
+    );
   } catch (e) {
     setStatus(e instanceof AudioLoadError ? e.message : "음원을 불러오지 못했어요.", true);
   }
@@ -84,21 +104,25 @@ ui.file.addEventListener("change", async () => {
 ui.metronome.addEventListener("click", () => {
   const c = getClock();
   c.pause();
-  const buffer = createMetronomeBuffer(c.ctx, chart.bpm, chart.beatsPerBar, METRONOME_BARS);
+  const { bpm, beatsPerBar } = alwaysWithMe;
+  const buffer = createMetronomeBuffer(c.ctx, bpm, beatsPerBar, METRONOME_BARS);
+  const demo = buildDemoChart(bpm, beatsPerBar, METRONOME_BARS);
   onLoaded(
-    `메트로놈 · ${chart.bpm} BPM · ${chart.beatsPerBar}/4`,
+    `메트로놈 연습 · ${bpm} BPM · ${beatsPerBar}/4 · 노트 ${demo.notes.length}개`,
     buffer,
-    0,
-    "딸깍 소리와 가운데 점이 동시에 움직이면 시계가 맞는 거예요.",
+    demo,
+    "두 마디 뒤부터 노트가 내려와요. 딸깍 소리와 고리가 퍼지는 순간이 같으면 싱크가 맞는 거예요.",
   );
 });
 
-ui.play.addEventListener("click", async () => {
+async function togglePlay(): Promise<void> {
   const c = getClock();
   if (c.state === "playing") c.pause();
   else await c.play();
-  updatePlayButton();
-});
+  updatePlayState();
+}
+ui.play.addEventListener("click", togglePlay);
+ui.pause.addEventListener("click", togglePlay);
 
 let seeking = false;
 ui.seek.addEventListener("input", () => {
@@ -108,24 +132,26 @@ ui.seek.addEventListener("input", () => {
 ui.seek.addEventListener("change", () => {
   seeking = false;
   getClock().seek(Number(ui.seek.value));
-  updatePlayButton();
+  updatePlayState();
 });
 
-function updatePlayButton(): void {
-  ui.play.textContent = clock?.state === "playing" ? "일시정지" : clock?.state === "ended" ? "처음부터" : "재생";
+function updatePlayState(): void {
+  const state = clock?.state;
+  document.body.classList.toggle("playing", state === "playing");
+  ui.play.textContent = state === "playing" ? "일시정지" : state === "ended" ? "처음부터" : "재생";
 }
 
 // ---------- 화면 ----------
 
-let width = 0;
-let height = 0;
+let layout: Layout = computeLayout(1, 1);
 function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
-  width = canvas.clientWidth;
-  height = canvas.clientHeight;
-  canvas.width = Math.round(width * dpr);
-  canvas.height = Math.round(height * dpr);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
   ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+  layout = computeLayout(w, h);
 }
 
 let lastClockText = "";
@@ -135,18 +161,25 @@ let lastBeat = -1;
 function frame(): void {
   const t = clock?.time() ?? 0;
   const playing = clock?.state === "playing";
-  const pos = beatAt(t, chart.bpm, chart.beatsPerBar, meterOffsetMs);
+  const pos = beatAt(t, chart.bpm, chart.beatsPerBar, chart.offsetMs);
   const started = pos.beat >= 0 && clock !== null && clock.duration > 0;
 
   const pulse = playing && started ? smoothPulse(pos.phase) * (pos.beatInBar === 1 ? 1 : 0.6) : 0;
-  drawDotField(ctx2d, width, height, { x: width * 0.14, width: width * 0.72, bottom: height * 0.8 }, pulse);
+  drawDotField(
+    ctx2d,
+    layout.width,
+    layout.height,
+    { x: layout.laneLeft, width: layout.laneWidth * LANES, bottom: layout.judgeY },
+    pulse,
+  );
+  playfield.draw(ctx2d, layout, t, { scrollSec: SCROLL_SEC });
 
   if (!seeking) {
     const clockText = formatTime(Math.max(0, t), true);
     if (clockText !== lastClockText) ui.clock.textContent = lastClockText = clockText;
     if (playing) ui.seek.value = String(t);
   }
-  const barText = started ? `마디 ${pos.bar} · ${pos.beatInBar}/${chart.beatsPerBar}` : `마디 - · -/${chart.beatsPerBar}`;
+  const barText = started ? `마디 ${pos.bar} · ${pos.beatInBar}/${chart.beatsPerBar}` : "마디 -";
   if (barText !== lastBarText) ui.bar.textContent = lastBarText = barText;
   const beat = started ? pos.beatInBar - 1 : -1;
   if (beat !== lastBeat) {
@@ -164,6 +197,7 @@ function formatTime(sec: number, withHundredths: boolean): string {
   return withHundredths ? `${base}.${String(Math.floor((sec % 1) * 100)).padStart(2, "0")}` : base;
 }
 
+useChart(chart);
 window.addEventListener("resize", resize);
 resize();
 requestAnimationFrame(frame);
