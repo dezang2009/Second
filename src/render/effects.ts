@@ -46,10 +46,19 @@ export class Effects {
       if (k >= 1) continue;
       const ease = 1 - Math.pow(1 - k, 3);
       const color = laneColors(h.lane)[1];
-      ctx.strokeStyle = rgba(color, (h.grade === "perfect" ? 0.7 : 0.5) * (1 - k));
-      ctx.lineWidth = 3 * (1 - k) + 1;
+      // 부드럽게 퍼졌다 사라지는 빛 + 얇고 또렷한 고리
+      const glowR = 14 + ease * 18;
+      const glow = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, glowR);
+      glow.addColorStop(0, rgba(color, 0.35 * (1 - k)));
+      glow.addColorStop(1, rgba(color, 0));
+      ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(h.x, h.y, 10 + ease * 30, 0, Math.PI * 2);
+      ctx.arc(h.x, h.y, glowR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = rgba(color, (h.grade === "perfect" ? 0.85 : 0.6) * (1 - k));
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 8 + ease * 26, 0, Math.PI * 2);
       ctx.stroke();
     }
 

@@ -9,8 +9,8 @@ import { laneColors, rgba, theme } from "./theme";
 
 /** 놓친 노트가 흐려지며 사라지는 시간(초) */
 const MISS_FADE_SEC = 0.4;
-/** 노트 블록 좌우 여백(px) */
-const NOTE_PAD = 4;
+/** 노트 좌우 여백(px) */
+const NOTE_PAD = 5;
 
 export interface PlayfieldOptions {
   /** 노트가 화면 맨 위에서 판정선까지 내려오는 시간(초) */
@@ -55,12 +55,12 @@ export class Playfield {
     }
 
     // 판정선 아래 터치 패드
-    const padTop = L.judgeY + 8;
-    const padH = Math.min(56, (L.height - L.judgeY) * 0.32);
+    const padTop = L.judgeY + 10;
+    const padH = Math.min(52, (L.height - L.judgeY) * 0.3);
     for (let lane = 0; lane < LANES; lane++) {
       const held = opt.heldLanes.has(lane);
-      ctx.fillStyle = held ? rgba(laneColors(lane)[1], 0.35) : "rgba(255,255,255,0.32)";
-      roundRect(ctx, L.laneLeft + lane * L.laneWidth + NOTE_PAD, padTop, L.laneWidth - NOTE_PAD * 2, padH, 10);
+      ctx.fillStyle = held ? rgba(laneColors(lane)[1], 0.22) : "rgba(255,255,255,0.22)";
+      roundRect(ctx, L.laneLeft + lane * L.laneWidth + NOTE_PAD, padTop, L.laneWidth - NOTE_PAD * 2, padH, 12);
       ctx.fill();
     }
 
@@ -83,14 +83,20 @@ export class Playfield {
     ctx.fillStyle = fade;
     ctx.fillRect(L.laneLeft - 2, 0, right - L.laneLeft + 4, fadeH);
 
-    // 판정선
-    ctx.save();
-    ctx.shadowColor = "rgba(110,127,220,0.35)";
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    roundRect(ctx, L.laneLeft - 2, L.judgeY - 2, right - L.laneLeft + 4, 4, 2);
-    ctx.fill();
-    ctx.restore();
+    // 판정선: 옅은 한 줄 위에 레인마다 짧은 받침대. 누르면 레인 색으로 빛난다
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fillRect(L.laneLeft, Math.round(L.judgeY) - 0.5, right - L.laneLeft, 1);
+    for (let lane = 0; lane < LANES; lane++) {
+      const held = opt.heldLanes.has(lane);
+      const color = laneColors(lane)[1];
+      ctx.save();
+      ctx.shadowColor = held ? rgba(color, 0.8) : "rgba(110,127,220,0.25)";
+      ctx.shadowBlur = held ? 16 : 6;
+      ctx.fillStyle = held ? color : "rgba(255,255,255,0.95)";
+      roundRect(ctx, L.laneLeft + lane * L.laneWidth + NOTE_PAD + 2, L.judgeY - 2, L.laneWidth - NOTE_PAD * 2 - 4, 4, 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   private drawTap(ctx: CanvasRenderingContext2D, L: Layout, n: NoteRuntime, t: number, yOf: (dt: number) => number, h: number): void {
@@ -98,7 +104,7 @@ export class Playfield {
     const alpha = missed ? missAlpha(n, t) : 1;
     if (alpha <= 0) return;
     const x = L.laneLeft + n.note.lane * L.laneWidth + NOTE_PAD;
-    drawBlock(ctx, x, yOf(n.start - t) - h / 2, L.laneWidth - NOTE_PAD * 2, h, n.note.lane, alpha, missed);
+    drawPill(ctx, x, yOf(n.start - t) - h / 2, L.laneWidth - NOTE_PAD * 2, h, n.note.lane, alpha, missed);
   }
 
   private drawLong(ctx: CanvasRenderingContext2D, L: Layout, n: NoteRuntime, t: number, yOf: (dt: number) => number, h: number): void {
@@ -113,43 +119,88 @@ export class Playfield {
     const w = L.laneWidth - NOTE_PAD * 2;
     const headY = holding ? L.judgeY : yOf(n.start - t);
     const tailY = Math.min(yOf(end - t), headY);
-    const [, dark] = laneColors(n.note.lane);
+    const color = missed ? theme.miss : laneColors(n.note.lane)[1];
     if (holding) laneGlow(ctx, L, n.note.lane, 0.3);
 
-    // 몸통: 레인 폭의 60%, 끝이 둥근 띠
-    const bodyW = w * 0.6;
+    // 몸통: 꼬리 쪽은 투명하고 머리 쪽으로 갈수록 짙어지는 반투명 띠 + 얇은 테두리
+    const bodyW = w * 0.42;
+    const bx = x + (w - bodyW) / 2;
+    const bodyH = headY - tailY;
+    if (bodyH > 1) {
+      const g = ctx.createLinearGradient(0, tailY, 0, headY);
+      g.addColorStop(0, rgba(color, (holding ? 0.25 : 0.12) * alpha));
+      g.addColorStop(1, rgba(color, (holding ? 0.7 : 0.45) * alpha));
+      ctx.fillStyle = g;
+      roundRect(ctx, bx, tailY, bodyW, bodyH, bodyW / 2);
+      ctx.fill();
+      ctx.strokeStyle = rgba(color, 0.55 * alpha);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // 누르고 있는 동안: 꼬리에서 머리 쪽으로 흐르는 은은한 빛
+      if (holding && bodyH > 24) {
+        const k = (t * 1.6) % 1;
+        const sy = tailY + k * (bodyH - 18);
+        const shine = ctx.createLinearGradient(0, sy, 0, sy + 18);
+        shine.addColorStop(0, "rgba(255,255,255,0)");
+        shine.addColorStop(0.5, "rgba(255,255,255,0.45)");
+        shine.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = shine;
+        roundRect(ctx, bx + 1, sy, bodyW - 2, 18, (bodyW - 2) / 2);
+        ctx.fill();
+      }
+    }
+    // 꼬리: 속이 흰 작은 캡슐
+    const capW = w * 0.5;
+    const capH = Math.max(6, h * 0.6);
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = missed ? rgba(theme.miss, 0.4) : rgba(dark, holding ? 0.55 : 0.38);
-    roundRect(ctx, x + (w - bodyW) / 2, tailY, bodyW, headY - tailY, bodyW / 2);
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    roundRect(ctx, x + (w - capW) / 2, tailY - capH / 2, capW, capH, capH / 2);
     ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
     ctx.globalAlpha = 1;
-    drawBlock(ctx, x + w * 0.1, tailY - h * 0.35, w * 0.8, h * 0.7, n.note.lane, alpha, missed);
-    drawBlock(ctx, x, headY - h / 2, w, h, n.note.lane, alpha, missed);
+    drawPill(ctx, x, headY - h / 2, w, h, n.note.lane, alpha, missed);
   }
 }
 
 export function noteHeight(L: Layout): number {
-  return Math.min(18, Math.max(12, L.laneWidth * 0.2));
+  return Math.min(16, Math.max(12, L.laneWidth * 0.18));
 }
 
-/** 둥근 노트 블록: 위는 밝고 아래는 진한 그라데이션에 윗면 하이라이트 */
-function drawBlock(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, lane: number, alpha: number, missed: boolean): void {
-  const [light, dark] = missed ? [theme.miss, theme.miss] : laneColors(lane);
+/**
+ * 노트: 납작한 캡슐에 레인 색을 단색으로 채우고, 얇은 흰 안쪽 테두리와 가운데 짧은 표시를 넣는다.
+ * 회색 그림자 대신 같은 색으로 은은하게 번지는 빛을 둘러 밝은 배경에서도 또렷하게 보이게 한다.
+ */
+function drawPill(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, lane: number, alpha: number, missed: boolean): void {
+  const r = h / 2;
+  if (missed) {
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = theme.miss;
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x + 0.75, y + 0.75, w - 1.5, h - 1.5, r);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    return;
+  }
+  const color = laneColors(lane)[1];
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.shadowColor = "rgba(60,70,120,0.22)";
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 2;
-  const g = ctx.createLinearGradient(0, y, 0, y + h);
-  g.addColorStop(0, light);
-  g.addColorStop(1, dark);
-  ctx.fillStyle = g;
-  roundRect(ctx, x, y, w, h, Math.min(7, h / 2));
+  ctx.shadowColor = rgba(color, 0.55);
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = color;
+  roundRect(ctx, x, y, w, h, r);
   ctx.fill();
   ctx.restore();
-  ctx.globalAlpha = alpha * 0.6;
+
+  ctx.globalAlpha = alpha * 0.85;
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, x + 1.5, y + 1.5, w - 3, h - 3, r - 1.5);
+  ctx.stroke();
+  ctx.globalAlpha = alpha;
   ctx.fillStyle = "#ffffff";
-  roundRect(ctx, x + 4, y + 2, w - 8, Math.max(2, h * 0.18), 2);
+  roundRect(ctx, x + w / 2 - w * 0.11, y + h / 2 - 1, w * 0.22, 2, 1);
   ctx.fill();
   ctx.globalAlpha = 1;
 }
