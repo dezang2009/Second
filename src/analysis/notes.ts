@@ -39,7 +39,10 @@ export interface NoteInput {
   beatsPerBar?: number;
 }
 
-export type Level = "normal" | "hard";
+export type Level = "easy" | "normal" | "hard" | "expert";
+export const LEVELS: readonly Level[] = ["easy", "normal", "hard", "expert"];
+/** 롱 노트 안에서도 드럼 박을 다른 레인에 치는 난이도 (손가락 두 개를 따로 쓴다) */
+const SPLIT_HANDS: ReadonlySet<Level> = new Set(["hard", "expert"]);
 
 // 세기 기준은 곡 전체가 아니라 주변 4초 안에서 가장 센 소리에 대한 비율이다.
 // (조용한 구간의 소리도, 거의 모든 소리가 진짜 음인 곡도 공정하게 다룬다)
@@ -61,19 +64,25 @@ interface Rules {
 
 /** 이 길이 이상 소리가 남아 있어야(0.5초 뒤 세기 비율) 롱 노트로 잇는다. 금방 사라지는 소리는 박자 노트로 채운다 */
 const LONG_SUSTAIN = 0.15;
+/** 끄는 노래 음 롱 노트를 만드는 노래 시작 세기 하한 (EASY처럼 엇박을 안 쓰는 난이도에도) */
+const SUNG_HOLD_MIN = 0.2;
 /** 노래 음이 이만큼(박) 이상 이어지면 롱 노트 */
 const SUNG_HOLD_BEATS = 1.5;
 /** 끄는 노래 음 사이의 박을 '센 박'으로 보는 세기 하한. HARD는 롱 노트와 함께 치게 남기고, NORMAL은 롱 노트를 만들지 않는다 */
 const HOLD_KEEP_BEAT = 0.5;
 /** 2초 창 안에서 넘지 않도록 하는 초당 노트 수 (너무 빽빽하면 덜 중요한 노트부터 뺀다) */
-const MAX_NPS: Record<Level, number> = { normal: 4, hard: 8 };
+const MAX_NPS: Record<Level, number> = { easy: 1.6, normal: 4, hard: 8, expert: 11 };
 const DENSITY_WINDOW_SEC = 2;
 /** 드럼(킥/스네어) 세기는 이 비율로 쳐서 전체 세기와 비교한다 */
 const DRUM_WEIGHT = 0.9;
 
 const RULES: Record<Level, Rules> = {
+  // EASY: 박만 (엇박, 동시 노트 없음). 빠른 곡은 밀도 한도가 약한 박부터 덜어 낸다
+  easy: { half: Infinity, quarter: null, melodyHalf: Infinity, melodyQuarter: null, minGap: 0.3, chord: Infinity, chordEveryBars: Infinity },
   normal: { half: 0.7, quarter: null, melodyHalf: 0.2, melodyQuarter: null, minGap: 0.24, chord: 0.9, chordEveryBars: 4 },
   hard: { half: 0.2, quarter: 0.45, melodyHalf: 0.12, melodyQuarter: 0.2, minGap: 0.11, chord: 0.7, chordEveryBars: 2 },
+  // EXPERT: 들리는 엇박과 1/4박을 거의 다, 마디마다 동시 노트
+  expert: { half: 0.1, quarter: 0.3, melodyHalf: 0.08, melodyQuarter: 0.12, minGap: 0.08, chord: 0.55, chordEveryBars: 1 },
 };
 const LOCAL_SEC = 4;
 
@@ -160,12 +169,13 @@ export function buildNotes(input: NoteInput, level: Level): ChartNote[] {
     // 끄는 노래 음 안쪽: NORMAL은 비우고, HARD는 노래가 아닌 타격(드럼)을 다른 레인에 남긴다 (센 정박, 이미 고른 엇박)
     if (s.time < holdEnd - 0.05) {
       const drum = s.onset !== null && !isSung(s.onset, rules.melodyHalf) && (s.kind !== 0 || rel.get(s.onset)! >= HOLD_KEEP_BEAT);
-      if (level === "hard" && drum) drafts.push({ slot: s, end: null });
+      if (SPLIT_HANDS.has(level) && drum) drafts.push({ slot: s, end: null });
       continue;
     }
-    let sungEnd = isSung(s.onset, rules.melodyHalf) ? sungHoldEnd(s, beats, maxHold) : null;
-    // NORMAL은 롱 노트가 센 박(드럼)을 덮으면 롱 노트 대신 박을 친다 (박자감 우선)
-    if (sungEnd !== null && level === "normal") {
+    // EASY도 끄는 노래 음은 롱 노트로 (엇박 노트는 없어도 롱 노트는 쉽다)
+    let sungEnd = isSung(s.onset, Math.min(rules.melodyHalf, SUNG_HOLD_MIN)) ? sungHoldEnd(s, beats, maxHold) : null;
+    // EASY, NORMAL은 롱 노트가 센 박(드럼)을 덮으면 롱 노트 대신 박을 친다 (박자감 우선)
+    if (sungEnd !== null && !SPLIT_HANDS.has(level)) {
       const end = sungEnd;
       const strongInside = kept.some((q) => q.time > s.time + 1e-6 && q.time < end - 0.05 && q.kind === 0 && q.onset && rel.get(q.onset)! >= HOLD_KEEP_BEAT);
       if (strongInside) sungEnd = null;

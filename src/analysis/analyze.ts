@@ -2,7 +2,7 @@ import type { Chart } from "../songs/types";
 import { estimateTempo, trackBeats } from "./beats";
 import { computeFeatures, FRAME_RATE, frameToSec, pitchAt, refineOnsetTime, ringTime, SR } from "./features";
 import { detectMeter } from "./meter";
-import { buildNotes, type Level, type Onset } from "./notes";
+import { buildNotes, type Level, LEVELS, type Onset } from "./notes";
 
 // 음원 하나를 분석해 NORMAL / HARD 자동 채보를 만든다.
 // 입력은 22050Hz 모노 샘플 (features.SR). 브라우저에서는 워커 안에서 돌린다.
@@ -140,7 +140,7 @@ export function analyzeSamples(samples: Float32Array, opt: AnalyzeOptions): Anal
     const nps = notes.length / Math.max(1, playSec);
     return { ...base, difficulty: { name: level.toUpperCase(), level: Math.max(1, Math.min(15, Math.round(nps * 3))) }, notes };
   };
-  const charts = { normal: make("normal"), hard: make("hard") };
+  const charts = Object.fromEntries(LEVELS.map((l) => [l, make(l)])) as Record<Level, Chart>;
   progress(1, "완료");
   return { charts, bpm: base.bpm, beatsPerBar: meter.beatsPerBar, beatCount: beats.length };
 }

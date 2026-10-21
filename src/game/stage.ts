@@ -1,5 +1,5 @@
 import { audio, playHitSound } from "../audio/audio";
-import { effectScale, scrollSecFor, settings } from "../settings";
+import { effectScale, scrollSecFor, settings, type SightMod } from "../settings";
 import { drawDotField, smoothPulse } from "../render/dotField";
 import { COMBO_STEP, Effects } from "../render/effects";
 import { computeLayout, LANES, type Layout, laneCenterX } from "../render/layout";
@@ -24,6 +24,8 @@ export interface Scene {
   heldLanes(): ReadonlySet<number>;
   /** 0이면 콤보를 숨긴다 */
   combo(): number;
+  /** 플레이 옵션의 가리개 (에디터는 없음) */
+  readonly cover?: SightMod;
 }
 
 const KEY_LANES: Record<string, number> = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3 };
@@ -151,7 +153,7 @@ export class Stage {
         this.playfield = new Playfield(scene.notes(), scene.meter);
         this.playfieldVersion = scene.notesVersion();
       }
-      this.playfield?.draw(this.ctx, L, drawT, { scrollSec: this.scrollSec, heldLanes: scene.heldLanes() ?? EMPTY, noteScale: settings.noteSize, pulse });
+      this.playfield?.draw(this.ctx, L, drawT, { scrollSec: this.scrollSec, heldLanes: scene.heldLanes() ?? EMPTY, noteScale: settings.noteSize, pulse, cover: scene.cover });
       this.effects.draw(this.ctx, now, L.width / 2, L.judgeY - 28, fx);
       const combo = scene.combo();
       if (combo >= COMBO_STEP && Math.floor(combo / COMBO_STEP) > Math.floor(this.lastCombo / COMBO_STEP)) {

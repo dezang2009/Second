@@ -354,3 +354,48 @@ describe("speed", () => {
     expect(sec).toBeLessThan(5);
   });
 });
+
+describe("four difficulties", () => {
+  const steady = makeSong({ bpm: 100, beatsPerBar: 4, bars: 16, halfEvery: 2 });
+  const vocal = makeVocalSong(100, true);
+  for (const [name, samples, beats] of [
+    ["steady", steady.samples, steady.beats],
+    ["vocal", vocal.samples, vocal.beats],
+  ] as const) {
+    const { charts } = analyzeSamples(samples, { title: name });
+    const maxIn2s = (c: Chart) => {
+      const ts = c.notes.map((n) => n.t / 1000);
+      let best = 0;
+      for (let i = 0, j = 0; i < ts.length; i++) {
+        while (ts[i] - ts[j] >= 2) j++;
+        best = Math.max(best, i - j + 1);
+      }
+      return best;
+    };
+
+    it(`${name}: gets harder step by step`, () => {
+      const counts = (["easy", "normal", "hard", "expert"] as const).map((l) => charts[l].notes.length);
+      expect(counts[0]).toBeLessThan(counts[1]);
+      expect(counts[1]).toBeLessThan(counts[2]);
+      expect(counts[2]).toBeLessThanOrEqual(counts[3]);
+      const levels = (["easy", "normal", "hard", "expert"] as const).map((l) => charts[l].difficulty.level);
+      expect([...levels].sort((a, b) => a - b)).toEqual(levels);
+    });
+
+    it(`${name}: EASY stays on the beat with no chords`, () => {
+      const offBeat = charts.easy.notes.filter((n) => !beats.some((b) => Math.abs(n.t / 1000 - b) < 0.04));
+      expect(offBeat.length).toBe(0);
+      const times = charts.easy.notes.map((n) => n.t);
+      expect(new Set(times).size).toBe(times.length);
+      expect(maxIn2s(charts.easy)).toBeLessThanOrEqual(Math.ceil(1.6 * 2) + 1);
+    });
+
+    it(`${name}: EXPERT respects its density cap`, () => {
+      expect(maxIn2s(charts.expert)).toBeLessThanOrEqual(11 * 2 + 2);
+    });
+
+    it(`${name}: every difficulty is playable`, () => {
+      for (const c of Object.values(charts)) checkPlayable(c);
+    });
+  }
+});

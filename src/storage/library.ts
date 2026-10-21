@@ -1,3 +1,4 @@
+import type { Level } from "../analysis/notes";
 import type { Chart } from "../songs/types";
 
 // 곡 보관함: 사용자가 추가한 음원과 직접 만든 채보, 최고 기록을 이 기기의 IndexedDB에 저장한다.
@@ -12,8 +13,8 @@ export interface BestRecord {
   accuracy?: number;
 }
 
-/** 곡마다 고를 수 있는 채보: 자동 NORMAL, 자동 HARD, 직접 만든 채보 */
-export type Difficulty = "normal" | "hard" | "user";
+/** 곡마다 고를 수 있는 채보: 자동 EASY / NORMAL / HARD / EXPERT, 직접 만든 채보 */
+export type Difficulty = Level | "user";
 
 /** 클리어 램프: 끝까지 플레이, 미스 없이(FULL COMBO), 모두 PERFECT(ALL PERFECT) */
 export type Lamp = "clear" | "fc" | "ap";
@@ -37,7 +38,7 @@ export interface SongRecord {
   addedAt: number;
   audio: Blob;
   /** 음원을 분석해 만든 자동 채보. 아직 분석 전이면 null */
-  auto: { normal: Chart; hard: Chart } | null;
+  auto: Partial<Record<Level, Chart>> | null;
   /** 사용자가 에디터에서 저장한 채보 */
   userChart: Chart | null;
   /** 마지막으로 고른 난이도 */

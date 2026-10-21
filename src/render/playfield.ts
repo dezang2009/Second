@@ -1,4 +1,5 @@
 import type { NoteRuntime } from "../game/judge";
+import type { SightMod } from "../settings";
 import type { Meter } from "../songs/meter";
 import { LANES, type Layout } from "./layout";
 import { laneColors, rgba, theme } from "./theme";
@@ -21,7 +22,15 @@ export interface PlayfieldOptions {
   noteScale?: number;
   /** 박자 맥박 0~1 (판정선 받침대가 박에 맞춰 은은하게 빛난다) */
   pulse?: number;
+  /** 가리개 (히든: 판정선 가까이, 서든: 화면 위쪽) */
+  cover?: SightMod;
 }
+
+/** 가리개가 덮는 범위 (판정선까지 높이에 대한 비율) */
+const SUDDEN_TO = 0.42;
+const HIDDEN_FROM = 0.6;
+/** 가리개 가장자리를 부드럽게 흐리는 높이(px) */
+const COVER_EDGE = 28;
 
 export class Playfield {
   private readonly maxLen: number;
@@ -77,6 +86,9 @@ export class Playfield {
       if (n.end === null) this.drawTap(ctx, L, n, t, yOf, noteH);
       else this.drawLong(ctx, L, n, t, yOf, noteH);
     }
+
+    if (opt.cover === "sudden") laneCover(ctx, L, 0, L.judgeY * SUDDEN_TO, "bottom");
+    else if (opt.cover === "hidden") laneCover(ctx, L, L.judgeY * HIDDEN_FROM, L.judgeY - 6, "top");
 
     // 위쪽 상단 정보와 겹치지 않게 노트가 서서히 나타나도록 덮는다
     const fadeH = L.height * 0.16;
@@ -207,6 +219,33 @@ function drawPill(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
   roundRect(ctx, x + w / 2 - w * 0.11, y + h / 2 - 1, w * 0.22, 2, 1);
   ctx.fill();
   ctx.globalAlpha = 1;
+}
+
+/**
+ * 레인 가리개: 노트를 덮는 불투명한 판. soft 쪽 가장자리는 흐리게 열려 노트가 스르륵 나타나거나 사라진다.
+ * 가장자리에 얇은 선을 그어 어디부터 가려지는지 보이게 한다.
+ */
+function laneCover(ctx: CanvasRenderingContext2D, L: Layout, top: number, bottom: number, soft: "top" | "bottom"): void {
+  const x = L.laneLeft - 1;
+  const w = L.laneWidth * LANES + 2;
+  const solid = rgba(theme.bg[1], 0.97);
+  const g = ctx.createLinearGradient(0, top, 0, bottom);
+  const edge = Math.min(0.5, COVER_EDGE / Math.max(1, bottom - top));
+  if (soft === "top") {
+    g.addColorStop(0, rgba(theme.bg[1], 0));
+    g.addColorStop(edge, solid);
+    g.addColorStop(1, solid);
+  } else {
+    g.addColorStop(0, solid);
+    g.addColorStop(1 - edge, solid);
+    g.addColorStop(1, rgba(theme.bg[1], 0));
+  }
+  ctx.fillStyle = g;
+  ctx.fillRect(x, top, w, bottom - top);
+  // 덮개 안쪽 경계 표시
+  const lineY = soft === "top" ? top + COVER_EDGE : bottom - COVER_EDGE;
+  ctx.fillStyle = rgba(theme.accent, 0.35);
+  ctx.fillRect(x + 8, Math.round(lineY), w - 16, 1.5);
 }
 
 function laneGlow(ctx: CanvasRenderingContext2D, L: Layout, lane: number, strength: number): void {

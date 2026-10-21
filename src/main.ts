@@ -4,6 +4,7 @@
 
 import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 import { analyzeBuffer } from "./analysis/client";
+import { LEVELS } from "./analysis/notes";
 import { audio, unlockAudio } from "./audio/audio";
 import { AudioLoadError, decodeAudio, stripExtension } from "./audio/loader";
 import { createMetronomeBuffer } from "./audio/metronome";
@@ -17,7 +18,8 @@ import { buildDemoChart } from "./songs/demo";
 import { emptyChart } from "./songs/empty";
 import type { Chart } from "./songs/types";
 import { ChartFormatError, chartFileName, parseChart } from "./songs/validate";
-import { onSettingsChange, settings, updateSettings } from "./settings";
+import { applyLaneMod, LANE_MOD_LABEL, modsLabel, SIGHT_MOD_LABEL } from "./game/mods";
+import { type LaneMod, onSettingsChange, settings, type SightMod, updateSettings } from "./settings";
 import {
   betterLamp,
   type Difficulty,
@@ -38,7 +40,13 @@ import { setupSettingsScreen } from "./ui/settingsScreen";
 
 const METRONOME_BARS = 64;
 const METRONOME_BPM = 120;
-const DIFF_LABEL: Record<Difficulty, string> = { normal: "NORMAL", hard: "HARD", user: "내 채보" };
+const DIFF_LABEL: Record<Difficulty, string> = { easy: "EASY", normal: "NORMAL", hard: "HARD", expert: "EXPERT", user: "내 채보" };
+const DIFFS: readonly Difficulty[] = [...LEVELS, "user"];
+
+/** 자동 채보가 없거나, 난이도가 늘기 전에 만들어 일부 난이도가 빠진 곡 */
+function needsAnalysis(song: SongRecord): boolean {
+  return !song.auto || LEVELS.some((l) => !song.auto![l]);
+}
 /** 곡을 고르고 이만큼 머무르면 미리 듣기를 시작한다(ms) */
 const PREVIEW_DELAY_MS = 350;
 /** 곡 선택 화면의 미리 듣기. 처음 들려줄 때 만든다 */
@@ -62,6 +70,8 @@ interface Current {
   title: string;
   buffer: AudioBuffer;
   difficulty: Difficulty | null;
+  /** 켜 둔 플레이 옵션 이름 (없으면 빈 글자) */
+  mods?: string;
 }
 let current: Current | null = null;
 let playScene: PlayScene | null = null;
@@ -134,7 +144,8 @@ async function pumpAnalysis(): Promise<void> {
     analysis.delete(id);
     setStatus(
       list.status,
-      `${song.title}: 자동 채보를 만들었어요. ${result.beatsPerBar}/4 · 약 ${Math.round(result.bpm)} BPM · NORMAL ${result.charts.normal.notes.length}개 · HARD ${result.charts.hard.notes.length}개`,
+      `${song.title}: 자동 채보를 만들었어요. ${result.beatsPerBar}/4 · 약 ${Math.round(result.bpm)} BPM · ` +
+        LEVELS.map((l) => `${DIFF_LABEL[l]} Lv.${result.charts[l].difficulty.level}`).join(" · "),
     );
   } catch (e) {
     analysis.set(id, { ratio: 0, stage: "", error: e instanceof Error ? e.message : String(e) });
@@ -254,7 +265,7 @@ async function renderList(): Promise<void> {
   const songs = await listSongs();
   if (token !== renderToken) return;
   // 자동 채보가 없는 곡(예전에 추가한 곡 포함)은 알아서 분석을 시작한다. 목록에 안 보이는 곡도
-  for (const song of songs) if (!song.auto && !analysis.get(song.id)?.error) requestAnalysis(song.id);
+  for (const song of songs) if (needsAnalysis(song) && !analysis.get(song.id)?.error) requestAnalysis(song.id);
   list.count.textContent = songs.length ? `${songs.length}곡` : "";
   shownSongs = querySongs(songs, listQuery);
   list.ul.replaceChildren();
@@ -384,6 +395,11 @@ function renderHero(song: SongRecord, slide?: "left" | "right"): void {
       <button class="fav" type="button" aria-label="즐겨찾기" aria-pressed="false">☆</button>
     </div>
     <div class="diff" role="radiogroup" aria-label="난이도"></div>
+    <div class="play-opts" aria-label="플레이 옵션">
+      <span class="opt-speed"><button class="opt-step" data-opt="slower" type="button" aria-label="노트 느리게">−</button><span class="opt-speed-text num"></span><button class="opt-step" data-opt="faster" type="button" aria-label="노트 빠르게">+</button></span>
+      <button class="opt-chip" data-opt="lane" type="button"></button>
+      <button class="opt-chip" data-opt="sight" type="button"></button>
+    </div>
     <div class="analyze" hidden><div class="bar"><span></span></div><span class="analyze-text"></span></div>
     <div class="song-actions">
       <button class="btn" data-act="main" type="button"></button>
@@ -422,7 +438,7 @@ function renderHero(song: SongRecord, slide?: "left" | "right"): void {
 
   // 난이도 고르기 (난이도마다 레벨과 램프)
   const diffBox = q(".diff");
-  for (const d of ["normal", "hard", "user"] as const) {
+  for (const d of DIFFS) {
     const c = chartFor(song, d);
     if (d === "user" && !c) continue;
     const b = document.createElement("button");
@@ -449,6 +465,31 @@ function renderHero(song: SongRecord, slide?: "left" | "right"): void {
     });
     diffBox.append(b);
   }
+
+  // 플레이 옵션: 노트 속도, 레인 배치(누를 때마다 기본 → 미러 → 랜덤), 가리개(없음 → 히든 → 서든)
+  const speedText = q(".opt-speed-text");
+  const laneChip = q<HTMLButtonElement>('[data-opt="lane"]');
+  const sightChip = q<HTMLButtonElement>('[data-opt="sight"]');
+  const refreshOpts = () => {
+    speedText.textContent = `속도 ${settings.noteSpeed.toFixed(1)}`;
+    laneChip.textContent = `레인 ${LANE_MOD_LABEL[settings.laneMod]}`;
+    laneChip.classList.toggle("on", settings.laneMod !== "none");
+    sightChip.textContent = `가리개 ${SIGHT_MOD_LABEL[settings.sightMod]}`;
+    sightChip.classList.toggle("on", settings.sightMod !== "none");
+  };
+  refreshOpts();
+  const nextOf = <T,>(order: readonly T[], v: T) => order[(order.indexOf(v) + 1) % order.length];
+  const speedBy = (d: number) => updateSettings({ noteSpeed: Math.round((settings.noteSpeed + d) * 10) / 10 });
+  q('[data-opt="slower"]').addEventListener("click", () => (speedBy(-0.5), refreshOpts()));
+  q('[data-opt="faster"]').addEventListener("click", () => (speedBy(0.5), refreshOpts()));
+  laneChip.addEventListener("click", () => {
+    updateSettings({ laneMod: nextOf<LaneMod>(["none", "mirror", "random"], settings.laneMod) });
+    refreshOpts();
+  });
+  sightChip.addEventListener("click", () => {
+    updateSettings({ sightMod: nextOf<SightMod>(["none", "hidden", "sudden"], settings.sightMod) });
+    refreshOpts();
+  });
 
   // 그 난이도의 최고 기록과 램프
   const best = song.bests[song.difficulty];
@@ -721,18 +762,21 @@ async function startSong(id: string, auto = false): Promise<void> {
   editScene = null;
   returnTo = "list";
   if (!auto) await updateSong(song.id, { lastPlayedAt: Date.now(), playCount: song.playCount + 1 });
-  await startPlay(chart, auto);
+  // 플레이 옵션은 곡 선택에서 시작할 때만 (시험 플레이, 메트로놈은 그대로)
+  current.mods = modsLabel(settings.laneMod, settings.sightMod);
+  await startPlay(applyLaneMod(chart, settings.laneMod), auto, settings.sightMod);
 }
 
-async function startPlay(chart: Chart, auto = false): Promise<void> {
+async function startPlay(chart: Chart, auto = false, cover: SightMod = "none"): Promise<void> {
   if (!current) return;
   practiceFrom = null;
-  playScene = new PlayScene(chart, stage, auto);
+  playScene = new PlayScene(chart, stage, auto, cover);
   // 미리 보기는 결과 화면 없이 바로 목록으로
   playScene.onFinish = auto ? () => (audio().clock.pause(), leavePlay()) : (stats) => void showResult(stats);
   stage.setScene(playScene);
   const diff = current.difficulty ? ` · ${DIFF_LABEL[current.difficulty]}` : "";
-  play.title.textContent = current.title.toUpperCase() + diff + (auto ? " · 자동 플레이" : "");
+  const mods = current.mods ? ` · ${current.mods}` : "";
+  play.title.textContent = current.title.toUpperCase() + diff + mods + (auto ? " · 자동 플레이" : "");
   play.meta.textContent = chart.bpm ? `${chart.beats ? "≈" : ""}${Math.round(chart.bpm)} BPM · ${chart.beatsPerBar}/4` : "";
   play.beats.replaceChildren(...Array.from({ length: chart.bpm ? chart.beatsPerBar : 0 }, () => document.createElement("span")));
   lastBeat = -2;
@@ -797,7 +841,8 @@ async function showResult(stats: JudgeStats): Promise<void> {
   stage.setScene(null);
   const rank = rankOf(stats.score);
   const diff = current?.difficulty ? ` · ${DIFF_LABEL[current.difficulty]}` : "";
-  const mode = practiceFrom !== null ? ` · ${formatTime(practiceFrom)}부터 연습` : returnTo === "edit" ? " · 시험 플레이" : diff;
+  const mods = current?.mods ? ` · ${current.mods}` : "";
+  const mode = practiceFrom !== null ? ` · ${formatTime(practiceFrom)}부터 연습` : returnTo === "edit" ? " · 시험 플레이" : diff + mods;
   $("result-title").textContent = (current?.title ?? "").toUpperCase() + mode;
   $("result-rank").textContent = rank;
   $("result-score").textContent = stats.score.toLocaleString("ko-KR");

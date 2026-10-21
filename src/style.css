@@ -744,6 +744,18 @@ body.running .edit-panel * {
   color: #c0567f;
 }
 
+.diff-btn.on.easy {
+  border-color: #4fb98a;
+  background: rgba(79, 185, 138, 0.15);
+  color: #2f8a62;
+}
+
+.diff-btn.on.expert {
+  border-color: #6a4fc9;
+  background: rgba(106, 79, 201, 0.14);
+  color: #5a3fb8;
+}
+
 .diff-btn.on.user {
   border-color: var(--accent-2);
   background: rgba(155, 136, 220, 0.15);
@@ -1463,5 +1475,79 @@ body.running .edit-panel * {
 }
 
 .row-lv.user {
+  color: #7a63c9;
+}
+
+.row-lv.easy {
+  color: #2f8a62;
+}
+
+.row-lv.expert {
+  color: #5a3fb8;
+}
+
+/* 난이도가 다섯 개라 카드 안에서는 조금 작게 */
+.hero-card .diff {
+  gap: 5px;
+}
+
+.hero-card .diff-btn {
+  min-width: 0;
+  padding: 7px 2px;
+}
+
+.hero-card .diff-name {
+  font-size: 11.5px;
+  letter-spacing: 0;
+}
+
+/* 플레이 옵션: 속도, 레인, 가리개 */
+.play-opts {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.opt-speed {
+  display: flex;
+  align-items: center;
+  border-radius: 11px;
+  background: rgba(47, 53, 82, 0.05);
+}
+
+.opt-step {
+  width: 30px;
+  min-height: 34px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 800 17px var(--font);
+  cursor: pointer;
+}
+
+.opt-speed-text {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.opt-chip {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 6px;
+  border: 1.5px solid transparent;
+  border-radius: 11px;
+  background: rgba(47, 53, 82, 0.05);
+  color: var(--muted);
+  font: 700 12px var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.opt-chip.on {
+  border-color: var(--accent-2);
+  background: rgba(155, 136, 220, 0.15);
   color: #7a63c9;
 }

@@ -2,6 +2,10 @@
 // 작은 값들이라 localStorage에 둔다. 읽기/쓰기가 막힌 환경에서도 기본값으로 동작한다.
 
 export type EffectLevel = "off" | "low" | "normal";
+/** 레인 배치 바꾸기: 그대로, 좌우 뒤집기, 곡마다 무작위로 섞기 */
+export type LaneMod = "none" | "mirror" | "random";
+/** 가리개: 없음, 판정선 가까이를 가림(히든), 화면 위쪽을 가림(서든) */
+export type SightMod = "none" | "hidden" | "sudden";
 
 export interface Settings {
   /** 판정 싱크(ms). +면 판정과 노트를 그만큼 늦춘다 (블루투스 이어폰처럼 소리가 늦게 나올 때) */
@@ -18,6 +22,8 @@ export interface Settings {
   hitVolume: number;
   /** 0~1 */
   musicVolume: number;
+  laneMod: LaneMod;
+  sightMod: SightMod;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +35,8 @@ export const DEFAULT_SETTINGS: Settings = {
   hitSound: false,
   hitVolume: 0.5,
   musicVolume: 1,
+  laneMod: "none",
+  sightMod: "none",
 };
 
 export const LIMITS = {
@@ -59,6 +67,8 @@ export function sanitize(raw: unknown): Settings {
     hitSound: typeof r.hitSound === "boolean" ? r.hitSound : d.hitSound,
     hitVolume: clamp(r.hitVolume, LIMITS.hitVolume, d.hitVolume),
     musicVolume: clamp(r.musicVolume, LIMITS.musicVolume, d.musicVolume),
+    laneMod: r.laneMod === "mirror" || r.laneMod === "random" ? r.laneMod : "none",
+    sightMod: r.sightMod === "hidden" || r.sightMod === "sudden" ? r.sightMod : "none",
   };
 }
 

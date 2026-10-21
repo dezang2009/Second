@@ -1,4 +1,5 @@
 import { audio, playHitSound } from "../audio/audio";
+import type { SightMod } from "../settings";
 import { LANES } from "../render/layout";
 import { Meter } from "../songs/meter";
 import type { Chart } from "../songs/types";
@@ -24,11 +25,15 @@ export class PlayScene implements Scene {
   /** 자동 플레이: 레인마다 손을 뗄 시각 */
   private readonly autoUntil = new Map<number, number>();
 
-  /** auto: 노트를 스스로 정확히 쳐서 채보를 미리 보여 준다 (입력은 무시) */
+  /**
+   * @param auto 노트를 스스로 정확히 쳐서 채보를 미리 보여 준다 (입력은 무시)
+   * @param cover 가리개 옵션 (히든/서든)
+   */
   constructor(
     readonly chart: Chart,
     stage: Stage,
     readonly auto = false,
+    readonly cover: SightMod = "none",
   ) {
     this.judge = new Judge(chart, LANES);
     this.judge.onJudge = (e) => stage.hit(e.lane, e.grade);
