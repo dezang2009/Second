@@ -329,6 +329,13 @@ function settingsView(message?: string): string {
           <button class="btn" data-act="export">저장 파일 내보내기</button>
           <label class="btn">저장 파일 가져오기<input id="import" type="file" accept=".json,application/json" hidden /></label>
         </div>
+        <h3>복사해서 옮기기</h3>
+        <p class="muted small">앱에서 파일 저장이 안 될 때는 저장 내용을 복사해서 메모나 메신저에 붙여 두고, 다른 기기에서 아래 칸에 붙여넣으세요.</p>
+        <div class="stack">
+          <button class="btn" data-act="copy">저장 내용 복사하기</button>
+          <textarea id="paste" class="paste" rows="4" placeholder="복사한 저장 내용을 여기에 붙여넣기"></textarea>
+          <button class="btn" data-act="paste">붙여넣은 내용 가져오기</button>
+        </div>
         ${message ? `<p class="notice">${esc(message)}</p>` : ""}
       </article>
     </section>`;
@@ -394,6 +401,18 @@ function act(target: HTMLElement): void {
       return;
     case "export":
       return download(exportSave());
+    case "copy":
+      navigator.clipboard
+        .writeText(exportSave())
+        .then(() => go({ kind: "settings", message: "저장 내용을 복사했어요." }))
+        .catch(() => go({ kind: "settings", message: "복사하지 못했어요." }));
+      return;
+    case "paste": {
+      const text = (document.getElementById("paste") as HTMLTextAreaElement | null)?.value ?? "";
+      const ok = importSave(text.trim());
+      life = loadCurrent();
+      return go({ kind: "settings", message: ok ? "저장 내용을 불러왔어요." : "올바른 저장 내용이 아니에요." });
+    }
   }
 }
 

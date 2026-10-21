@@ -582,3 +582,14 @@ button {
   margin-top: 12px;
   color: var(--accent);
 }
+.paste {
+  font: inherit;
+  font-size: 0.85rem;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  resize: vertical;
+}

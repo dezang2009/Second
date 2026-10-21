@@ -1,0 +1,71 @@
+name: Life APK
+
+# 인생 시뮬레이션(life/)이 바뀔 때만 따로 APK를 만든다. 리듬게임 APK와는 다른 Releases 태그에 올린다.
+on:
+  push:
+    paths:
+      - "life/**"
+      - ".github/workflows/life-android.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: life-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: life
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: life/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build web app and copy into Android project
+        run: npm run android:sync
+
+      - name: Build debug APK
+        working-directory: life/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: life-debug-apk
+          path: life/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+      # 폰 브라우저에서 zip 없이 바로 받을 수 있게 Releases의 "인생 시뮬 최신 테스트 APK"를 매번 새로 만든다
+      - name: Publish latest APK to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk life-debug.apk
+          gh release delete life-debug-latest --yes --cleanup-tag || true
+          gh release create life-debug-latest life-debug.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "인생 시뮬 최신 테스트 APK" \
+            --notes "브랜치 ${GITHUB_REF_NAME}의 커밋 ${GITHUB_SHA::7}로 만든 디버그 APK입니다. 아래 life-debug.apk를 폰에서 눌러 설치하세요."

@@ -106,8 +106,10 @@
 | 빌드 | Vite | 리듬게임과 같음. 같은 Wi-Fi에서 폰으로 바로 테스트 |
 | 화면 | HTML/CSS (DOM) | 텍스트와 버튼 위주라 Canvas가 필요 없음 |
 | 저장 | localStorage (MVP) | 진행 중인 인생, 명예의 전당. 데이터가 작아 충분하고, 커지면 IndexedDB로 옮김 |
-| APK | Capacitor | 리듬게임과 **다른 앱 ID**로 따로 설치 |
+| APK | Capacitor | 앱 ID `com.dezang.life`. 리듬게임과 따로 설치됨 |
 | 테스트 | Vitest | 확률, 능력치 계산, 사건 조건 검사 |
+
+> **APK 자동 빌드 (확정)**: `life/`가 바뀐 커밋을 push하면 GitHub Actions(`.github/workflows/life-android.yml`)가 디버그 APK를 만듭니다. 폰에서는 저장소의 **Releases → 인생 시뮬 최신 테스트 APK**(https://github.com/dezang2009/Second/releases/tag/life-debug-latest)에서 `life-debug.apk`를 눌러 설치합니다. 앱에서는 파일 저장이 안 될 수 있어, 설정에 저장 내용 복사/붙여넣기도 있습니다.
 
 ## 6. 개발 단계 (초안)
 
@@ -138,6 +140,7 @@
 | `npm run dev` | 개발 서버. 같은 Wi-Fi의 폰에서 표시된 주소로 접속 |
 | `npm test` | 계산과 자동 플레이 테스트 |
 | `npm run build` | 배포용 빌드 (`life/dist`) |
+| `npm run android:sync` | 빌드 후 Android 프로젝트(`life/android`)에 복사 |
 
 ## 8. 미정 (같이 정할 것)
 
