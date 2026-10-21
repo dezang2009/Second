@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">한 번뿐인 인생</string>
+    <string name="title_activity_main">한 번뿐인 인생</string>
+    <string name="package_name">com.dezang.life</string>
+    <string name="custom_url_scheme">com.dezang.life</string>
+</resources>
