@@ -19,6 +19,7 @@ function autoplay(seed: number): { life: Life; texts: string[] } {
     } else if (ph.kind === "event") {
       texts.push(currentEventText(life));
       const cs = currentChoices(life);
+      for (const c of cs) texts.push(c.text);
       expect(cs.length, `${ph.eventId}: 고를 수 있는 선택지가 없음 (${life.age}살)`).toBeGreaterThan(0);
       choose(life, pick.pick(cs).index);
     } else if (ph.kind === "outcome") {
@@ -66,7 +67,8 @@ describe("자동 플레이", () => {
     for (const { texts } of runs) {
       for (const t of texts) {
         expect(t).not.toMatch(/\{\w+\}/);
-        expect(t).not.toMatch(/이\(가\)|을\(를\)|은\(는\)|와\(과\)|과\(와\)|\(으\)로|undefined|NaN/);
+        expect(t).not.toMatch(/이\(가\)|을\(를\)|은\(는\)|와\(과\)|과\(와\)|\(으\)로|undefined|NaN|\[object/);
+        expect(t, t).not.toMatch(/\[[^\]]*\|/);
       }
     }
   });
@@ -74,8 +76,32 @@ describe("자동 플레이", () => {
   it("대부분의 사건이 실제로 등장한다", () => {
     const seen = new Set<string>();
     for (const { life } of runs) for (const id of Object.keys(life.seen)) seen.add(id);
-    const never = EVENTS.filter((e) => !seen.has(e.id)).map((e) => e.id);
+    // 의사 길은 최상위권만 가서 무작위 플레이로는 드물다. 아래에서 따로 확인한다
+    const rare = ["med_exam", "med_specialty", "med_board"];
+    const never = EVENTS.filter((e) => !seen.has(e.id) && !rare.includes(e.id)).map((e) => e.id);
     expect(never).toEqual([]);
+  });
+
+  it("공부를 아주 잘하면 의대에 가서 전문의가 될 수 있다", () => {
+    const want = /의예과|의사|레지던트|전문의|대학병원|이과|최선|정시|일찍|차분|공부|원리/;
+    let reached = false;
+    for (let seed = 1; seed <= 40 && !reached; seed++) {
+      const pick = createRng(seed);
+      const life = newLife({ name: "지민", gender: "여", seed, candidate: rollCandidates(seed)[0] });
+      for (let step = 0; step < 3000 && life.phase.kind !== "dead" && !reached; step++) {
+        life.stats.smarts = 99;
+        life.stats.health = 90;
+        const ph = life.phase;
+        if (ph.kind === "activity") chooseActivity(life, activitiesFor(life)[0].id);
+        else if (ph.kind === "event") {
+          const cs = currentChoices(life);
+          const best = cs.find((c) => want.test(c.text)) ?? pick.pick(cs);
+          choose(life, best.index);
+        } else proceed(life);
+        reached = life.job?.org === "doctor" && (life.job.rank ?? 0) >= 2;
+      }
+    }
+    expect(reached).toBe(true);
   });
 
   it("저장했다 불러와도 같은 인생이 이어진다", () => {

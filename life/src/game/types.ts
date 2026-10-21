@@ -42,17 +42,30 @@ export interface Person {
   /** 주인공에 대한 호감도 0~100 */
   affinity: number;
   alive: boolean;
+  /** 직업 (연인·배우자 등) */
+  job?: string;
+  /** 연봉(만 원) */
+  salary?: number;
+  /** 성격 */
+  trait?: string;
+  /** 집안 형편 */
+  wealth?: Wealth;
 }
 
 export type Education = "없음" | "고졸" | "전문대졸" | "대졸" | "명문대졸";
 
 export interface Job {
+  /** 직업 종류: big, it, public, sme, startup, civil, pro, shop, artist, athlete, parttime */
   id: string;
   title: string;
   /** 올해 연봉(만 원) */
   salary: number;
   /** 이 일을 한 햇수 */
   years: number;
+  /** 회사나 기관 id (data/companies.ts) */
+  org?: string;
+  /** 직급 단계 0부터 (사원, 대리, 과장...) */
+  rank?: number;
 }
 
 export type Phase =
@@ -103,6 +116,8 @@ export interface Life {
   year: {
     activity: string | null;
     queue: string[];
+    /** 이어지는 장면에 넘겨줄 등장인물 */
+    carry?: { cast: Record<string, string>; pending: Person[] };
     start: { stats: Record<Stat, number>; money: number; fame: number };
     lines: string[];
   };

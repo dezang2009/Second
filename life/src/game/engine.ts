@@ -18,7 +18,7 @@ import {
   present,
   snapshotStats,
 } from "./life";
-import { amount, applyEffects, castEvent, eligible, eventWeight, render, resolveCast, successChance, type Ctx } from "./events";
+import { amount, applyEffects, castEvent, choiceText, eligible, eventWeight, render, resolveCast, resolveOutcome, successChance, type Ctx } from "./events";
 import { randomGivenName, randomName } from "./names";
 import { createRng, type Rng } from "./rng";
 import { formatMoney, josa } from "./text";
@@ -143,11 +143,11 @@ function beginYear(life: Life, rng: Rng): void {
 }
 
 function pickEvents(life: Life, rng: Rng): string[] {
-  const milestones = EVENTS.filter((e) => e.milestone && eligible(e, life)).map((e) => e.id);
+  const milestones = EVENTS.filter((e) => e.milestone && !e.scene && eligible(e, life)).map((e) => e.id);
   const wanted = life.age < 6 ? (rng.chance(0.6) ? 1 : 0) : 1 + (rng.chance(0.45) ? 1 : 0);
   const picks: string[] = [...milestones];
   let normal = life.age < 6 ? wanted : Math.max(0, wanted - milestones.length);
-  const pool = EVENTS.filter((e) => !e.milestone && eligible(e, life));
+  const pool = EVENTS.filter((e) => !e.milestone && !e.scene && eligible(e, life));
   while (normal > 0 && pool.length > 0) {
     const ev = rng.weighted(pool, (e) => eventWeight(e, life));
     if (!ev) break;
@@ -160,13 +160,19 @@ function pickEvents(life: Life, rng: Rng): string[] {
 
 function nextEvent(life: Life, rng: Rng): void {
   while (life.year.queue.length > 0) {
-    const id = life.year.queue.shift()!;
+    const entry = life.year.queue.shift()!;
+    // ">"로 시작하면 앞 선택에서 이어지는 장면
+    const isScene = entry.startsWith(">");
+    const id = isScene ? entry.slice(1) : entry;
     const ev = eventById(id);
+    const carry = isScene ? life.year.carry : undefined;
     // 앞 사건의 결과로 조건이 바뀌었을 수 있으니 다시 확인
-    if (!ev || !eligible(ev, life)) continue;
+    if (!ev || !eligible(ev, life, Object.keys(carry?.cast ?? {}))) continue;
+    if (!isScene) life.year.carry = undefined;
     life.seen[id] = (life.seen[id] ?? 0) + 1;
     life.lastSeen[id] = life.age;
-    const { cast, pending } = castEvent(ev, life, rng);
+    const { cast, pending } = castEvent(ev, life, rng, carry);
+    ev.setup?.({ life, rng, cast: resolveCast(life, cast, pending) });
     life.phase = { kind: "event", eventId: id, cast, pending };
     return;
   }
@@ -213,9 +219,11 @@ export function chooseActivity(life: Life, id: string): void {
 export function currentChoices(life: Life) {
   if (life.phase.kind !== "event") return [];
   const ev = eventById(life.phase.eventId)!;
+  // 선택지 이름에도 {이름} 같은 빈칸을 쓸 수 있다
+  const ctx: Ctx = { life, rng: createRng(life.rng), cast: resolveCast(life, life.phase.cast, life.phase.pending) };
   return ev.choices
-    .map((choice, index) => ({ choice, index, chance: successChance(life, choice) }))
-    .filter((c) => !c.choice.when || c.choice.when(life));
+    .filter((choice) => !choice.when || choice.when(life))
+    .map((choice) => ({ choice, index: ev.choices.indexOf(choice), chance: successChance(life, choice), text: render(choiceText(choice, life), ctx) }));
 }
 
 export function currentEventText(life: Life): string {
@@ -234,17 +242,28 @@ export function choose(life: Life, index: number): void {
   withRng(life, (rng) => {
     const before = snapshot(life);
     const ctx: Ctx = { life, rng, cast: resolveCast(life, phase.cast, phase.pending) };
-    let outcome = choice.outcome;
+    let outcome = resolveOutcome(choice.outcome, life);
     let result: "success" | "fail" | undefined;
     if (choice.check || choice.chance) {
       const ok = rng.chance(successChance(life, choice));
       result = ok ? "success" : "fail";
-      outcome = ok ? choice.success : choice.fail;
+      outcome = resolveOutcome(ok ? choice.success : choice.fail, life);
     }
     applyEffects(outcome?.effects, ctx, phase.pending);
     const text = outcome ? render(outcome.text, ctx) : "";
-    if (text) life.year.lines.push(text);
-    life.phase = { kind: "outcome", text, changes: diff(before, snapshot(life)), result };
+    if (text && !outcome?.quiet) life.year.lines.push(text);
+    const next = typeof outcome?.next === "function" ? outcome.next(ctx) : outcome?.next;
+    if (next && life.alive) {
+      life.year.queue.unshift(`>${next}`);
+      life.year.carry = { cast: phase.cast, pending: phase.pending.filter((p) => !life.people.includes(p)) };
+    }
+    const changes = diff(before, snapshot(life));
+    // 글도 변화도 없는 연결 장면은 결과 화면 없이 바로 다음 장면으로
+    if (!text && changes.length === 0 && next) {
+      nextEvent(life, rng);
+      return;
+    }
+    life.phase = { kind: "outcome", text, changes, result };
   });
 }
 
@@ -347,7 +366,8 @@ function money(life: Life, rng: Rng, lines: string[]): void {
     if (inMilitary(life)) cost = 0;
     if (inCollege(life)) cost += life.wealth === "poor" ? 700 : 0;
     const spouse = first(life, "배우자");
-    if (spouse) cost += life.flags.spouseWorks ? -1200 : 800;
+    // 맞벌이면 배우자 연봉의 절반쯤이 살림에 보탬이 된다
+    if (spouse) cost += 800 - Math.round(num(life, "spouseSalary") * 0.5 || (life.flags.spouseWorks ? 1300 : 0));
     cost += peopleWith(life, "자녀").filter((c) => ageOf(life, c) < 22).length * 1000;
     if (num(life, "mortgageLeft") > 0) {
       cost += 1200;

@@ -97,7 +97,7 @@ export const CHILDHOOD: GameEvent[] = [
   },
   {
     id: "lessons",
-    ages: [5, 7],
+    ages: [5, 6],
     weight: 3,
     text: "부모님이 학원을 하나 보내 주신다고 한다.",
     choices: [

@@ -1,5 +1,6 @@
 // 화면에 보여 줄 글자 만들기
 
+import { HIGH_SCHOOLS, type HighSchool } from "../data/companies";
 import type { Choice } from "../game/events";
 import { inCollege, inMilitary, present } from "../game/life";
 import { formatMoney } from "../game/text";
@@ -13,12 +14,12 @@ export function stageOf(life: Life): string {
   const a = life.age;
   if (!life.alive) return "고인";
   if (a <= 2) return "아기";
-  if (a <= 7) return "어린이";
-  if (a <= 13) return "초등학생";
-  if (a <= 16) return "중학생";
-  if (a <= 18) return "고등학생";
+  if (a <= 6) return "어린이";
+  if (a <= 12) return `초등학교 ${a - 6}학년`;
+  if (a <= 15) return `중학교 ${a - 12}학년`;
+  if (a <= 18) return `${HIGH_SCHOOLS[life.flags.hs as HighSchool] ?? "고등학교"} ${a - 15}학년`;
   if (inMilitary(life)) return "군인";
-  if (inCollege(life)) return "대학생";
+  if (inCollege(life)) return life.flags.lawSchool ? "로스쿨생" : `${life.flags.univ ?? "대학"} ${Math.min(6, a - 18)}학년`;
   if (life.flags.retired) return "은퇴";
   if (life.job) return life.job.title;
   return "구직 중";
@@ -38,10 +39,11 @@ const CHECK_LABEL: Record<string, string> = { ...STAT_LABEL, grit: "끈기", luc
 
 /** 판정이 있는 선택지에 붙이는 작은 안내: 어떤 능력치로, 얼마나 쉬운지 */
 export function choiceHint(life: Life, choice: Choice, chance: number): string {
-  if (!choice.check && !choice.chance) return "";
-  const stat = choice.check?.stat;
+  // 능력치 판정만 알려 준다. 성격 맞히기처럼 숨은 확률은 직접 겪어 봐야 안다
+  if (!choice.check) return "";
+  const stat = choice.check.stat;
   const hidden = (stat === "grit" && !life.revealed.grit) || (stat === "luck" && !life.revealed.luck);
-  const what = stat ? (hidden ? "???" : CHECK_LABEL[stat]) : "운명";
+  const what = hidden ? "???" : CHECK_LABEL[stat];
   const level = chance >= 0.7 ? "쉬움" : chance >= 0.4 ? "보통" : "어려움";
   return `<span class="hint ${level === "쉬움" ? "easy" : level === "보통" ? "mid" : "hard"}">${esc(what)} · ${level}</span>`;
 }

@@ -28,7 +28,7 @@ export const flag = (life: Life, key: string) => life.flags[key];
 export const num = (life: Life, key: string) => Number(life.flags[key] ?? 0);
 
 /** 학교(초·중·고)에 다니는 나이 */
-export const inSchool = (life: Life) => life.age >= 8 && life.age <= 18;
+export const inSchool = (life: Life) => life.age >= 7 && life.age <= 18;
 export const inCollege = (life: Life) => num(life, "collegeUntil") > life.age;
 export const inMilitary = (life: Life) => num(life, "militaryUntil") > life.age;
 export const retired = (life: Life) => flag(life, "retired") === true;

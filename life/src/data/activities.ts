@@ -25,11 +25,11 @@ const senior = (life: Life) => life.age >= 65 || retired(life);
 
 export const ACTIVITIES: Activity[] = [
   // 학창 시절
-  { id: "study", label: "공부", desc: "지능이 오르고 조금 지친다", ages: [8, 18], when: student, talent: "study", stats: { smarts: [2, 4], happiness: -1 } },
-  { id: "sports", label: "운동", desc: "체력과 건강이 오른다", ages: [8, 18], when: student, talent: "sports", stats: { fitness: [2, 4], health: [1, 2] } },
-  { id: "friends", label: "친구들과 놀기", desc: "사회성과 행복이 오른다", ages: [8, 18], when: student, stats: { social: [2, 3], happiness: [2, 3] } },
-  { id: "arts", label: "그림·음악", desc: "행복이 오르고 감각이 자란다", ages: [8, 18], when: student, talent: "art", stats: { happiness: [1, 3], smarts: [0, 1], looks: [0, 1] } },
-  { id: "games", label: "게임", desc: "즐겁지만 공부와 건강엔 별로", ages: [8, 18], when: student, stats: { happiness: [3, 4], smarts: -1, health: -1 } },
+  { id: "study", label: "공부", desc: "지능이 오르고 조금 지친다", ages: [7, 18], when: student, talent: "study", stats: { smarts: [2, 4], happiness: -1 } },
+  { id: "sports", label: "운동", desc: "체력과 건강이 오른다", ages: [7, 18], when: student, talent: "sports", stats: { fitness: [2, 4], health: [1, 2] } },
+  { id: "friends", label: "친구들과 놀기", desc: "사회성과 행복이 오른다", ages: [7, 18], when: student, stats: { social: [2, 3], happiness: [2, 3] } },
+  { id: "arts", label: "그림·음악", desc: "행복이 오르고 감각이 자란다", ages: [7, 18], when: student, talent: "art", stats: { happiness: [1, 3], smarts: [0, 1], looks: [0, 1] } },
+  { id: "games", label: "게임", desc: "즐겁지만 공부와 건강엔 별로", ages: [7, 18], when: student, stats: { happiness: [3, 4], smarts: -1, health: -1 } },
   { id: "allowance", label: "용돈 모으기", desc: "심부름하고 용돈을 모은다", ages: [10, 18], when: student, talent: "business", stats: { happiness: -1 }, money: [20, 60] },
 
   // 군 복무

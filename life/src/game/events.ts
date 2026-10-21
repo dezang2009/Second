@@ -28,7 +28,7 @@ export interface Effects {
   meet?: string[];
   /** cast 키별 관계 바꾸기. null이면 관계를 끊고 목록에서 지움 */
   role?: Record<string, Role | null>;
-  job?: { id: string; title: string; salary: number } | null;
+  job?: { id: string; title: string; salary: number; org?: string; rank?: number } | null;
   education?: Education;
   reveal?: ("grit" | "luck" | "talent")[];
   /** 이 결과로 사망. 값은 사망 원인 */
@@ -37,38 +37,54 @@ export interface Effects {
   run?: (ctx: Ctx) => void;
 }
 
+export type Text = string | string[] | ((ctx: Ctx) => string);
+
 export interface Outcome {
-  text: string | ((ctx: Ctx) => string);
+  /** 배열이면 그중 하나를 무작위로. 문장 속 [가|나|다]도 하나를 무작위로 고른다 */
+  text: Text;
   effects?: Effects;
+  /** 이어지는 장면(scene 사건)의 id. 같은 해 안에서 바로 이어진다. 함수면 상황에 따라 고른다 */
+  next?: string | ((ctx: Ctx) => string | undefined);
+  /** 한 해 요약과 연표에 남기지 않는 중간 장면 */
+  quiet?: boolean;
 }
 
 export type CheckStat = Stat | "grit" | "luck" | "fame";
 
 export interface Choice {
-  text: string;
+  /** 함수면 상황에 따라 선택지 이름이 바뀐다 (합격한 대학, 지원할 회사 등) */
+  text: string | ((life: Life) => string);
+  /** 선택지 옆에 보일 그림: 로고 파일 이름(logos/ 안) 등 */
+  icon?: string | ((life: Life) => string | undefined);
   /** 이 조건일 때만 선택지가 보임 */
   when?: (life: Life) => boolean;
   /** 능력치 판정. 능력치가 dc보다 높을수록 성공하기 쉬움 */
   check?: { stat: CheckStat; dc: number };
   /** 판정 대신 직접 성공 확률을 정할 때 */
   chance?: (life: Life) => number;
-  success?: Outcome;
-  fail?: Outcome;
-  /** 판정 없는 선택지의 결과 */
-  outcome?: Outcome;
+  success?: Outcome | ((life: Life) => Outcome);
+  fail?: Outcome | ((life: Life) => Outcome);
+  /** 판정 없는 선택지의 결과. 함수면 상황에 따라 정한다 */
+  outcome?: Outcome | ((life: Life) => Outcome);
+}
+
+export function resolveOutcome(o: Choice["outcome"], life: Life): Outcome | undefined {
+  return typeof o === "function" ? o(life) : o;
 }
 
 export type CastSpec =
   /** 이미 아는 사람 중에서 고름 */
   | { role: Role | Role[]; filter?: (p: Person, life: Life) => boolean }
   /** 새로 만나는 사람. gender 기본값은 아무나, age는 주인공과의 나이 차이 */
-  | { new: Role; gender?: "same" | "opposite"; age?: [number, number] };
+  | { new: Role; gender?: "same" | "opposite"; age?: [number, number]; make?: (p: Person, life: Life, rng: Rng) => void };
 
 export interface GameEvent {
   id: string;
   ages: [number, number];
   /** 조건이 맞으면 반드시 일어나는 인생의 큰 사건 */
   milestone?: boolean;
+  /** 앞 선택의 결과(next)로만 이어지는 장면. 무작위로 뽑히지 않고 나이·횟수 제한도 없다 */
+  scene?: boolean;
   /** 평생 최대 횟수. 기본 1 */
   max?: number;
   /** 다시 나오기까지 최소 햇수 */
@@ -76,7 +92,9 @@ export interface GameEvent {
   weight?: number | ((life: Life) => number);
   when?: (life: Life) => boolean;
   cast?: Record<string, CastSpec>;
-  text: string | ((ctx: Ctx) => string);
+  /** 사건이 시작될 때 한 번 (제안할 회사를 정하는 등) */
+  setup?: (ctx: Ctx) => void;
+  text: Text;
   choices: Choice[];
 }
 
@@ -84,14 +102,20 @@ export function amount(rng: Rng, a: Amount): number {
   return typeof a === "number" ? a : rng.int(Math.min(a[0], a[1]), Math.max(a[0], a[1]));
 }
 
-export function eligible(ev: GameEvent, life: Life): boolean {
+export function eligible(ev: GameEvent, life: Life, carried: string[] = []): boolean {
+  if (ev.scene) return (!ev.when || ev.when(life)) && castReady(ev, life, carried);
   if (life.age < ev.ages[0] || life.age > ev.ages[1]) return false;
   const seen = life.seen[ev.id] ?? 0;
   if (seen >= (ev.max ?? 1)) return false;
   if (ev.cooldown && life.lastSeen[ev.id] !== undefined && life.age - life.lastSeen[ev.id] < ev.cooldown) return false;
   if (ev.when && !ev.when(life)) return false;
-  // 아는 사람이 필요한 사건은 그런 사람이 있어야 함
-  for (const spec of Object.values(ev.cast ?? {})) {
+  return castReady(ev, life, carried);
+}
+
+/** 아는 사람이 필요한 사건은 그런 사람이 있어야 함 (앞 장면에서 이어받은 사람은 통과) */
+function castReady(ev: GameEvent, life: Life, carried: string[]): boolean {
+  for (const [key, spec] of Object.entries(ev.cast ?? {})) {
+    if (carried.includes(key)) continue;
     if ("role" in spec && candidatesFor(spec, life).length === 0) return false;
   }
   return true;
@@ -108,10 +132,17 @@ function candidatesFor(spec: { role: Role | Role[]; filter?: (p: Person, life: L
 }
 
 /** 사건에 등장할 사람을 정한다. 새로 만나는 사람은 pending에 넣어 두고 선택에 따라 남긴다 */
-export function castEvent(ev: GameEvent, life: Life, rng: Rng): { cast: Record<string, string>; pending: Person[] } {
-  const cast: Record<string, string> = {};
-  const pending: Person[] = [];
+export interface Carry {
+  cast: Record<string, string>;
+  pending: Person[];
+}
+
+export function castEvent(ev: GameEvent, life: Life, rng: Rng, carry?: Carry): Carry {
+  // 앞 장면의 등장인물은 그대로 이어받는다
+  const cast: Record<string, string> = { ...(carry?.cast ?? {}) };
+  const pending: Person[] = (carry?.pending ?? []).filter((p) => !life.people.some((x) => x.id === p.id));
   for (const [key, spec] of Object.entries(ev.cast ?? {})) {
+    if (cast[key]) continue;
     if ("role" in spec) {
       cast[key] = rng.pick(candidatesFor(spec, life)).id;
     } else {
@@ -127,6 +158,7 @@ export function castEvent(ev: GameEvent, life: Life, rng: Rng): { cast: Record<s
         affinity: 50,
         alive: true,
       };
+      spec.make?.(p, life, rng);
       pending.push(p);
       cast[key] = p.id;
     }
@@ -143,17 +175,31 @@ export function resolveCast(life: Life, cast: Record<string, string>, pending: P
   return out;
 }
 
-/** 문장 속 {key}에 넣을 값: 주인공 이름과 등장인물 이름(성 빼고) */
+/** 문장 속 {key}에 넣을 값: 주인공 이름, 등장인물 이름(성 빼고)과 {key_job} {key_trait} {key_full}, 그리고 flags의 글자 값 {f_이름} */
 export function textVars(ctx: Pick<Ctx, "life" | "cast">): Record<string, string> {
   const vars: Record<string, string> = { me: ctx.life.name.slice(1), fullname: ctx.life.name };
+  for (const [k, v] of Object.entries(ctx.life.flags)) if (typeof v === "string" || typeof v === "number") vars[`f_${k}`] = String(v);
   for (const [key, p] of Object.entries(ctx.cast)) {
     vars[key] = p.role === "엄마" || p.role === "아빠" ? p.role : p.name.slice(1);
+    vars[`${key}_full`] = p.name;
+    vars[`${key}_job`] = p.job ?? (ctx.life.age - p.bornAt < 20 ? "학생" : "직장인");
+    vars[`${key}_trait`] = p.trait ?? "무난한";
   }
   return vars;
 }
 
-export function render(text: string | ((ctx: Ctx) => string), ctx: Ctx): string {
-  return fill(typeof text === "function" ? text(ctx) : text, textVars(ctx));
+/** [가|나|다] 중 하나를 고른다. 겹쳐 쓰지 않는다 */
+export function vary(text: string, rng: Rng): string {
+  return text.replace(/\[([^\[\]]*\|[^\[\]]*)\]/g, (_, body: string) => rng.pick(body.split("|")));
+}
+
+export function render(text: Text, ctx: Ctx): string {
+  const raw = typeof text === "function" ? text(ctx) : Array.isArray(text) ? ctx.rng.pick(text) : text;
+  return fill(vary(raw, ctx.rng), textVars(ctx));
+}
+
+export function choiceText(choice: Choice, life: Life): string {
+  return typeof choice.text === "function" ? choice.text(life) : choice.text;
 }
 
 export function checkValue(life: Life, stat: CheckStat): number {

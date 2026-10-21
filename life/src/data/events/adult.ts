@@ -3,13 +3,8 @@
 import type { Ctx, GameEvent } from "../../game/events";
 import { ageOf, employed, first, married, peopleWith } from "../../game/life";
 import { formatMoney } from "../../game/text";
-import { jobDef } from "../jobs";
 import { addFamily, doing, o, surnameOf } from "./util";
 
-const stableJob = (l: Parameters<typeof employed>[0]) => employed(l) && !jobDef(l.job!.id)?.volatile;
-const raise = (rate: number) => (ctx: Ctx) => {
-  if (ctx.life.job) ctx.life.job.salary = Math.round(ctx.life.job.salary * rate);
-};
 
 /** 투자 결과 금액을 정하고 문장에서 쓰도록 flags.lastAmount에 적어 둔다 */
 const invest = (share: number, win: boolean) => (ctx: Ctx) => {
@@ -22,31 +17,13 @@ const lastAmount = (ctx: Ctx) => formatMoney(Number(ctx.life.flags.lastAmount));
 
 export const ADULT: GameEvent[] = [
   {
-    id: "promotion",
-    ages: [27, 62],
-    max: 6,
-    cooldown: 3,
-    when: stableJob,
-    weight: (l) => (doing(l, "work_hard") ? 3 : 1),
-    text: "팀장님이 큰 프로젝트를 맡아 보겠냐고 묻는다.",
-    choices: [
-      {
-        text: "맡는다",
-        chance: (l) => Math.min(0.9, 0.35 + (l.stats.smarts - 50) / 100 + (doing(l, "work_hard") ? 0.2 : 0)),
-        success: o("프로젝트가 대성공! 승진했다.", { stats: { happiness: 5 }, fame: 1, run: raise(1.25) }),
-        fail: o("결과가 좋지 않았다. 한동안 눈치를 봤다.", { stats: { happiness: -4, health: -2 } }),
-      },
-      { text: "정중히 사양한다", outcome: o("지금 자리가 편하다. 무리하지 않기로 했다.", { stats: { happiness: 1 } }) },
-    ],
-  },
-  {
     id: "burnout",
     ages: [25, 62],
     max: 3,
     cooldown: 5,
     when: employed,
     weight: (l) => (doing(l, "work_hard") ? 3 : 0.8),
-    text: "아침에 눈을 뜨기가 너무 힘들다. 번아웃이 온 것 같다.",
+    text: "[아침에 눈을 뜨기가 너무 힘들다.|출근길 지하철에서 숨이 막혔다.|주말 내내 누워만 있었다.|월요일이 무섭다.] 번아웃이 온 것 같다.",
     choices: [
       {
         text: "휴직한다",
@@ -57,33 +34,16 @@ export const ADULT: GameEvent[] = [
           },
         }),
       },
-      { text: "참고 버틴다", outcome: o("꾸역꾸역 출근했다. 몸이 먼저 신호를 보냈다.", { stats: { health: -5, happiness: -4 } }) },
-      { text: "사표를 던진다", outcome: o("속이 시원하다. 통장은 춥다.", { job: null, stats: { happiness: 5 } }) },
-    ],
-  },
-  {
-    id: "job_offer",
-    ages: [28, 55],
-    max: 3,
-    cooldown: 5,
-    when: stableJob,
-    text: "다른 회사에서 연봉을 30% 올려 주겠다며 이직을 제안했다.",
-    choices: [
-      {
-        text: "옮긴다",
-        chance: () => 0.7,
-        success: o("새 회사에 잘 적응했다. 진작 옮길 걸 그랬다.", { stats: { happiness: 3 }, run: raise(1.3) }),
-        fail: o("연봉은 올랐지만 분위기가 숨 막힌다.", { stats: { happiness: -6 }, run: raise(1.3) }),
-      },
-      { text: "지금 회사에 남는다", outcome: o("익숙한 동료들이 좋다. 남기로 했다.", { stats: { happiness: 1 } }) },
+      { text: "참고 버틴다", outcome: o("꾸역꾸역 출근했다. [몸이 먼저 신호를 보냈다.|위염 진단을 받았다.|머리카락이 한 움큼씩 빠졌다.]", { stats: { health: -5, happiness: -4 } }) },
+      { text: "사표를 던진다", outcome: o("[사표를 던졌다.|팀장님 책상에 사직서를 올려놓았다.] 속이 시원하다. 통장은 춥다.", { job: null, stats: { happiness: 5 } }) },
     ],
   },
   {
     id: "layoff",
     ages: [40, 60],
     weight: 0.6,
-    when: (l) => l.job?.id === "big" || l.job?.id === "sme",
-    text: "회사가 구조조정을 한다. 명단에 {me}의 이름이 있다.",
+    when: (l) => ["big", "it", "finance", "sme", "startup"].includes(l.job?.id ?? ""),
+    text: "[실적 악화로|경기가 나빠져|회사가 합병되면서] 구조조정이 시작됐다. 명단에 {me}의 이름이 있다.",
     choices: [
       {
         text: "희망퇴직을 받아들인다",
@@ -109,7 +69,7 @@ export const ADULT: GameEvent[] = [
     max: 5,
     cooldown: 3,
     when: (l) => l.job?.id === "shop",
-    text: "가게 근처에 대형 프랜차이즈가 들어왔다. 손님이 눈에 띄게 줄었다.",
+    text: "[가게 근처에 대형 프랜차이즈가 들어왔다.|월세가 크게 올랐다.|배달 앱 수수료가 올랐다.] 손님이 눈에 띄게 줄었다.",
     choices: [
       {
         text: "메뉴를 새로 개발한다",
@@ -165,10 +125,10 @@ export const ADULT: GameEvent[] = [
     max: 4,
     cooldown: 3,
     when: employed,
-    text: "회식 자리에서 술잔이 계속 돈다.",
+    text: "[삼겹살집|횟집|치킨집] 회식 자리. [부장님이|팀장님이|거래처 사장님이] 계속 술잔을 돌린다.",
     choices: [
-      { text: "끝까지 달린다", outcome: o("다음 날 기억이 없다. 동료들과는 가까워졌다.", { stats: { social: 2, health: -3 } }) },
-      { text: "적당히 빠진다", outcome: o("눈치껏 먼저 일어났다.", { stats: { social: -1, health: 1 } }) },
+      { text: "끝까지 달린다", outcome: o("[다음 날 기억이 없다.|노래방까지 3차를 갔다.|택시에서 잠들었다.] 동료들과는 가까워졌다.", { stats: { social: 2, health: -3 } }) },
+      { text: "적당히 빠진다", outcome: o("[눈치껏 먼저 일어났다.|막차를 핑계로 빠져나왔다.|사이다로 버텼다.]", { stats: { social: -1, health: 1 } }) },
     ],
   },
   {
@@ -178,7 +138,7 @@ export const ADULT: GameEvent[] = [
     cooldown: 4,
     when: (l) => l.money >= 500,
     cast: { friend: { role: "친구" } },
-    text: "{friend}이(가) 무조건 오른다는 코인을 추천한다.",
+    text: "{friend}이(가) 무조건 오른다는 [코인|테마주|해외 주식|비상장 주식]을 추천한다. \"[이번엔 진짜야.|나만 믿어.|벌써 세 배 올랐어.]\"",
     choices: [
       {
         text: "재산 절반을 넣는다",
@@ -192,7 +152,7 @@ export const ADULT: GameEvent[] = [
         success: o((ctx) => `${lastAmount(ctx)}을(를) 벌었다. 소소한 행복이다.`, { run: invest(0.1, true), stats: { happiness: 2 } }),
         fail: o((ctx) => `${lastAmount(ctx)}을(를) 잃었다. 수업료라 치자.`, { run: invest(0.1, false), stats: { happiness: -2 } }),
       },
-      { text: "거절한다", outcome: o("{friend}은(는) 조금 섭섭해했다.", { affinity: { friend: -3 } }) },
+      { text: "거절한다", outcome: o("{friend}은(는) [조금 섭섭해했다.|\"나중에 후회하지 마.\"라며 웃었다.]", { affinity: { friend: -3 } }) },
     ],
   },
   {
@@ -201,7 +161,7 @@ export const ADULT: GameEvent[] = [
     max: 3,
     cooldown: 5,
     weight: 0.3,
-    text: "편의점에서 로또를 한 장 샀다. 오늘은 왠지 느낌이 좋다.",
+    text: "[편의점에서|출근길 복권방에서|꿈자리가 좋아서] 로또를 한 장 샀다. 오늘은 왠지 느낌이 좋다.",
     choices: [
       {
         text: "두근거리며 번호를 맞춰 본다",
@@ -217,7 +177,7 @@ export const ADULT: GameEvent[] = [
     max: 6,
     cooldown: 2,
     when: (l) => !l.flags.houseValue && (married(l) || l.age >= 35),
-    text: "마음에 드는 아파트가 5억 원에 매물로 나왔다.",
+    text: "[회사 근처|아이 학교 앞|역세권] 아파트가 5억 원에 매물로 나왔다. [부동산 사장님이 오늘 안에 결정하라고 한다.|집값이 오를 거라는 뉴스가 나온다.]",
     choices: [
       {
         text: "대출을 끼고 산다",
@@ -240,7 +200,7 @@ export const ADULT: GameEvent[] = [
     weight: 3,
     when: (l) => married(l) && peopleWith(l, "자녀").length < 4,
     cast: { spouse: { role: "배우자" } },
-    text: "{spouse}와(과) 아이 이야기를 나눴다.",
+    text: "[주말 아침,|조카를 보고 온 날,|산책하다가] {spouse}와(과) 아이 이야기를 나눴다.",
     choices: [
       {
         text: "아이를 갖는다",
@@ -264,9 +224,9 @@ export const ADULT: GameEvent[] = [
     max: 5,
     cooldown: 3,
     cast: { spouse: { role: "배우자" } },
-    text: "{spouse}와(과) 사이가 예전 같지 않다.",
+    text: "{spouse}와(과) 사이가 예전 같지 않다. [대화가 줄었다.|각자 휴대폰만 본다.|사소한 일로 자꾸 부딪친다.]",
     choices: [
-      { text: "둘이 여행을 간다", outcome: o("오랜만에 둘이 손을 잡고 걸었다.", { money: -300, affinity: { spouse: 10 }, stats: { happiness: 3 } }) },
+      { text: "둘이 여행을 간다", outcome: o("[강릉 바다|경주 한옥 마을|일본 온천]에 다녀왔다. 오랜만에 둘이 손을 잡고 걸었다.", { money: -300, affinity: { spouse: 10 }, stats: { happiness: 3 } }) },
       {
         text: "진지하게 대화한다",
         check: { stat: "social", dc: 50 },
@@ -294,10 +254,10 @@ export const ADULT: GameEvent[] = [
     max: 3,
     cooldown: 3,
     cast: { kid: { role: "자녀", filter: (p, l) => ageOf(l, p) >= 8 && ageOf(l, p) <= 18 } },
-    text: "{kid}의 성적이 걱정이다.",
+    text: "{kid}의 [성적표|담임 선생님 상담|모의고사 결과]를 보니 걱정이 된다.",
     choices: [
       { text: "학원을 보낸다", outcome: o("학원비가 만만치 않다. {kid}은(는) 조금 지쳐 보인다.", { money: [-800, -500], affinity: { kid: -2 } }) },
-      { text: "하고 싶은 걸 하게 둔다", outcome: o("{kid}은(는) 신이 나서 춤 학원에 등록했다.", { affinity: { kid: 8 }, stats: { happiness: 2 } }) },
+      { text: "하고 싶은 걸 하게 둔다", outcome: o("{kid}은(는) 신이 나서 [춤 학원|드럼 학원|코딩 학원|야구부]에 들어갔다.", { affinity: { kid: 8 }, stats: { happiness: 2 } }) },
       {
         text: "직접 가르친다",
         check: { stat: "smarts", dc: 55 },
@@ -312,7 +272,7 @@ export const ADULT: GameEvent[] = [
     max: 3,
     cooldown: 2,
     cast: { kid: { role: "자녀", filter: (p, l) => ageOf(l, p) >= 27 && l.flags[`wed_${p.id}`] !== true } },
-    text: "{kid}이(가) 결혼할 사람을 데려왔다.",
+    text: "{kid}이(가) [회사에서 만난|대학 동기인|소개팅으로 만난] 결혼할 사람을 데려왔다.",
     choices: [
       {
         text: "반갑게 맞이한다",
@@ -333,7 +293,7 @@ export const ADULT: GameEvent[] = [
     ages: [42, 55],
     text: "문득 거울을 보니 낯선 중년이 서 있다.",
     choices: [
-      { text: "새로운 취미를 시작한다", outcome: o("늦게 배운 기타가 이렇게 재밌을 줄이야.", { money: -300, stats: { happiness: 6 } }) },
+      { text: "새로운 취미를 시작한다", outcome: o("늦게 배운 [기타|골프|수영|클라이밍|베이킹]이(가) 이렇게 재밌을 줄이야.", { money: -300, stats: { happiness: 6 } }) },
       { text: "스포츠카를 산다", when: (l) => l.money >= 6000, outcome: o("빨간 스포츠카를 샀다. 가족들은 어이없어했다.", { money: -5000, stats: { happiness: 8, looks: 1 } }) },
       {
         text: "가족에게 집중한다",
@@ -352,7 +312,7 @@ export const ADULT: GameEvent[] = [
     max: 2,
     cooldown: 5,
     cast: { parent: { role: ["엄마", "아빠"], filter: (p, l) => ageOf(l, p) >= 62 } },
-    text: "{parent}이(가) 쓰러지셨다는 연락을 받았다.",
+    text: "[회의 중에|새벽에|출근길에] {parent}이(가) 쓰러지셨다는 연락을 받았다.",
     choices: [
       { text: "직접 간병한다", outcome: o("몇 달을 병원에서 지냈다. {parent}이(가) 손을 꼭 잡아 주셨다.", { affinity: { parent: 15 }, stats: { happiness: -5, health: -2 }, money: -500 }) },
       { text: "요양 병원에 모신다", outcome: o("주말마다 찾아뵙기로 했다.", { money: -1500, affinity: { parent: -3 } }) },
@@ -365,10 +325,10 @@ export const ADULT: GameEvent[] = [
     max: 3,
     cooldown: 2,
     cast: { friend: { role: "친구" } },
-    text: "{friend}이(가) 결혼한다며 청첩장을 건넸다.",
+    text: "{friend}이(가) [모바일|종이] 청첩장을 보냈다. \"[꼭 와 줘!|축가 부탁해도 돼?|사회 좀 봐 줄래?]\"",
     choices: [
-      { text: "축의금을 넉넉히 한다", outcome: o("{friend}이(가) 두고두고 고마워했다.", { money: -50, affinity: { friend: 8 } }) },
-      { text: "기본만 한다", outcome: o("밥은 맛있었다.", { money: -10 }) },
+      { text: "축의금을 넉넉히 한다", outcome: o("[축의금을 넉넉히 냈다.|축가까지 불러 줬다.] {friend}이(가) 두고두고 고마워했다.", { money: -50, affinity: { friend: 8 } }) },
+      { text: "기본만 한다", outcome: o("[밥은 맛있었다.|뷔페 줄이 길었다.|오랜만에 동창들을 봤다.]", { money: -10 }) },
       { text: "바빠서 못 간다", outcome: o("{friend}에게서 서운하다는 문자가 왔다.", { affinity: { friend: -10 } }) },
     ],
   },

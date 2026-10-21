@@ -1,16 +1,22 @@
 // 학창 시절(8~18살)과 수능
 
 import type { Ctx, GameEvent } from "../../game/events";
+
+/** 첫사랑을 기억해 두면 어른이 되어 동창회에서 다시 만날 수 있다 (love.ts의 reunion) */
+const firstLove = (how: string) => (ctx: Ctx) => {
+  ctx.life.flags.firstLove = ctx.cast.crush.name;
+  ctx.life.flags.firstLoveHow = how;
+};
 import { single } from "../../game/life";
 import { avgChance, o } from "./util";
 
 export const SCHOOL: GameEvent[] = [
   {
     id: "school_start",
-    ages: [8, 8],
+    ages: [7, 7],
     milestone: true,
     cast: { mate: { new: "친구", age: [0, 0] } },
-    text: "초등학교 입학식. 옆자리에 {mate}이(가) 앉았다.",
+    text: "[초등학교 입학식.|노란 가방을 메고 처음 학교에 간 날.] [옆자리에|짝꿍으로] {mate}이(가) 앉았다.",
     choices: [
       {
         text: "먼저 말을 건다",
@@ -93,8 +99,8 @@ export const SCHOOL: GameEvent[] = [
       {
         text: "용기 내서 고백한다",
         chance: (l) => avgChance(l.stats.looks, l.stats.social, 55),
-        success: o("{crush}이(가) 수줍게 고개를 끄덕였다. 첫 연애가 시작됐다.", { meet: ["crush"], affinity: { crush: 20 }, stats: { happiness: 8 } }),
-        fail: o("\"미안, 그냥 친구로 지내자.\" 그날 밤 이불을 걷어찼다.", { stats: { happiness: -6 } }),
+        success: o("{crush}이(가) 수줍게 고개를 끄덕였다. 첫 연애가 시작됐다.", { meet: ["crush"], affinity: { crush: 20 }, stats: { happiness: 8 }, run: firstLove("첫 연애를 했던") }),
+        fail: o("\"미안, 그냥 친구로 지내자.\" 그날 밤 이불을 걷어찼다.", { stats: { happiness: -6 }, run: firstLove("고백했다가 차였던") }),
       },
       {
         text: "사물함에 편지를 몰래 넣는다",
@@ -102,7 +108,7 @@ export const SCHOOL: GameEvent[] = [
         success: o("편지를 읽은 {crush}이(가) 먼저 말을 걸어왔다!", { meet: ["crush"], affinity: { crush: 15 }, stats: { happiness: 6 } }),
         fail: o("답장은 끝내 오지 않았다.", { stats: { happiness: -2 } }),
       },
-      { text: "마음을 접는다", outcome: o("공부에 집중하기로 했다. 가끔 창밖을 보며 한숨을 쉰다.", { stats: { smarts: 1 } }) },
+      { text: "마음을 접는다", outcome: o("공부에 집중하기로 했다. 가끔 창밖을 보며 한숨을 쉰다.", { stats: { smarts: 1 }, run: firstLove("혼자 좋아했던") }) },
     ],
   },
   {
@@ -220,79 +226,5 @@ export const SCHOOL: GameEvent[] = [
       { text: "귀가부", outcome: o("수업이 끝나면 곧장 집에 갔다.", { stats: { happiness: 2 } }) },
     ],
   },
-  {
-    id: "suneung",
-    ages: [18, 22],
-    milestone: true,
-    max: 2,
-    when: (l) => l.flags.suneungDone !== true && (l.age === 18 || l.flags.retakeAt === l.age),
-    text: (ctx) => (ctx.life.flags.retakeAt === ctx.life.age ? "두 번째 수능 날이다. 이번엔 다르다." : "드디어 수능 날이다. 손이 떨린다."),
-    choices: [
-      {
-        text: "최선을 다한다",
-        outcome: o(
-          (ctx) =>
-            ({
-              3: "믿을 수 없는 점수가 나왔다! 원하는 대학 어디든 갈 수 있다.",
-              2: "준비한 만큼 나왔다. 무난하게 대학에 갈 수 있을 것 같다.",
-              1: "생각보다 점수가 많이 낮다. 눈앞이 캄캄하다.",
-            })[ctx.life.flags.suneungTier as 1 | 2 | 3],
-          {
-            run: (ctx) => {
-              const l = ctx.life;
-              const retakeBonus = l.flags.retakeAt === l.age ? 6 : 0;
-              const score = l.stats.smarts + ctx.rng.int(-15, 15) + (l.hidden.grit - 50) / 5 + retakeBonus;
-              l.flags.suneungTier = score >= 70 ? 3 : score >= 45 ? 2 : 1;
-              l.flags.suneungDone = true;
-            },
-          },
-        ),
-      },
-      { text: "시험을 보지 않는다", outcome: o("수능장에 가지 않았다. 다른 길을 가 보기로 했다.", { flags: { suneungTier: 0, suneungDone: true } }) },
-    ],
-  },
-  {
-    id: "college_choice",
-    ages: [18, 22],
-    milestone: true,
-    max: 2,
-    when: (l) => l.flags.suneungDone === true && l.flags.collegeDecided !== true,
-    text: "앞으로 어떤 길을 갈까?",
-    choices: [
-      {
-        text: "명문대에 진학한다",
-        when: (l) => Number(l.flags.suneungTier) >= 3,
-        outcome: o("명문대 합격! 동네에 현수막이 걸렸다.", { stats: { happiness: 8 }, fame: 2, flags: { collegeDecided: true, collegeKind: "명문대졸" }, run: enroll(4) }),
-      },
-      {
-        text: "대학에 진학한다",
-        when: (l) => Number(l.flags.suneungTier) >= 2,
-        outcome: o("대학생이 되었다. 새로운 시작이다.", { stats: { happiness: 4 }, flags: { collegeDecided: true, collegeKind: "대졸" }, run: enroll(4) }),
-      },
-      {
-        text: "전문대에 진학한다",
-        when: (l) => Number(l.flags.suneungTier) >= 1,
-        outcome: o("기술을 배워 빨리 사회에 나가기로 했다.", { stats: { happiness: 2 }, flags: { collegeDecided: true, collegeKind: "전문대졸" }, run: enroll(2) }),
-      },
-      {
-        text: "재수한다",
-        when: (l) => l.flags.retakeAt === undefined && Number(l.flags.suneungTier) >= 1 && Number(l.flags.suneungTier) < 3,
-        outcome: o("1년 더 해 보기로 했다. 독서실 책상에 \"한 번 더\"라고 써 붙였다.", {
-          stats: { happiness: -4 },
-          run: (ctx) => {
-            ctx.life.flags.retakeAt = ctx.life.age + 1;
-            ctx.life.flags.suneungDone = false;
-          },
-        }),
-      },
-      { text: "바로 사회에 나간다", outcome: o("대학 대신 일찍 사회에 나가기로 했다.", { education: "고졸", flags: { collegeDecided: true } }) },
-    ],
-  },
 ];
 
-function enroll(years: number) {
-  return (ctx: Ctx) => {
-    ctx.life.flags.collegeUntil = ctx.life.age + 1 + years;
-    ctx.life.education = "고졸";
-  };
-}

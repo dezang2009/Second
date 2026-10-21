@@ -58,9 +58,9 @@ export const SENIOR: GameEvent[] = [
     max: 4,
     cooldown: 5,
     cast: { friend: { role: "친구" } },
-    text: "오랜만에 {friend}에게서 연락이 왔다.",
+    text: "[오랜만에|10년 만에|새해 첫날] {friend}에게서 [연락이 왔다.|전화가 왔다. \"나 기억나?\"|단톡방에 초대됐다.]",
     choices: [
-      { text: "당장 만난다", outcome: o("{friend}와(과) 옛날이야기로 밤을 새웠다.", { affinity: { friend: 10 }, stats: { happiness: 5 } }) },
+      { text: "당장 만난다", outcome: o("{friend}와(과) [옛날이야기로 밤을 새웠다.|단골 국밥집에서 소주를 기울였다.|등산을 같이 갔다.]", { affinity: { friend: 10 }, stats: { happiness: 5 } }) },
       { text: "다음에 보자고 한다", outcome: o("다음은 오지 않았다.", { affinity: { friend: -5 } }) },
     ],
   },
@@ -70,7 +70,7 @@ export const SENIOR: GameEvent[] = [
     max: 6,
     cooldown: 4,
     weight: (l) => (l.age >= 60 ? 2 : 1),
-    text: "건강검진 결과지에 빨간 글씨가 있다.",
+    text: "건강검진 결과지에 빨간 글씨가 있다. [혈압|간 수치|혈당|콜레스테롤]이 높다고 한다.",
     choices: [
       { text: "정밀 검사를 받고 치료한다", outcome: o("일찍 발견해서 다행이었다.", { money: [-800, -300], stats: { health: 5 } }) },
       {
@@ -102,7 +102,7 @@ export const SENIOR: GameEvent[] = [
     ages: [62, 100],
     max: 2,
     cooldown: 5,
-    text: "동네 문화센터에서 새 강좌를 연다고 한다.",
+    text: "동네 [문화센터|복지관|주민센터]에서 새 강좌를 연다고 한다.",
     choices: [
       { text: "노래 교실에 등록한다", outcome: o("새 친구들과 트로트를 부르며 웃었다.", { stats: { happiness: 4, social: 3 } }) },
       {
