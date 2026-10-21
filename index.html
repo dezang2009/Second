@@ -39,15 +39,16 @@
         <p class="menu-foot">음원과 기록은 이 기기에만 저장돼요</p>
       </section>
 
-      <!-- 곡 목록 -->
-      <section id="screen-list" class="screen list-screen" hidden>
-        <header class="list-head">
+      <!-- 곡 선택 -->
+      <section id="screen-list" class="screen select-screen" hidden>
+        <header class="select-head">
           <button id="list-back" class="back" type="button">‹ 메뉴</button>
           <h1 id="list-heading">곡 선택</h1>
-          <p id="list-sub">플레이할 곡을 골라주세요</p>
+          <span id="list-count" class="list-count"></span>
         </header>
+        <div id="hero" class="hero" hidden></div>
         <div class="list-tools">
-          <input id="song-search" class="search" type="search" placeholder="곡 이름 검색" aria-label="곡 이름 검색" autocomplete="off" />
+          <input id="song-search" class="search" type="search" placeholder="곡 이름, 가수 검색" aria-label="곡 이름, 가수 검색" autocomplete="off" />
           <div class="tool-row">
             <select id="song-sort" aria-label="정렬">
               <option value="recent">최근 플레이 순</option>
@@ -55,11 +56,11 @@
               <option value="name">이름 순</option>
               <option value="score">최고 점수 순</option>
             </select>
-            <button id="fav-only" class="chip-toggle" type="button" aria-pressed="false">★ 즐겨찾기만</button>
+            <button id="fav-only" class="chip-toggle" type="button" aria-pressed="false">★ 즐겨찾기</button>
+            <label class="chip-toggle add-chip" for="file">+ 음원 추가</label>
           </div>
         </div>
-        <ul id="song-list" class="song-list"></ul>
-        <label class="btn add-btn" for="file">+ 음원 추가</label>
+        <ul id="song-list" class="song-rows"></ul>
         <input id="file" type="file" accept="audio/*" hidden />
         <input id="import-file" type="file" accept=".json,application/json" hidden />
         <p id="list-status" class="status" role="status"></p>

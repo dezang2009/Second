@@ -14,6 +14,7 @@ function song(id: string, over: Partial<SongRecord> = {}): SongRecord {
     userChart: null,
     difficulty: "normal",
     bests: {},
+    lamps: {},
     favorite: false,
     lastPlayedAt: null,
     playCount: 0,

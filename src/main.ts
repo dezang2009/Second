@@ -7,6 +7,8 @@ import { analyzeBuffer } from "./analysis/client";
 import { audio, unlockAudio } from "./audio/audio";
 import { AudioLoadError, decodeAudio, stripExtension } from "./audio/loader";
 import { createMetronomeBuffer } from "./audio/metronome";
+import { highlightStart, PreviewPlayer } from "./audio/preview";
+import { readTags } from "./audio/tags";
 import { EditScene } from "./game/editScene";
 import { rankOf, type JudgeStats } from "./game/judge";
 import { PlayScene } from "./game/playScene";
@@ -16,14 +18,31 @@ import { emptyChart } from "./songs/empty";
 import type { Chart } from "./songs/types";
 import { ChartFormatError, chartFileName, parseChart } from "./songs/validate";
 import { onSettingsChange, settings, updateSettings } from "./settings";
-import { type Difficulty, deleteSong, getSong, listSongs, newId, putSong, type SongRecord, updateSong, wipeAll } from "./storage/library";
+import {
+  betterLamp,
+  type Difficulty,
+  deleteSong,
+  getSong,
+  type Lamp,
+  listSongs,
+  newId,
+  putSong,
+  type SongRecord,
+  updateSong,
+  wipeAll,
+} from "./storage/library";
 import { exportTextFile } from "./storage/share";
 import { type ListQuery, querySongs, type SongSort, timeAgo } from "./storage/sortSongs";
+import { forgetTags, jacketEl, tagsOf } from "./ui/jacket";
 import { setupSettingsScreen } from "./ui/settingsScreen";
 
 const METRONOME_BARS = 64;
 const METRONOME_BPM = 120;
 const DIFF_LABEL: Record<Difficulty, string> = { normal: "NORMAL", hard: "HARD", user: "내 채보" };
+/** 곡을 고르고 이만큼 머무르면 미리 듣기를 시작한다(ms) */
+const PREVIEW_DELAY_MS = 350;
+/** 곡 선택 화면의 미리 듣기. 처음 들려줄 때 만든다 */
+let previewPlayer: PreviewPlayer | null = null;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const stage = new Stage($<HTMLCanvasElement>("game"));
@@ -31,6 +50,7 @@ const stage = new Stage($<HTMLCanvasElement>("game"));
 type ScreenName = "menu" | "list" | "play" | "result" | "edit" | "settings";
 function show(name: ScreenName): void {
   if (document.body.dataset.screen === "settings" && name !== "settings") settingsUi?.stop();
+  if (name !== "list") previewPlayer?.stop();
   for (const s of ["menu", "list", "play", "result", "edit", "settings"] as const) $(`screen-${s}`).hidden = s !== name;
   document.body.dataset.screen = name;
   document.body.classList.remove("running");
@@ -125,18 +145,20 @@ async function pumpAnalysis(): Promise<void> {
   }
 }
 
-/** 목록을 다시 그리지 않고 진행 막대만 고친다 */
+/** 목록을 다시 그리지 않고 진행 표시만 고친다 (고른 곡 카드의 막대, 목록 줄의 레벨 자리) */
 function updateProgress(id: string): void {
-  const card = list.ul.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`);
   const st = analysis.get(id);
-  if (!card || !st) return;
-  const box = card.querySelector<HTMLElement>(".analyze")!;
-  box.hidden = false;
-  box.querySelector<HTMLElement>(".bar span")!.style.width = `${Math.round(st.ratio * 100)}%`;
-  box.querySelector<HTMLElement>(".analyze-text")!.textContent = st.error
-    ? `자동 채보를 만들지 못했어요: ${st.error}`
-    : `자동 채보 만드는 중 · ${st.stage} ${Math.round(st.ratio * 100)}%`;
-  box.classList.toggle("error", Boolean(st.error));
+  if (!st) return;
+  const text = st.error ? `자동 채보를 만들지 못했어요: ${st.error}` : `자동 채보 만드는 중 · ${st.stage} ${Math.round(st.ratio * 100)}%`;
+  const box = list.hero.querySelector<HTMLElement>(`.hero-card[data-id="${CSS.escape(id)}"] .analyze`);
+  if (box) {
+    box.hidden = false;
+    box.querySelector<HTMLElement>(".bar span")!.style.width = `${Math.round(st.ratio * 100)}%`;
+    box.querySelector<HTMLElement>(".analyze-text")!.textContent = text;
+    box.classList.toggle("error", Boolean(st.error));
+  }
+  const lv = list.ul.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"] .row-lv`);
+  if (lv?.dataset.pending) lv.textContent = st.error ? "분석 실패" : `분석 ${Math.round(st.ratio * 100)}%`;
 }
 
 // ---------- 메뉴 ----------
@@ -147,25 +169,32 @@ let listMode: "play" | "edit" = "play";
 function openList(mode: "play" | "edit"): void {
   listMode = mode;
   $("list-heading").textContent = mode === "play" ? "곡 선택" : "채보 만들기";
-  $("list-sub").textContent = mode === "play" ? "플레이할 곡과 난이도를 골라주세요" : "채보를 만들거나 고칠 곡을 골라주세요";
   setStatus(list.status, "");
   show("list");
   void renderList();
 }
 
-$("menu-play").addEventListener("click", () => openList("play"));
+$("menu-play").addEventListener("click", () => {
+  unlockAudio(); // 곡 선택 화면에서 바로 미리 듣기가 나오도록
+  openList("play");
+});
 $("menu-settings").addEventListener("click", () => {
   settingsUi.refresh();
   show("settings");
 });
 $("settings-back").addEventListener("click", () => show("menu"));
-$("menu-edit").addEventListener("click", () => openList("edit"));
+$("menu-edit").addEventListener("click", () => {
+  unlockAudio();
+  openList("edit");
+});
 $("list-back").addEventListener("click", () => show("menu"));
 
-// ---------- 곡 목록 ----------
+// ---------- 곡 선택 ----------
 
 const list = {
   ul: $("song-list"),
+  hero: $("hero"),
+  count: $("list-count"),
   status: $("list-status"),
   file: $<HTMLInputElement>("file"),
   importFile: $<HTMLInputElement>("import-file"),
@@ -174,19 +203,21 @@ const list = {
   favOnly: $<HTMLButtonElement>("fav-only"),
 };
 
-// 목록 검색/정렬 상태. 정렬과 즐겨찾기 보기는 다음에 열 때도 그대로 둔다
+// 목록 검색/정렬 상태. 정렬, 즐겨찾기 보기, 고른 곡은 다음에 열 때도 그대로 둔다
 const LIST_PREFS_KEY = "rhythm.list.v1";
 const listQuery: ListQuery = { sort: "recent", search: "", favoritesOnly: false };
+let selectedId: string | null = null;
 try {
-  const saved = JSON.parse(localStorage.getItem(LIST_PREFS_KEY) ?? "{}") as Partial<ListQuery>;
+  const saved = JSON.parse(localStorage.getItem(LIST_PREFS_KEY) ?? "{}") as Partial<ListQuery> & { selected?: unknown };
   if (saved.sort && ["recent", "added", "name", "score"].includes(saved.sort)) listQuery.sort = saved.sort;
   listQuery.favoritesOnly = saved.favoritesOnly === true;
+  if (typeof saved.selected === "string") selectedId = saved.selected;
 } catch {
   // 저장된 값이 없거나 읽을 수 없으면 기본값
 }
 function saveListPrefs(): void {
   try {
-    localStorage.setItem(LIST_PREFS_KEY, JSON.stringify({ sort: listQuery.sort, favoritesOnly: listQuery.favoritesOnly }));
+    localStorage.setItem(LIST_PREFS_KEY, JSON.stringify({ sort: listQuery.sort, favoritesOnly: listQuery.favoritesOnly, selected: selectedId }));
   } catch {
     // 저장이 막혀도 이번 실행 동안은 유지된다
   }
@@ -209,6 +240,12 @@ list.favOnly.addEventListener("click", () => {
   void renderList();
 });
 
+const LAMP_LABEL: Record<Lamp, string> = { clear: "CLEAR", fc: "FULL COMBO", ap: "ALL PERFECT" };
+const LAMP_SHORT: Record<Lamp, string> = { clear: "C", fc: "FC", ap: "AP" };
+
+/** 지금 목록에 보이는 곡 (보이는 순서대로) */
+let shownSongs: SongRecord[] = [];
+
 /** 목록을 그리는 중에 또 그리라는 요청이 오면 앞의 것은 버린다 (늦게 끝난 옛 결과가 덮어쓰지 않게) */
 let renderToken = 0;
 
@@ -216,56 +253,142 @@ async function renderList(): Promise<void> {
   const token = ++renderToken;
   const songs = await listSongs();
   if (token !== renderToken) return;
-  list.ul.replaceChildren();
-  if (songs.length === 0) {
-    const li = document.createElement("li");
-    li.className = "song-empty";
-    li.textContent = "아직 곡이 없어요. 아래 + 음원 추가로 폰에 있는 음원을 골라주세요. 추가하면 자동으로 채보를 만들어요.";
-    list.ul.append(li);
-    return;
-  }
-  // 목록에 안 보이는 곡도 자동 채보는 만든다
+  // 자동 채보가 없는 곡(예전에 추가한 곡 포함)은 알아서 분석을 시작한다. 목록에 안 보이는 곡도
   for (const song of songs) if (!song.auto && !analysis.get(song.id)?.error) requestAnalysis(song.id);
-  const shown = querySongs(songs, listQuery);
-  if (shown.length === 0) {
+  list.count.textContent = songs.length ? `${songs.length}곡` : "";
+  shownSongs = querySongs(songs, listQuery);
+  list.ul.replaceChildren();
+  if (shownSongs.length === 0) {
     const li = document.createElement("li");
     li.className = "song-empty";
-    li.textContent = listQuery.favoritesOnly && !listQuery.search ? "즐겨찾기한 곡이 없어요. 곡 카드의 ☆를 눌러 추가해 보세요." : "검색한 이름의 곡이 없어요.";
+    li.textContent =
+      songs.length === 0
+        ? "아직 곡이 없어요. + 음원 추가로 폰에 있는 음원을 골라주세요. 추가하면 자동으로 채보를 만들어요."
+        : listQuery.favoritesOnly && !listQuery.search
+          ? "즐겨찾기한 곡이 없어요. 곡의 ☆를 눌러 추가해 보세요."
+          : "검색한 곡이 없어요.";
     list.ul.append(li);
+    list.hero.replaceChildren();
+    list.hero.hidden = true;
+    previewPlayer?.stop();
     return;
   }
-  for (const song of shown) {
-    list.ul.append(songCard(song));
-    // 자동 채보가 없는 곡(예전에 추가한 곡 포함)은 알아서 분석을 시작한다
-    if (!song.auto && !analysis.get(song.id)?.error) requestAnalysis(song.id);
-    else if (analysis.has(song.id)) updateProgress(song.id);
-  }
+  if (!shownSongs.some((s) => s.id === selectedId)) selectedId = shownSongs[0].id;
+  for (const song of shownSongs) list.ul.append(songRow(song));
+  renderHero(shownSongs.find((s) => s.id === selectedId)!);
+  for (const id of analysis.keys()) updateProgress(id);
+  schedulePreview();
 }
 
-function songCard(song: SongRecord): HTMLLIElement {
+/** 목록의 한 줄: 재킷, 이름, 가수, 램프, 레벨 */
+function songRow(song: SongRecord): HTMLLIElement {
   const li = document.createElement("li");
-  li.className = "song-card";
+  li.className = "song-row";
   li.dataset.id = song.id;
-  li.innerHTML = `
-    <div class="song-top">
-      <div class="song-info">
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "row-btn";
+  btn.setAttribute("aria-selected", String(song.id === selectedId));
+  const info = document.createElement("span");
+  info.className = "row-info";
+  const title = document.createElement("span");
+  title.className = "row-title";
+  title.textContent = (song.favorite ? "★ " : "") + song.title;
+  const meta = document.createElement("span");
+  meta.className = "row-meta";
+  const setMeta = (artist?: string) => (meta.textContent = [artist, formatTime(song.durationMs / 1000)].filter(Boolean).join(" · "));
+  setMeta(song.artist);
+  if (!song.artist) void tagsOf(song).then((t) => t.artist && setMeta(t.artist));
+  info.append(title, meta);
+  const side = document.createElement("span");
+  side.className = "row-side";
+  const lamp = song.lamps[song.difficulty];
+  if (lamp && chartFor(song, song.difficulty)) {
+    const l = document.createElement("span");
+    l.className = `lamp-badge small ${lamp}`;
+    l.textContent = LAMP_SHORT[lamp];
+    side.append(l);
+  }
+  const lv = document.createElement("span");
+  lv.className = `row-lv ${song.difficulty}`;
+  const c = chartFor(song, song.difficulty);
+  lv.textContent = c ? (song.difficulty === "user" ? "내 채보" : `${DIFF_LABEL[song.difficulty]} ${c.difficulty.level}`) : "분석 중";
+  if (!c) lv.dataset.pending = "1";
+  side.append(lv);
+  btn.append(jacketEl(song, "small"), info, side);
+  btn.addEventListener("click", () => {
+    unlockAudio();
+    selectSong(song.id, false);
+  });
+  li.append(btn);
+  return li;
+}
+
+function selectSong(id: string, scroll: boolean, slide?: "left" | "right"): void {
+  const song = shownSongs.find((s) => s.id === id);
+  if (!song || selectedId === id) return;
+  selectedId = id;
+  saveListPrefs();
+  for (const b of list.ul.querySelectorAll<HTMLElement>(".row-btn")) b.setAttribute("aria-selected", String(b.parentElement?.dataset.id === id));
+  renderHero(song, slide);
+  if (scroll) list.ul.querySelector(`[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (analysis.has(id)) updateProgress(id);
+  schedulePreview();
+}
+
+// 위 카드를 옆으로 밀면 이전/다음 곡
+{
+  let start: { x: number; y: number } | null = null;
+  list.hero.addEventListener("pointerdown", (e) => {
+    start = { x: e.clientX, y: e.clientY };
+  });
+  list.hero.addEventListener("pointerup", (e) => {
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    start = null;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const i = shownSongs.findIndex((s) => s.id === selectedId);
+    const next = shownSongs[i + (dx < 0 ? 1 : -1)];
+    if (next) {
+      unlockAudio();
+      selectSong(next.id, true, dx < 0 ? "left" : "right");
+    }
+  });
+  list.hero.addEventListener("pointercancel", () => (start = null));
+}
+
+/** 고른 곡의 큰 카드: 재킷, 정보, 난이도, 최고 기록, 플레이 */
+function renderHero(song: SongRecord, slide?: "left" | "right"): void {
+  const card = document.createElement("div");
+  card.className = "hero-card";
+  if (slide) card.classList.add(`slide-${slide}`);
+  card.dataset.id = song.id;
+  card.innerHTML = `
+    <div class="hero-top">
+      <div class="hero-jacket"></div>
+      <div class="hero-info">
         <span class="song-title"></span>
         <form class="rename" hidden>
           <input class="rename-input" maxlength="60" aria-label="곡 이름" />
           <button class="btn small" type="submit">저장</button>
           <button class="btn ghost small" data-act="rename-cancel" type="button">취소</button>
         </form>
+        <span class="hero-artist"></span>
         <span class="song-meta"></span>
+        <div class="hero-best">
+          <span class="rank-letter"></span>
+          <span class="best-side"><span class="rank-score num"></span><span class="lamp-badge" hidden></span></span>
+        </div>
       </div>
-      <div class="song-rank"><span class="rank-letter"></span><span class="rank-score"></span></div>
       <button class="fav" type="button" aria-label="즐겨찾기" aria-pressed="false">☆</button>
     </div>
     <div class="diff" role="radiogroup" aria-label="난이도"></div>
     <div class="analyze" hidden><div class="bar"><span></span></div><span class="analyze-text"></span></div>
     <div class="song-actions">
-      <button class="btn small" data-act="main" type="button"></button>
-      <button class="btn ghost small" data-act="second" type="button"></button>
-      <button class="btn ghost small more" data-act="more" type="button" aria-label="더보기" aria-expanded="false">···</button>
+      <button class="btn" data-act="main" type="button"></button>
+      <button class="btn ghost" data-act="second" type="button"></button>
+      <button class="btn ghost more" data-act="more" type="button" aria-label="더보기" aria-expanded="false">···</button>
     </div>
     <div class="song-more" hidden>
       <button class="btn ghost small" data-act="preview" type="button">자동 플레이로 미리 보기</button>
@@ -275,13 +398,17 @@ function songCard(song: SongRecord): HTMLLIElement {
       <button class="btn ghost small" data-act="import" type="button">채보 가져오기</button>
       <button class="btn ghost small" data-act="delete" type="button">삭제</button>
     </div>`;
-  const q = <T extends HTMLElement = HTMLElement>(sel: string) => li.querySelector(sel) as T;
+  const q = <T extends HTMLElement = HTMLElement>(sel: string) => card.querySelector(sel) as T;
   const chart = selectedChart(song);
   const hasNotes = Boolean(chart && chart.notes.length);
 
+  q(".hero-jacket").append(jacketEl(song, "big"));
   q(".song-title").textContent = song.title;
+  const artist = q(".hero-artist");
+  artist.textContent = song.artist ?? "";
+  if (!song.artist) void tagsOf(song).then((t) => (artist.textContent = t.artist ?? ""));
   const ref = song.auto?.normal ?? song.userChart;
-  const meter = ref?.bpm ? ` · ${ref.beatsPerBar}/4 · 약 ${Math.round(ref.bpm)} BPM` : "";
+  const meter = ref?.bpm ? ` · ${ref.beatsPerBar}/4 · ${Math.round(ref.bpm)} BPM` : "";
   const played = song.lastPlayedAt ? ` · ${timeAgo(song.lastPlayedAt)} 플레이` : "";
   q(".song-meta").textContent = `${formatTime(song.durationMs / 1000)}${meter}${played}`;
   const fav = q<HTMLButtonElement>(".fav");
@@ -293,7 +420,7 @@ function songCard(song: SongRecord): HTMLLIElement {
     await renderList();
   });
 
-  // 난이도 고르기
+  // 난이도 고르기 (난이도마다 레벨과 램프)
   const diffBox = q(".diff");
   for (const d of ["normal", "hard", "user"] as const) {
     const c = chartFor(song, d);
@@ -309,6 +436,13 @@ function songCard(song: SongRecord): HTMLLIElement {
     b.innerHTML = `<span class="diff-name"></span><span class="diff-lv"></span>`;
     (b.firstElementChild as HTMLElement).textContent = DIFF_LABEL[d];
     (b.lastElementChild as HTMLElement).textContent = c ? (d === "user" ? `${c.notes.length}개` : `Lv.${c.difficulty.level}`) : "분석 중";
+    const lamp = song.lamps[d];
+    if (lamp && c) {
+      const dot = document.createElement("span");
+      dot.className = `lamp-dot ${lamp}`;
+      dot.title = LAMP_LABEL[lamp];
+      b.append(dot);
+    }
     b.addEventListener("click", async () => {
       await updateSong(song.id, { difficulty: d });
       await renderList();
@@ -316,16 +450,23 @@ function songCard(song: SongRecord): HTMLLIElement {
     diffBox.append(b);
   }
 
-  // 그 난이도의 최고 기록
+  // 그 난이도의 최고 기록과 램프
   const best = song.bests[song.difficulty];
   const rank = q(".rank-letter");
   if (best && chartFor(song, song.difficulty)) {
     rank.textContent = best.rank;
     q(".rank-score").textContent = best.score.toLocaleString("ko-KR") + (best.accuracy !== undefined ? ` · ${best.accuracy.toFixed(1)}%` : "");
+    const lamp = song.lamps[song.difficulty];
+    if (lamp) {
+      const badge = q(".lamp-badge");
+      badge.hidden = false;
+      badge.textContent = LAMP_LABEL[lamp];
+      badge.classList.add(lamp);
+    }
   } else {
     rank.textContent = "–";
     rank.classList.add("none");
-    q(".rank-score").textContent = hasNotes ? "기록 없음" : "";
+    q(".rank-score").textContent = hasNotes ? "아직 기록 없음" : "";
   }
 
   const playBtn = listMode === "play" ? q<HTMLButtonElement>('[data-act="main"]') : q<HTMLButtonElement>('[data-act="second"]');
@@ -397,12 +538,40 @@ function songCard(song: SongRecord): HTMLLIElement {
     list.importFile.click();
   });
   confirmTwice(q<HTMLButtonElement>('[data-act="delete"]'), "한 번 더 누르면 삭제", async () => {
+    previewPlayer?.stop();
     await deleteSong(song.id);
+    forgetTags(song.id);
     if (decoded?.id === song.id) decoded = null;
     setStatus(list.status, `${song.title}을(를) 목록에서 지웠어요.`);
     await renderList();
   });
-  return li;
+
+  list.hero.hidden = false;
+  list.hero.replaceChildren(card);
+}
+
+// ---------- 미리 듣기 ----------
+
+let previewTimer: number | null = null;
+/** 곡을 고르고 잠깐 머무르면 그 곡의 하이라이트를 들려준다 (빠르게 넘길 때마다 음원을 읽지 않게) */
+function schedulePreview(): void {
+  if (previewTimer !== null) window.clearTimeout(previewTimer);
+  previewTimer = window.setTimeout(async () => {
+    previewTimer = null;
+    const song = shownSongs.find((s) => s.id === selectedId);
+    if (!song || document.body.dataset.screen !== "list") return;
+    if (previewPlayer?.playingId === song.id) return;
+    previewPlayer?.stop();
+    let buffer: AudioBuffer;
+    try {
+      buffer = await bufferOf(song);
+    } catch {
+      return; // 못 읽는 음원은 미리 듣기만 건너뛴다
+    }
+    if (selectedId !== song.id || document.body.dataset.screen !== "list") return;
+    previewPlayer ??= new PreviewPlayer(audio().ctx, () => settings.musicVolume);
+    previewPlayer.play(song.id, buffer, highlightStart(selectedChart(song), buffer.duration));
+  }, PREVIEW_DELAY_MS);
 }
 
 async function exportChart(song: SongRecord): Promise<void> {
@@ -430,8 +599,10 @@ list.importFile.addEventListener("change", async () => {
     const chart = parseChart(await file.text());
     const diffSec = chart.durationMs ? Math.abs(chart.durationMs - song.durationMs) / 1000 : 0;
     const bests = { ...song.bests };
+    const lamps = { ...song.lamps };
     delete bests.user;
-    await updateSong(song.id, { userChart: { ...chart, title: song.title, durationMs: song.durationMs }, difficulty: "user", bests });
+    delete lamps.user;
+    await updateSong(song.id, { userChart: { ...chart, title: song.title, durationMs: song.durationMs }, difficulty: "user", bests, lamps });
     setStatus(
       list.status,
       diffSec > 1.5
@@ -485,9 +656,11 @@ list.file.addEventListener("change", async () => {
       setStatus(list.status, "이미 목록에 있는 음원이에요.");
       return;
     }
+    const tags = await readTags(file);
     const song: SongRecord = {
       id: newId(),
-      title: stripExtension(file.name),
+      title: tags.title ?? stripExtension(file.name),
+      ...(tags.artist ? { artist: tags.artist } : {}),
       fileName: file.name,
       durationMs: Math.round(buffer.duration * 1000),
       addedAt: Date.now(),
@@ -496,12 +669,15 @@ list.file.addEventListener("change", async () => {
       userChart: null,
       difficulty: "normal",
       bests: {},
+      lamps: {},
       favorite: false,
       lastPlayedAt: null,
       playCount: 0,
     };
     await putSong(song);
     decoded = { id: song.id, buffer };
+    selectedId = song.id;
+    saveListPrefs();
     setStatus(list.status, "추가했어요. 자동 채보를 만들고 있어요. 이름은 ··· 에서 바꿀 수 있어요.");
     await renderList();
   } catch (e) {
@@ -671,6 +847,10 @@ async function showResult(stats: JudgeStats): Promise<void> {
   if (song && d && returnTo === "list" && practiceFrom === null) {
     const fresh = await getSong(song.id);
     const prev = fresh?.bests[d] ?? null;
+    // 램프는 점수와 따로, 지금까지 가장 높은 것을 남긴다
+    const lamp: Lamp | undefined = !complete ? undefined : stats.miss > 0 ? "clear" : stats.great + stats.good > 0 ? "fc" : "ap";
+    const nextLamp = betterLamp(fresh?.lamps[d], lamp);
+    if (fresh && nextLamp !== fresh.lamps[d]) await updateSong(song.id, { lamps: { ...fresh.lamps, [d]: nextLamp } });
     if (fresh && (!prev || stats.score > prev.score)) {
       await updateSong(song.id, { bests: { ...fresh.bests, [d]: { score: stats.score, rank, maxCombo: stats.maxCombo, at: Date.now(), accuracy: stats.accuracy } } });
       badge.hidden = false;
@@ -825,8 +1005,10 @@ $("edit-save").addEventListener("click", async () => {
   if (!editScene || !current?.song) return;
   const fresh = await getSong(current.song.id);
   const bests = { ...(fresh?.bests ?? {}) };
+  const lamps = { ...(fresh?.lamps ?? {}) };
   delete bests.user;
-  await updateSong(current.song.id, { userChart: editScene.toChart(), difficulty: "user", bests });
+  delete lamps.user;
+  await updateSong(current.song.id, { userChart: editScene.toChart(), difficulty: "user", bests, lamps });
   dirty = false;
   updateEditUi();
   setStatus(edit.status, "'내 채보'로 저장했어요. 곡 목록에서 '내 채보'를 골라 플레이할 수 있어요.");
@@ -891,7 +1073,7 @@ function formatTime(sec: number, withHundredths = false): string {
 // 개발 서버에서만: 브라우저 자동 테스트가 상태를 읽을 수 있게 한다
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    __game: { time: () => audio().clock.time(), play: () => playScene, edit: () => editScene, stage },
+    __game: { time: () => audio().clock.time(), play: () => playScene, edit: () => editScene, stage, preview: () => previewPlayer?.playingId ?? null },
   });
 }
 

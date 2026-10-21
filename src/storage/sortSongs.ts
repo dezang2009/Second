@@ -6,7 +6,7 @@ export type SongSort = "recent" | "added" | "name" | "score";
 
 export interface ListQuery {
   sort: SongSort;
-  /** 곡 이름에 들어 있어야 하는 글자 (대소문자, 띄어쓰기 무시) */
+  /** 곡 이름이나 가수에 들어 있어야 하는 글자 (대소문자, 띄어쓰기 무시) */
   search: string;
   favoritesOnly: boolean;
 }
@@ -19,7 +19,7 @@ function bestScore(song: SongRecord): number {
 
 export function querySongs(songs: readonly SongRecord[], q: ListQuery): SongRecord[] {
   const needle = normalize(q.search);
-  const filtered = songs.filter((s) => (!q.favoritesOnly || s.favorite) && (!needle || normalize(s.title).includes(needle)));
+  const filtered = songs.filter((s) => (!q.favoritesOnly || s.favorite) && (!needle || normalize(s.title).includes(needle) || normalize(s.artist ?? "").includes(needle)));
   const by: Record<SongSort, (a: SongRecord, b: SongRecord) => number> = {
     // 플레이한 적 없는 곡은 최근 플레이 순에서 뒤로, 그 안에서는 최근에 추가한 순
     recent: (a, b) => (b.lastPlayedAt ?? -1) - (a.lastPlayedAt ?? -1) || b.addedAt - a.addedAt,

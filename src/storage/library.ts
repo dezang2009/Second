@@ -15,10 +15,23 @@ export interface BestRecord {
 /** 곡마다 고를 수 있는 채보: 자동 NORMAL, 자동 HARD, 직접 만든 채보 */
 export type Difficulty = "normal" | "hard" | "user";
 
+/** 클리어 램프: 끝까지 플레이, 미스 없이(FULL COMBO), 모두 PERFECT(ALL PERFECT) */
+export type Lamp = "clear" | "fc" | "ap";
+const LAMP_ORDER: Lamp[] = ["clear", "fc", "ap"];
+
+/** 둘 중 더 높은 램프 */
+export function betterLamp(a: Lamp | undefined, b: Lamp | undefined): Lamp | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return LAMP_ORDER.indexOf(a) >= LAMP_ORDER.indexOf(b) ? a : b;
+}
+
 export interface SongRecord {
   id: string;
   /** 목록에 보이는 곡 이름. 바꿀 수 있다 */
   title: string;
+  /** 음원 태그에서 읽은 가수. 없으면 비어 있다 */
+  artist?: string;
   fileName: string;
   durationMs: number;
   addedAt: number;
@@ -31,6 +44,8 @@ export interface SongRecord {
   difficulty: Difficulty;
   /** 난이도마다 최고 기록 */
   bests: Partial<Record<Difficulty, BestRecord>>;
+  /** 난이도마다 가장 높은 클리어 램프 (최고 점수와 따로 남긴다) */
+  lamps: Partial<Record<Difficulty, Lamp>>;
   /** 즐겨찾기 */
   favorite: boolean;
   /** 마지막으로 플레이를 시작한 시각 (아직 안 했으면 null) */
@@ -47,6 +62,8 @@ function upgrade(raw: SongRecord & { builtinId?: unknown; best?: unknown }): Son
     userChart: rest.userChart ?? null,
     difficulty: rest.difficulty ?? (rest.userChart ? "user" : "normal"),
     bests: rest.bests ?? {},
+    // 램프가 생기기 전 기록: 결과 화면까지 갔으니 적어도 클리어
+    lamps: rest.lamps ?? Object.fromEntries(Object.keys(rest.bests ?? {}).map((d) => [d, "clear"])),
     favorite: rest.favorite ?? false,
     lastPlayedAt: rest.lastPlayedAt ?? null,
     playCount: rest.playCount ?? 0,
