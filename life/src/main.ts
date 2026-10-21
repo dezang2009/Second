@@ -3,17 +3,20 @@ import "./style.css";
 
 import { activitiesFor } from "./data/activities";
 import { choose, chooseActivity, currentChoices, currentEventText, newLife, proceed, rollCandidates, type Candidate } from "./game/engine";
-import { netWorth, num, present } from "./game/life";
-import { ACHIEVEMENTS, judge } from "./game/score";
-import { formatMoney, josa } from "./game/text";
-import { STATS, STAT_LABEL, TALENT_LABEL, WEALTH_LABEL, type Gender, type Life } from "./game/types";
+import { ageOf, netWorth, num, present } from "./game/life";
+import { ACHIEVEMENTS, judge, type Verdict } from "./game/score";
+import { formatMoney, formatMoneyShort, josa } from "./game/text";
+import { STATS, STAT_LABEL, TALENT_LABEL, WEALTH_LABEL, type Gender, type Life, type Person } from "./game/types";
 import { addToHall, clearCurrent, exportSave, importSave, loadCurrent, loadHall, saveCurrent, unlockedAchievements, type HallEntry } from "./storage/save";
-import { changeChips, choiceHint, esc, highlights, personLine, stageOf, visiblePeople } from "./ui/format";
+import { avatarSvg, lifeAvatar } from "./ui/avatar";
+import { changeChips, choiceHint, esc, highlights, stageOf, visiblePeople } from "./ui/format";
+import { ICONS } from "./ui/icons";
 
+type Tab = "home" | "stats" | "people" | "log";
 type Screen =
   | { kind: "title" }
   | { kind: "create"; name: string; gender: Gender; seed: number; candidates: Candidate[] }
-  | { kind: "play"; tab: "now" | "people" | "log" }
+  | { kind: "play"; tab: Tab }
   | { kind: "hall" }
   | { kind: "hallEntry"; id: string }
   | { kind: "settings"; message?: string };
@@ -30,6 +33,66 @@ function go(next: Screen): void {
   window.scrollTo({ top: 0 });
 }
 
+// ── 공통 틀 ──────────────────────────────────────────
+
+interface Page {
+  title: string;
+  sub?: string;
+  /** 있으면 왼쪽에 뒤로 가기 버튼 */
+  back?: string;
+  body: string;
+  /** 아래에 떠 있는 큰 파란 버튼 */
+  action?: { label: string; act: string };
+  nav?: Tab | "hall";
+}
+
+function page(p: Page): string {
+  const back = p.back ? `<button class="icon-btn" data-act="${p.back}" aria-label="뒤로">${ICONS.back}</button>` : "";
+  return `
+    <header class="appbar">
+      ${back}
+      <div class="appbar-title">
+        <h1>${esc(p.title)}</h1>
+        ${p.sub ? `<p>${p.sub}</p>` : ""}
+      </div>
+      <button class="icon-btn" data-act="settings" aria-label="설정">${ICONS.gear}</button>
+    </header>
+    <div class="content ${p.action ? "has-action" : ""} ${p.nav ? "has-nav" : ""}">${p.body}</div>
+    ${p.action ? `<div class="action-bar ${p.nav ? "above-nav" : ""}"><button class="btn primary" data-act="${p.action.act}">${esc(p.action.label)}</button></div>` : ""}
+    ${p.nav ? navBar(p.nav) : ""}`;
+}
+
+function navBar(active: Tab | "hall"): string {
+  const items: [Tab | "hall", string, string][] = [
+    ["home", "홈", ICONS.home],
+    ["stats", "능력치", ICONS.stats],
+    ["people", "사람들", ICONS.people],
+    ["log", "연표", ICONS.log],
+    ["hall", "기록", ICONS.trophy],
+  ];
+  return `<nav class="tabbar">${items
+    .map(([k, label, icon]) => `<button class="tabbar-item ${active === k ? "on" : ""}" data-act="nav" data-tab="${k}">${icon}<span>${label}</span></button>`)
+    .join("")}</nav>`;
+}
+
+function row(opts: { act?: string; data?: string; icon: string; title: string; sub?: string; extra?: string; chevron?: boolean }): string {
+  const tag = opts.act ? "button" : "div";
+  return `
+    <${tag} class="row-item" ${opts.act ? `data-act="${opts.act}" ${opts.data ?? ""}` : ""}>
+      <span class="row-icon">${opts.icon}</span>
+      <span class="row-text">
+        <span class="row-title">${opts.title}</span>
+        ${opts.sub ? `<span class="row-sub">${opts.sub}</span>` : ""}
+        ${opts.extra ?? ""}
+      </span>
+      ${opts.chevron === false ? "" : `<span class="row-chevron">${ICONS.chevron}</span>`}
+    </${tag}>`;
+}
+
+function statBar(label: string, v: number): string {
+  return `<div class="bar"><span class="bar-label">${esc(label)}</span><span class="bar-track"><span class="bar-fill" style="width:${v}%"></span></span><span class="bar-num">${v}</span></div>`;
+}
+
 function render(): void {
   switch (screen.kind) {
     case "title":
@@ -39,7 +102,7 @@ function render(): void {
       app.innerHTML = createView(screen);
       break;
     case "play":
-      app.innerHTML = life ? (life.phase.kind === "dead" && screen.tab === "now" ? deathView(life) : playView(life, screen.tab)) : titleView();
+      app.innerHTML = life ? playView(life, screen.tab) : titleView();
       break;
     case "hall":
       app.innerHTML = hallView();
@@ -53,210 +116,301 @@ function render(): void {
   }
 }
 
-// ── 화면 ──────────────────────────────────────────────
+// ── 처음 화면 ────────────────────────────────────────
 
 function titleView(): string {
-  const canContinue = life && life.phase.kind !== "dead";
-  return `
-    <section class="screen title-screen">
-      <div class="title-block">
-        <p class="kicker">TEXT LIFE SIMULATION</p>
-        <h1 class="game-title">한 번뿐인 인생</h1>
-        <p class="muted">선택이 모여 한 사람의 일생이 됩니다</p>
-      </div>
-      <nav class="menu">
-        ${canContinue ? `<button class="btn primary" data-act="continue">이어 하기<span class="sub">${esc(life!.name)} · ${life!.age}살</span></button>` : ""}
-        <button class="btn ${canContinue ? "" : "primary"}" data-act="new">새 인생 시작</button>
-        <button class="btn" data-act="hall">명예의 전당<span class="sub">${loadHall().length}명의 인생</span></button>
-        <button class="btn ghost" data-act="settings">설정</button>
-      </nav>
-    </section>`;
+  const playing = life !== null && life.phase.kind !== "dead";
+  const hall = loadHall();
+  const top =
+    life && playing
+      ? `
+      <article class="card">
+        <h3 class="card-title">이어서 살기</h3>
+        <div class="profile-top">
+          <div class="avatar">${lifeAvatar(life)}</div>
+          <div class="profile-info">
+            <p class="meta">${esc(stageOf(life))} · ${life.age}세</p>
+            <p class="profile-name">${esc(life.name)}</p>
+            <p class="meta">재산 ${formatMoneyShort(life.money)} · 행복 ${life.stats.happiness}</p>
+          </div>
+        </div>
+      </article>`
+      : `
+      <article class="card hero">
+        <div class="hero-avatars">
+          ${avatarSvg({ gender: "남", age: 1, shirt: "#ffd166", pants: "#8ecae6" })}
+          ${avatarSvg({ gender: "여", age: 16, shirt: "#ffffff", pants: "#3d4a7a" })}
+          ${avatarSvg({ gender: "남", age: 35, shirt: "#3a4256", pants: "#2c3242" })}
+          ${avatarSvg({ gender: "여", age: 80, shirt: "#b08968", pants: "#6b5b4e" })}
+        </div>
+        <p class="hero-text">태어나서 눈을 감을 때까지,<br />선택이 모여 한 사람의 일생이 됩니다.</p>
+      </article>`;
+  const recent = hall.slice(0, 3);
+  return page({
+    title: "한 번뿐인 인생",
+    sub: "나만의 인생 기록",
+    body: `
+      ${top}
+      <article class="card">
+        <h3 class="card-title">메뉴</h3>
+        ${row({ act: "new", icon: ICONS.spark, title: "새 인생 시작", sub: "어떤 집에서 태어날지 골라요" })}
+        ${row({ act: "hall", icon: ICONS.trophy, title: "명예의 전당", sub: `지금까지 ${hall.length}명의 인생` })}
+      </article>
+      ${recent.length ? `<article class="card"><h3 class="card-title">최근 끝난 인생</h3>${recent.map(hallRow).join("")}</article>` : ""}`,
+    action: life && playing ? { label: `${life.name.slice(1)}의 인생 이어 하기`, act: "continue" } : { label: "새 인생 시작", act: "new" },
+  });
 }
+
+// ── 새 인생 ──────────────────────────────────────────
 
 function createView(s: Extract<Screen, { kind: "create" }>): string {
   const cards = s.candidates
     .map((c, i) => {
-      const bars = (["health", "smarts", "looks", "fitness", "social"] as const)
-        .map((k) => statBar(STAT_LABEL[k], c.stats[k]))
-        .join("");
-      const sib = c.sibling ? `<li>${c.sibling.bornAt < 0 ? "손위" : "손아래"} ${c.sibling.gender === "남" ? "남자" : "여자"} 형제 ${esc(c.sibling.name)}</li>` : "<li>외동</li>";
+      const bars = (["health", "smarts", "looks", "fitness", "social"] as const).map((k) => statBar(STAT_LABEL[k], c.stats[k])).join("");
+      const sib = c.sibling ? `${c.sibling.bornAt < 0 ? "손위" : "손아래"} ${c.sibling.gender === "남" ? "남자" : "여자"} 형제 ${esc(c.sibling.name)}` : "외동";
       return `
         <article class="card candidate">
-          <header><h3>${esc(c.surname)}씨 집안의 아이</h3><span class="tag">${WEALTH_LABEL[c.wealth]}</span></header>
+          <div class="profile-top">
+            <div class="avatar">${avatarSvg({ gender: s.gender, age: 0, shirt: "#ffd166", pants: "#8ecae6" })}</div>
+            <div class="profile-info">
+              <p class="meta">${WEALTH_LABEL[c.wealth]}</p>
+              <p class="profile-name">${esc(c.surname)}${esc(s.name.trim() || "○○")}</p>
+              <p class="meta">타고난 재능 ???</p>
+            </div>
+          </div>
+          <div class="divider"></div>
           <ul class="facts">
-            <li>아빠 ${esc(c.dad)} (${c.dadAge}살) · 엄마 ${esc(c.mom)} (${c.momAge}살)</li>
-            ${sib}
-            <li>타고난 재능 <b>???</b></li>
+            <li><span>아빠</span>${esc(c.dad)} (${c.dadAge}살)</li>
+            <li><span>엄마</span>${esc(c.mom)} (${c.momAge}살)</li>
+            <li><span>형제</span>${sib}</li>
           </ul>
           <div class="bars">${bars}</div>
-          <button class="btn primary" data-act="pick" data-i="${i}">이 아이로 태어나기</button>
+          <button class="btn primary" data-act="pick" data-i="${i}">이 집에서 태어나기</button>
         </article>`;
     })
     .join("");
-  return `
-    <section class="screen">
-      <header class="topbar"><button class="link" data-act="home">← 처음으로</button></header>
-      <h2>새 인생</h2>
-      <div class="card form">
-        <label>이름 <span class="muted">(성은 집안을 따라요)</span>
+  return page({
+    title: "새 인생",
+    sub: "이름을 짓고 태어날 집을 골라요",
+    back: "home",
+    body: `
+      <article class="card form">
+        <label class="field">이름 <span class="muted small">성은 집안을 따라요</span>
           <input id="name" maxlength="6" value="${esc(s.name)}" placeholder="예: 지민" autocomplete="off" />
         </label>
         <div class="seg" role="radiogroup" aria-label="성별">
-          ${(["남", "여"] as Gender[]).map((g) => `<button class="seg-btn ${s.gender === g ? "on" : ""}" data-act="gender" data-g="${g}" role="radio" aria-checked="${s.gender === g}">${g === "남" ? "남자" : "여자"}</button>`).join("")}
+          ${(["남", "여"] as Gender[])
+            .map((g) => `<button class="seg-btn ${s.gender === g ? "on" : ""}" data-act="gender" data-g="${g}" role="radio" aria-checked="${s.gender === g}">${g === "남" ? "남자" : "여자"}</button>`)
+            .join("")}
+        </div>
+      </article>
+      <div class="section-head"><h3>어디에서 태어날까요?</h3><button class="text-btn" data-act="reroll">다시 뽑기</button></div>
+      <p class="muted small pad">세 집 아이의 능력치 합은 모두 같아요. 구성만 다릅니다.</p>
+      ${cards}`,
+  });
+}
+
+// ── 플레이 ──────────────────────────────────────────
+
+function profileCard(l: Life): string {
+  const meta = l.alive ? `${esc(stageOf(l))} · ${l.age}세` : `${l.age}세 · ${esc(l.causeOfDeath ?? "")}`;
+  const sub = [l.gender === "남" ? "남자" : "여자", WEALTH_LABEL[l.wealth], l.education !== "없음" ? l.education : ""].filter(Boolean).join(" · ");
+  return `
+    <article class="card profile">
+      <div class="profile-top">
+        <div class="avatar">${lifeAvatar(l)}</div>
+        <div class="profile-info">
+          <p class="meta">${meta}</p>
+          <h2 class="profile-name">${esc(l.name)}</h2>
+          <p class="meta">${esc(sub)}</p>
         </div>
       </div>
-      <div class="row-between"><h3>어디에서 태어날까요?</h3><button class="link" data-act="reroll">다시 뽑기</button></div>
-      <p class="muted small">세 아이의 능력치 합은 모두 같아요. 구성만 다릅니다.</p>
-      <div class="stack">${cards}</div>
-    </section>`;
+      <div class="divider"></div>
+      <div class="kpis">
+        <div><span>재산</span><b>${formatMoneyShort(l.money)}</b></div>
+        <div><span>행복</span><b>${l.stats.happiness}</b></div>
+        <div><span>명성</span><b>${l.fame}</b></div>
+      </div>
+    </article>`;
 }
 
-function statBar(label: string, v: number, delta?: number): string {
-  const d = delta ? `<span class="delta ${delta > 0 ? "up" : "down"}">${delta > 0 ? "+" : "−"}${Math.abs(delta)}</span>` : "";
-  return `<div class="bar"><span class="bar-label">${esc(label)}</span><span class="bar-track"><span class="bar-fill" style="width:${v}%"></span></span><span class="bar-num">${v}${d}</span></div>`;
+function playView(l: Life, tab: Tab): string {
+  const title = "한 번뿐인 인생";
+  const sub = `${esc(l.name)}의 인생 기록`;
+  if (tab === "stats") return page({ title, sub, nav: tab, body: profileCard(l) + statsView(l) });
+  if (tab === "people") return page({ title, sub, nav: tab, body: peopleView(l) });
+  if (tab === "log") return page({ title, sub, nav: tab, body: logView(l) });
+  if (l.phase.kind === "dead") return deathView(l);
+  const ph = l.phase;
+  const action =
+    ph.kind === "outcome"
+      ? { label: "계속", act: "next" }
+      : ph.kind === "yearEnd"
+        ? { label: l.alive ? `${l.age + 1}살로` : "인생을 돌아보기", act: "next" }
+        : undefined;
+  return page({ title, sub, nav: "home", action, body: profileCard(l) + phaseCard(l) });
 }
 
-function playView(l: Life, tab: "now" | "people" | "log"): string {
-  const header = `
-    <header class="life-head">
-      <div class="row-between">
-        <button class="link" data-act="home">☰</button>
-        <div class="who"><b>${esc(l.name)}</b> <span class="muted">${l.gender === "남" ? "남" : "여"} · ${esc(stageOf(l))}</span></div>
-        <div class="age">${l.age}<small>살</small></div>
-      </div>
-      <div class="money-row">
-        <span>재산 <b>${formatMoney(l.money)}</b></span>
-        ${num(l, "houseValue") > 0 ? `<span>집 <b>${formatMoney(num(l, "houseValue"))}</b></span>` : ""}
-        <span>명성 <b>${l.fame}</b></span>
-      </div>
-      <div class="bars compact">${STATS.map((s) => statBar(STAT_LABEL[s], l.stats[s])).join("")}</div>
-      <div class="hidden-row muted small">
-        재능 <b>${l.revealed.talent ? TALENT_LABEL[l.hidden.talent] : "???"}</b> ·
-        끈기 <b>${l.revealed.grit ? l.hidden.grit : "???"}</b> ·
-        운 <b>${l.revealed.luck ? l.hidden.luck : "???"}</b>
-      </div>
-      <nav class="tabs">
-        ${(
-          [
-            ["now", l.alive ? "올해" : "돌아보기"],
-            ["people", "사람들"],
-            ["log", "연표"],
-          ] as const
-        )
-          .map(([k, t]) => `<button class="tab ${tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${t}</button>`)
-          .join("")}
-      </nav>
-    </header>`;
-  const body = tab === "people" ? peopleView(l) : tab === "log" ? logView(l) : phaseView(l);
-  return `<section class="screen play">${header}<div class="play-body">${body}</div></section>`;
-}
-
-function phaseView(l: Life): string {
+function phaseCard(l: Life): string {
   const ph = l.phase;
   switch (ph.kind) {
-    case "activity": {
-      const acts = activitiesFor(l);
+    case "activity":
       return `
         <article class="card">
-          <p class="eyebrow">${l.age}살의 한 해</p>
-          <h3>올해는 무엇에 시간을 쓸까요?</h3>
-          <div class="choices">
-            ${acts.map((a) => `<button class="choice" data-act="activity" data-id="${a.id}"><span>${esc(a.label)}</span><span class="muted small">${esc(a.desc)}</span></button>`).join("")}
-          </div>
+          <h3 class="card-title">올해는 무엇에 시간을 쓸까요?</h3>
+          ${activitiesFor(l)
+            .map((a) => row({ act: "activity", data: `data-id="${a.id}"`, icon: `<b>${esc(a.label.slice(0, 1))}</b>`, title: esc(a.label), sub: esc(a.desc) }))
+            .join("")}
         </article>`;
-    }
-    case "event": {
-      const cs = currentChoices(l);
+    case "event":
       return `
-        <article class="card event">
-          <p class="eyebrow">${l.age}살</p>
+        <article class="card">
+          <h3 class="card-title">${l.age}살에 생긴 일</h3>
           <p class="story">${esc(currentEventText(l))}</p>
-          <div class="choices">
-            ${cs.map((c) => `<button class="choice" data-act="choose" data-i="${c.index}"><span>${esc(c.choice.text)}</span>${choiceHint(l, c.choice, c.chance)}</button>`).join("")}
-          </div>
+          ${currentChoices(l)
+            .map((c) => row({ act: "choose", data: `data-i="${c.index}"`, icon: ICONS.star, title: esc(c.choice.text), extra: choiceHint(l, c.choice, c.chance) }))
+            .join("")}
         </article>`;
-    }
     case "outcome":
       return `
-        <article class="card outcome">
-          ${ph.result ? `<p class="result ${ph.result}">${ph.result === "success" ? "성공" : "실패"}</p>` : ""}
+        <article class="card">
+          <h3 class="card-title">${ph.result ? `<span class="result ${ph.result}">${ph.result === "success" ? "성공" : "실패"}</span>` : "결과"}</h3>
           <p class="story">${esc(ph.text)}</p>
           ${changeChips(ph.changes)}
-          <button class="btn primary" data-act="next">계속</button>
         </article>`;
     case "yearEnd":
       return `
-        <article class="card year-end">
-          <p class="eyebrow">${l.age}살을 마치며</p>
+        <article class="card">
+          <h3 class="card-title">${l.age}살을 마치며</h3>
           <ul class="lines">${ph.lines.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
           ${changeChips(ph.changes)}
-          <button class="btn primary" data-act="next">${l.alive ? `${l.age + 1}살로` : "인생을 돌아보기"}</button>
         </article>`;
     default:
       return "";
   }
 }
 
+function statsView(l: Life): string {
+  const hidden = [
+    ["타고난 재능", l.revealed.talent ? TALENT_LABEL[l.hidden.talent] : "???"],
+    ["끈기", l.revealed.grit ? String(l.hidden.grit) : "???"],
+    ["운", l.revealed.luck ? String(l.hidden.luck) : "???"],
+  ];
+  return `
+    <article class="card">
+      <h3 class="card-title">능력치</h3>
+      <div class="bars">${STATS.map((s) => statBar(STAT_LABEL[s], l.stats[s])).join("")}</div>
+    </article>
+    <article class="card">
+      <h3 class="card-title">숨겨진 성향</h3>
+      <p class="muted small">살아가면서 조금씩 드러나요.</p>
+      <div class="kpis">${hidden.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>
+    </article>
+    <article class="card">
+      <h3 class="card-title">살림</h3>
+      <ul class="facts">
+        <li><span>재산</span>${formatMoney(l.money)}</li>
+        ${num(l, "houseValue") > 0 ? `<li><span>집</span>${formatMoney(num(l, "houseValue"))}</li>` : ""}
+        <li><span>하는 일</span>${esc(l.job ? `${l.job.title} · 연봉 ${formatMoney(l.job.salary)}` : stageOf(l))}</li>
+        <li><span>학력</span>${esc(l.education)}</li>
+      </ul>
+    </article>`;
+}
+
+function personAvatar(l: Life, p: Person): string {
+  const age = Math.max(0, ageOf(l, p));
+  const adultShirt: Partial<Record<Person["role"], string>> = { 배우자: "#f28fad", 연인: "#f28fad", 친구: "#7fb3ff" };
+  const look =
+    age <= 7
+      ? { shirt: "#ffd166", pants: "#8ecae6" }
+      : age <= 18
+        ? { shirt: "#ffffff", pants: "#3d4a7a" }
+        : age >= 65
+          ? { shirt: "#b08968", pants: "#6b5b4e" }
+          : { shirt: adultShirt[p.role] ?? "#9aa4b2", pants: "#4b5563" };
+  return avatarSvg({ gender: p.gender, age, ...look, alive: p.alive });
+}
+
 function peopleView(l: Life): string {
   const people = visiblePeople(l);
-  if (people.length === 0) return `<p class="empty muted">아직 아는 사람이 없어요.</p>`;
-  return `<ul class="people">${people
+  if (people.length === 0) return `<article class="card"><p class="empty muted">아직 아는 사람이 없어요.</p></article>`;
+  const groups: [string, Person[]][] = [
+    ["가족", people.filter((p) => ["배우자", "자녀", "손주", "엄마", "아빠", "형제"].includes(p.role))],
+    ["연인과 친구", people.filter((p) => p.role === "연인" || p.role === "친구")],
+  ];
+  return groups
+    .filter(([, ps]) => ps.length > 0)
     .map(
-      (p) => `
-      <li class="person ${present(l, p) ? "" : "gone"}">
-        <div>${personLine(l, p)}</div>
-        ${p.alive ? `<span class="bar-track small" title="호감도 ${p.affinity}"><span class="bar-fill warm" style="width:${p.affinity}%"></span></span>` : ""}
-      </li>`,
+      ([name, ps]) => `
+      <article class="card">
+        <h3 class="card-title">${name}</h3>
+        ${ps
+          .map((p) =>
+            row({
+              icon: `<span class="mini-avatar">${personAvatar(l, p)}</span>`,
+              title: `${esc(p.name)} <span class="muted small">${esc(p.role)}</span>`,
+              sub: present(l, p) ? `${ageOf(l, p)}살 · 호감도 ${p.affinity}` : "세상을 떠났어요",
+              extra: present(l, p) ? `<span class="bar-track thin"><span class="bar-fill warm" style="width:${p.affinity}%"></span></span>` : "",
+              chevron: false,
+            }),
+          )
+          .join("")}
+      </article>`,
     )
-    .join("")}</ul>`;
+    .join("");
 }
 
 function logView(l: Life): string {
-  if (l.log.length === 0) return `<p class="empty muted">아직 기록이 없어요.</p>`;
-  return `<ol class="timeline">${[...l.log]
-    .reverse()
-    .map((y) => `<li><span class="t-age">${y.age}살</span><div>${y.lines.map((t) => `<p>${esc(t)}</p>`).join("") || `<p class="muted">조용한 한 해</p>`}</div></li>`)
-    .join("")}</ol>`;
+  if (l.log.length === 0) return `<article class="card"><p class="empty muted">아직 기록이 없어요.</p></article>`;
+  return `
+    <article class="card">
+      <h3 class="card-title">연표</h3>
+      <ol class="timeline">${[...l.log]
+        .reverse()
+        .map((y) => `<li><span class="t-age">${y.age}살</span><div>${y.lines.map((t) => `<p>${esc(t)}</p>`).join("") || `<p class="muted">조용한 한 해</p>`}</div></li>`)
+        .join("")}</ol>
+    </article>`;
 }
 
-function verdictBlock(v: ReturnType<typeof judge>): string {
+function verdictCard(v: Verdict): string {
   const names = new Map(ACHIEVEMENTS.map((a) => [a.id, a]));
   return `
-    <div class="grade-block">
-      <div class="grade g-${v.grade}">${v.grade}</div>
-      <div><p class="v-title">${esc(v.title)}</p><p class="muted">종합 ${v.total}점</p></div>
-    </div>
-    <div class="bars">${v.scores.map((s) => statBar(s.label, s.value)).join("")}</div>
-    ${
-      v.achievements.length
-        ? `<h4>얻은 업적</h4><ul class="badges">${v.achievements.map((id) => `<li title="${esc(names.get(id)?.desc ?? "")}">${esc(names.get(id)?.name ?? id)}</li>`).join("")}</ul>`
-        : ""
-    }`;
+    <article class="card">
+      <h3 class="card-title">인생 평가</h3>
+      <div class="grade-block">
+        <div class="grade g-${v.grade}">${v.grade}</div>
+        <div><p class="v-title">${esc(v.title)}</p><p class="muted">종합 ${v.total}점</p></div>
+      </div>
+      <div class="bars">${v.scores.map((s) => statBar(s.label, s.value)).join("")}</div>
+      ${
+        v.achievements.length
+          ? `<h4 class="sub-title">얻은 업적</h4><ul class="badges">${v.achievements.map((id) => `<li title="${esc(names.get(id)?.desc ?? "")}">${esc(names.get(id)?.name ?? id)}</li>`).join("")}</ul>`
+          : ""
+      }
+    </article>`;
 }
 
 function deathView(l: Life): string {
   const v = judge(l);
   archive(l, v);
-  const lines = highlights(l);
-  return `
-    <section class="screen">
-      <article class="card death">
-        <p class="eyebrow">${esc(l.name)} · ${l.age}세</p>
-        <h2>${esc(josa(`${l.causeOfDeath}(으)로 눈을 감았다`))}</h2>
-        <p class="muted small">최종 재산 ${formatMoney(netWorth(l))} · 학력 ${esc(l.education)} · ${esc(l.job?.title ?? (l.flags.retired ? "은퇴" : "무직"))}</p>
-        ${verdictBlock(v)}
-        <h4>인생의 순간들</h4>
-        <ul class="lines">${lines.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+  return page({
+    title: "한 번뿐인 인생",
+    sub: `${esc(l.name)}의 인생 기록`,
+    nav: "home",
+    action: { label: "새 인생 시작", act: "new" },
+    body: `
+      ${profileCard(l)}
+      ${verdictCard(v)}
+      <article class="card">
+        <h3 class="card-title">인생의 순간들</h3>
+        <ul class="lines">${highlights(l).map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+        <p class="muted small">최종 재산 ${formatMoney(netWorth(l))}</p>
       </article>
-      <div class="stack">
-        <button class="btn primary" data-act="new">새 인생 시작</button>
-        <button class="btn" data-act="tab" data-tab="log">전체 연표 보기</button>
-        <button class="btn ghost" data-act="finish">처음으로</button>
-      </div>
-    </section>`;
+      <article class="card">${row({ act: "finish", icon: ICONS.home, title: "처음 화면으로", sub: "이 인생은 명예의 전당에 남아 있어요" })}</article>`,
+  });
 }
 
-function archive(l: Life, v: ReturnType<typeof judge>): void {
+function archive(l: Life, v: Verdict): void {
   if (l.flags.archived) return;
   l.flags.archived = true;
   const entry: HallEntry = {
@@ -275,70 +429,86 @@ function archive(l: Life, v: ReturnType<typeof judge>): void {
   saveCurrent(l);
 }
 
+// ── 명예의 전당 ───────────────────────────────────────
+
+function hallRow(e: HallEntry): string {
+  return row({
+    act: "hallEntry",
+    data: `data-id="${esc(e.id)}"`,
+    icon: `<span class="grade tiny g-${e.verdict.grade}">${e.verdict.grade}</span>`,
+    title: `${esc(e.name)} <span class="muted small">${e.age}세 · ${esc(e.job)}</span>`,
+    sub: `${esc(e.verdict.title)} · ${e.verdict.total}점`,
+  });
+}
+
 function hallView(): string {
   const hall = loadHall();
   const unlocked = unlockedAchievements();
-  return `
-    <section class="screen">
-      <header class="topbar"><button class="link" data-act="home">← 처음으로</button></header>
-      <h2>명예의 전당</h2>
-      ${
-        hall.length === 0
-          ? `<p class="empty muted">아직 끝난 인생이 없어요.</p>`
-          : `<ul class="hall">${hall
-              .map(
-                (e) => `
-            <li><button class="hall-row" data-act="hallEntry" data-id="${esc(e.id)}">
-              <span class="grade small g-${e.verdict.grade}">${e.verdict.grade}</span>
-              <span class="hall-main"><b>${esc(e.name)}</b> <span class="muted">${e.age}세 · ${esc(e.job)}</span><br /><span class="small">${esc(e.verdict.title)}</span></span>
-              <span class="muted small">${e.verdict.total}점</span>
-            </button></li>`,
-              )
-              .join("")}</ul>`
-      }
-      <h3>업적 <span class="muted small">${unlocked.size} / ${ACHIEVEMENTS.length}</span></h3>
-      <ul class="badges all">${ACHIEVEMENTS.map((a) => `<li class="${unlocked.has(a.id) ? "" : "locked"}"><b>${esc(a.name)}</b><span class="small">${esc(a.desc)}</span></li>`).join("")}</ul>
-    </section>`;
+  return page({
+    title: "명예의 전당",
+    sub: `지금까지 ${hall.length}명의 인생`,
+    back: life ? undefined : "home",
+    nav: life ? "hall" : undefined,
+    body: `
+      <article class="card">
+        <h3 class="card-title">끝난 인생</h3>
+        ${hall.length === 0 ? `<p class="empty muted">아직 끝난 인생이 없어요.</p>` : hall.map(hallRow).join("")}
+      </article>
+      <article class="card">
+        <h3 class="card-title">업적 <span class="muted small">${unlocked.size} / ${ACHIEVEMENTS.length}</span></h3>
+        <ul class="badges all">${ACHIEVEMENTS.map((a) => `<li class="${unlocked.has(a.id) ? "" : "locked"}"><b>${esc(a.name)}</b><span class="small">${esc(a.desc)}</span></li>`).join("")}</ul>
+      </article>`,
+  });
 }
 
 function hallEntryView(id: string): string {
   const e = loadHall().find((x) => x.id === id);
   if (!e) return hallView();
-  return `
-    <section class="screen">
-      <header class="topbar"><button class="link" data-act="hall">← 명예의 전당</button></header>
-      <article class="card death">
-        <p class="eyebrow">${esc(e.name)} · ${e.age}세 · ${esc(e.job)} · ${esc(e.education)}</p>
-        <h2>${esc(josa(`${e.cause}(으)로 눈을 감았다`))}</h2>
-        ${verdictBlock(e.verdict)}
-        <h4>인생의 순간들</h4>
-        <ul class="lines">${e.highlights.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+  return page({
+    title: e.name,
+    sub: `${e.age}세 · ${esc(e.job)} · ${esc(e.education)}`,
+    back: "hall",
+    body: `
+      <article class="card">
+        <h3 class="card-title">${esc(josa(`${e.cause}(으)로 눈을 감았다`))}</h3>
       </article>
-    </section>`;
+      ${verdictCard(e.verdict)}
+      <article class="card">
+        <h3 class="card-title">인생의 순간들</h3>
+        <ul class="lines">${e.highlights.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+      </article>`,
+  });
 }
 
+// ── 설정 ────────────────────────────────────────────
+
 function settingsView(message?: string): string {
-  return `
-    <section class="screen">
-      <header class="topbar"><button class="link" data-act="home">← 처음으로</button></header>
-      <h2>설정</h2>
+  return page({
+    title: "설정",
+    sub: "저장 파일 관리",
+    back: life && life.phase.kind !== "dead" ? "continue" : "home",
+    body: `
       <article class="card">
-        <h3>저장 파일</h3>
+        <h3 class="card-title">저장 파일</h3>
         <p class="muted small">진행 상황은 이 기기에 자동으로 저장돼요. 다른 기기로 옮길 때는 저장 파일을 내보내서 가져오세요.</p>
-        <div class="stack">
-          <button class="btn" data-act="export">저장 파일 내보내기</button>
-          <label class="btn">저장 파일 가져오기<input id="import" type="file" accept=".json,application/json" hidden /></label>
-        </div>
-        <h3>복사해서 옮기기</h3>
-        <p class="muted small">앱에서 파일 저장이 안 될 때는 저장 내용을 복사해서 메모나 메신저에 붙여 두고, 다른 기기에서 아래 칸에 붙여넣으세요.</p>
-        <div class="stack">
-          <button class="btn" data-act="copy">저장 내용 복사하기</button>
-          <textarea id="paste" class="paste" rows="4" placeholder="복사한 저장 내용을 여기에 붙여넣기"></textarea>
-          <button class="btn" data-act="paste">붙여넣은 내용 가져오기</button>
-        </div>
+        ${row({ act: "export", icon: ICONS.log, title: "저장 파일 내보내기" })}
+        <label class="row-item">
+          <span class="row-icon">${ICONS.log}</span>
+          <span class="row-text"><span class="row-title">저장 파일 가져오기</span></span>
+          <span class="row-chevron">${ICONS.chevron}</span>
+          <input id="import" type="file" accept=".json,application/json" hidden />
+        </label>
         ${message ? `<p class="notice">${esc(message)}</p>` : ""}
       </article>
-    </section>`;
+      <article class="card">
+        <h3 class="card-title">복사해서 옮기기</h3>
+        <p class="muted small">앱에서 파일 저장이 안 될 때는 저장 내용을 복사해서 메모나 메신저에 붙여 두고, 다른 기기에서 아래 칸에 붙여넣으세요.</p>
+        ${row({ act: "copy", icon: ICONS.star, title: "저장 내용 복사하기" })}
+        <textarea id="paste" class="paste" rows="4" placeholder="복사한 저장 내용을 여기에 붙여넣기"></textarea>
+        <button class="btn soft" data-act="paste">붙여넣은 내용 가져오기</button>
+      </article>
+      <article class="card">${row({ act: "home", icon: ICONS.home, title: "처음 화면으로" })}</article>`,
+  });
 }
 
 // ── 입력 ──────────────────────────────────────────────
@@ -349,12 +519,11 @@ function startCreate(): void {
 }
 
 function act(target: HTMLElement): void {
-  const a = target.dataset.act;
-  switch (a) {
+  switch (target.dataset.act) {
     case "home":
       return go({ kind: "title" });
     case "continue":
-      return go({ kind: "play", tab: "now" });
+      return go({ kind: "play", tab: "home" });
     case "new":
       return startCreate();
     case "hall":
@@ -363,6 +532,10 @@ function act(target: HTMLElement): void {
       return go({ kind: "hallEntry", id: target.dataset.id! });
     case "settings":
       return go({ kind: "settings" });
+    case "nav": {
+      const tab = target.dataset.tab as Tab | "hall";
+      return go(tab === "hall" ? { kind: "hall" } : { kind: "play", tab });
+    }
     case "finish":
       clearCurrent();
       life = null;
@@ -382,14 +555,11 @@ function act(target: HTMLElement): void {
       return;
     case "pick": {
       if (screen.kind !== "create") return;
-      const name = screen.name.trim() || "지민";
-      life = newLife({ name, gender: screen.gender, seed: screen.seed + Number(target.dataset.i), candidate: screen.candidates[Number(target.dataset.i)] });
+      const i = Number(target.dataset.i);
+      life = newLife({ name: screen.name.trim() || "지민", gender: screen.gender, seed: screen.seed + i, candidate: screen.candidates[i] });
       saveCurrent(life);
-      return go({ kind: "play", tab: "now" });
+      return go({ kind: "play", tab: "home" });
     }
-    case "tab":
-      if (life) go({ kind: "play", tab: target.dataset.tab as "now" | "people" | "log" });
-      return;
     case "activity":
       if (life) step(() => chooseActivity(life!, target.dataset.id!));
       return;
@@ -420,7 +590,7 @@ function act(target: HTMLElement): void {
 function step(fn: () => void): void {
   fn();
   saveCurrent(life!);
-  if (screen.kind === "play") screen.tab = "now";
+  screen = { kind: "play", tab: "home" };
   render();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -442,7 +612,13 @@ app.addEventListener("click", (e) => {
 
 app.addEventListener("input", (e) => {
   const el = e.target as HTMLInputElement;
-  if (el.id === "name" && screen.kind === "create") screen.name = el.value;
+  if (el.id !== "name" || screen.kind !== "create") return;
+  screen.name = el.value;
+  // 입력 중 커서가 튀지 않도록 전체를 다시 그리지 않고 후보 카드의 이름만 바꾼다
+  const { candidates } = screen;
+  document.querySelectorAll<HTMLElement>(".candidate .profile-name").forEach((n, i) => {
+    n.textContent = candidates[i].surname + (el.value.trim() || "○○");
+  });
 });
 
 app.addEventListener("change", async (e) => {

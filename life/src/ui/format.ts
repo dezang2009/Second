@@ -1,7 +1,7 @@
 // 화면에 보여 줄 글자 만들기
 
 import type { Choice } from "../game/events";
-import { ageOf, inCollege, inMilitary, present } from "../game/life";
+import { inCollege, inMilitary, present } from "../game/life";
 import { formatMoney } from "../game/text";
 import { STAT_LABEL, type Change, type Life, type Person } from "../game/types";
 
@@ -44,12 +44,6 @@ export function choiceHint(life: Life, choice: Choice, chance: number): string {
   const what = stat ? (hidden ? "???" : CHECK_LABEL[stat]) : "운명";
   const level = chance >= 0.7 ? "쉬움" : chance >= 0.4 ? "보통" : "어려움";
   return `<span class="hint ${level === "쉬움" ? "easy" : level === "보통" ? "mid" : "hard"}">${esc(what)} · ${level}</span>`;
-}
-
-export function personLine(life: Life, p: Person): string {
-  const age = ageOf(life, p);
-  const status = p.alive ? `${age}살` : "고인";
-  return `${esc(p.role)} · ${esc(p.name)} <span class="muted">${status}</span>`;
 }
 
 export function visiblePeople(life: Life): Person[] {

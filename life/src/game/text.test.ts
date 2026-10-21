@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fill, formatMoney, josa } from "./text";
+import { fill, formatMoney, formatMoneyShort, josa } from "./text";
 
 describe("조사", () => {
   it("받침에 맞춰 고른다", () => {
@@ -23,5 +23,16 @@ describe("돈 표시", () => {
     expect(formatMoney(500)).toBe("500만 원");
     expect(formatMoney(12300)).toBe("1억 2,300만 원");
     expect(formatMoney(-20000)).toBe("-2억 원");
+  });
+});
+
+describe("짧은 돈 표시", () => {
+  it("억은 소수 한 자리까지", () => {
+    expect(formatMoneyShort(0)).toBe("0");
+    expect(formatMoneyShort(3400)).toBe("3,400만");
+    expect(formatMoneyShort(12300)).toBe("1.2억");
+    expect(formatMoneyShort(20000)).toBe("2억");
+    expect(formatMoneyShort(150000)).toBe("15억");
+    expect(formatMoneyShort(-5000)).toBe("-5,000만");
   });
 });

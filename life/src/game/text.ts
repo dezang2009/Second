@@ -56,3 +56,12 @@ export function formatMoney(manwon: number): string {
   if (man > 0) return `${sign}${man.toLocaleString("ko-KR")}만 원`;
   return "0원";
 }
+
+/** 좁은 자리에 넣는 짧은 금액: "1.2억", "3,400만", "0" */
+export function formatMoneyShort(manwon: number): string {
+  const sign = manwon < 0 ? "-" : "";
+  const v = Math.abs(Math.round(manwon));
+  if (v >= 10000) return `${sign}${(v / 10000).toFixed(v >= 100000 ? 0 : 1).replace(/\.0$/, "")}억`;
+  if (v > 0) return `${sign}${v.toLocaleString("ko-KR")}만`;
+  return "0";
+}
