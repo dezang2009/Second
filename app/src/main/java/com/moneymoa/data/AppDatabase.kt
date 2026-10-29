@@ -26,7 +26,7 @@ class Converters {
 
 @Database(
     entities = [Transaction::class, CategoryRule::class, NameRule::class, MissedNotification::class],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -38,7 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "moneymoa.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build().also { instance = it }
         }
 
@@ -163,25 +163,33 @@ abstract class AppDatabase : RoomDatabase() {
          * 가맹점으로 다시 만든다. 사용자가 바꾼 이름은 그대로 두고, 자동 분류였던 카테고리만 새 이름으로 다시 정한다.
          */
         val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                val renamed = mutableSetOf<String>()
-                db.query("SELECT name FROM name_rules").use { c -> while (c.moveToNext()) renamed += c.getString(0) }
-                val autoCategories = setOf(Category.ETC.name, Category.TRANSFER.name, Category.INCOME_ETC.name)
-                db.query(
-                    "SELECT id, description, rawText, sourcePackage, category, excluded FROM transactions WHERE rawText IS NOT NULL"
-                ).use { c ->
-                    while (c.moveToNext()) {
-                        val old = c.getString(1)
-                        if (old in renamed) continue
-                        val raw = c.getString(2)
-                        val parsed = TransactionParser.parse(raw, if (c.isNull(3)) null else c.getString(3)) ?: continue
-                        if (parsed.description == old) continue
-                        val values = ContentValues().apply { put("description", parsed.description) }
-                        if (c.getString(4) in autoCategories && c.getInt(5) == 0) {
-                            values.put("category", Categorizer.categorize(parsed.type, parsed.description, raw).name)
-                        }
-                        db.update("transactions", SQLiteDatabase.CONFLICT_NONE, values, "id = ?", arrayOf(c.getLong(0)))
+            override fun migrate(db: SupportSQLiteDatabase) = renameFromRawText(db)
+        }
+
+        /** "가맹점명 : ○○" 같은 라벨 형식에서 라벨("거래시간")을 이름으로 쓰던 문제를 고쳤으므로 다시 만든다. */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) = renameFromRawText(db)
+        }
+
+        /** 알림 원문으로 거래 이름을 다시 만든다. 사용자가 바꾼 이름·고른 카테고리는 그대로 둔다. */
+        private fun renameFromRawText(db: SupportSQLiteDatabase) {
+            val renamed = mutableSetOf<String>()
+            db.query("SELECT name FROM name_rules").use { c -> while (c.moveToNext()) renamed += c.getString(0) }
+            val autoCategories = setOf(Category.ETC.name, Category.TRANSFER.name, Category.INCOME_ETC.name)
+            db.query(
+                "SELECT id, description, rawText, sourcePackage, category, excluded FROM transactions WHERE rawText IS NOT NULL"
+            ).use { c ->
+                while (c.moveToNext()) {
+                    val old = c.getString(1)
+                    if (old in renamed) continue
+                    val raw = c.getString(2)
+                    val parsed = TransactionParser.parse(raw, if (c.isNull(3)) null else c.getString(3)) ?: continue
+                    if (parsed.description == old) continue
+                    val values = ContentValues().apply { put("description", parsed.description) }
+                    if (c.getString(4) in autoCategories && c.getInt(5) == 0) {
+                        values.put("category", Categorizer.categorize(parsed.type, parsed.description, raw).name)
                     }
+                    db.update("transactions", SQLiteDatabase.CONFLICT_NONE, values, "id = ?", arrayOf(c.getLong(0)))
                 }
             }
         }

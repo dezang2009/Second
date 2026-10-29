@@ -92,6 +92,24 @@ object TransactionParser {
     private val ACCOUNT_LIKE_RE = Regex("""[\d\-,.원]+""")
     // "김철수님에게", "김철수님이" 처럼 주고받은 상대만. "홍길동님 계좌", "홍길동님 12,000원"의 홍길동은 나다.
     private val COUNTERPARTY_RE = Regex("""([가-힣A-Za-z*]{2,10})님(?:에게|께|한테|이|으로부터|로부터)""")
+    // "가맹점명 : 시외버스승차권"처럼 라벨이 붙은 앱 푸시. 라벨은 이름이 아니라 값의 이름표다.
+    private val MERCHANT_LABELS = listOf(
+        "가맹점명", "이용가맹점", "가맹점", "사용처", "이용처", "결제처", "거래처", "상호명", "상호", "사용장소", "이용장소",
+    )
+    private val COUNTERPARTY_LABELS = listOf(
+        "받는분", "받는 분", "받는사람", "보낸분", "보낸 분", "보낸사람", "입금자명", "입금자", "출금자", "입금처", "출금처",
+        "송금인", "수취인",
+    )
+    /** 값이 이름이 아닌 라벨: 시간·금액·카드번호·손님명(나) 등 */
+    private val OTHER_LABELS = listOf(
+        "거래시간", "거래일시", "거래일자", "이용일시", "이용일자", "승인일시", "승인시간", "사용일시", "결제일시",
+        "승인금액", "이용금액", "결제금액", "거래금액", "사용금액", "입금금액", "출금금액", "입금액", "출금액",
+        "카드번호", "승인번호", "계좌번호", "이용구분", "거래구분", "거래종류", "할부개월", "누적금액", "거래후잔액",
+        "이용카드", "카드명", "손님명", "고객명", "이용현황", "사용현황", "거래내역", "금액", "잔액", "일시", "시간",
+    )
+    // 줄 맨 앞(기호 뒤)의 "라벨 : 값"
+    private val LINE_LABEL_RE = Regex("""^[^가-힣A-Za-z0-9]*([가-힣A-Za-z]{1,8}(?: [가-힣A-Za-z]{1,4})?)\s*[:：]\s*(.*)$""")
+
     // 간편결제 앱: "스타벅스 강남점에서 4,500원"
     private val ESEO_RE = Regex("""(\S+(?: \S+)?)에서\s*[\d,]+\s*원""")
     // 카드 문자에서 가맹점이 아닌 조각들
@@ -203,6 +221,12 @@ object TransactionParser {
             return if (card != null) "$card 대금" else "카드대금"
         }
 
+        // 라벨이 붙은 형식: "가맹점명 : 시외버스승차권", "받는분: 홍길동"
+        labeledValue(text, MERCHANT_LABELS)?.let { return it }
+        if (!isCardMessage(text)) labeledValue(text, COUNTERPARTY_LABELS)?.let { return it }
+        // 그 밖의 라벨 줄(시간·금액·손님명 등)은 이름 찾기에서 뺀다.
+        val text = stripLabels(text)
+
         // 간편결제: "스타벅스에서 4,500원 결제"
         ESEO_RE.find(text)?.let { m ->
             // 바로 앞 낱말만 쓰고, 그게 지점명("강남점")일 때만 그 앞 낱말(브랜드)까지 붙인다.
@@ -258,6 +282,31 @@ object TransactionParser {
         }
     }
 
+    /** "라벨 : 값" 또는 "라벨 값 |" 에서 값을 꺼낸다. 여러 줄·한 줄(| 구분) 형식 모두 */
+    private fun labeledValue(text: String, labels: List<String>): String? {
+        for (line in text.lines()) {
+            LINE_LABEL_RE.find(line)?.let { m ->
+                if (m.groupValues[1].trim() in labels) MerchantName.clean(m.groupValues[2])?.let { return it }
+            }
+        }
+        // 한 줄 형식: "... | 가맹점 동네식당 | 12,000원 | ..."
+        for (label in labels.sortedByDescending { it.length }) {
+            Regex("""(?:^|[|\n·,]|\s)${Regex.escape(label)}\s*[:：]?\s+([^|\n]+)""").find(text)?.let { m ->
+                val value = m.groupValues[1].split(Regex("""\s+(?=(?:${OTHER_LABELS.joinToString("|")})\b)""")).first()
+                MerchantName.clean(value)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** 이름이 아닌 라벨 줄을 지우고, 줄 안에 섞인 라벨 단어도 지운다. */
+    private fun stripLabels(text: String): String = text.lines()
+        .filter { line -> LINE_LABEL_RE.find(line)?.let { it.groupValues[1].trim() !in OTHER_LABELS } ?: true }
+        .joinToString("\n") { line -> INLINE_LABELS.fold(line) { acc, w -> acc.replace(w, " ") } }
+
+    // 줄 안에서 지울 때는 "일시불"의 "일시"처럼 다른 말을 깨지 않도록 네 글자 이상 라벨만 쓴다.
+    private val INLINE_LABELS = OTHER_LABELS.filter { it.length >= 4 }.sortedByDescending { it.length }
+
     private fun isCardMessage(text: String) =
         text.contains("카드") || text.contains("승인") || text.contains("일시불") || text.contains("할부")
 
@@ -276,7 +325,7 @@ object TransactionParser {
             var rest = CARD_NOISE_RE.replace(line, " ")
             institutions.forEach { rest = rest.replace(it, " ") }
             CARD_WORDS.forEach { rest = rest.replace(it, " ") }
-            rest = rest.replace(Regex("""[()/|:.]"""), " ").replace(Regex("""\b\d+\b"""), " ")
+            rest = rest.replace(Regex("""[()/|:.◈◇◆•▶►※\-–]"""), " ").replace(Regex("""\b\d+\b"""), " ")
                 .replace(Regex("""\s+"""), " ").trim()
             if (rest.length >= 2 && rest.any { it.isLetter() }) MerchantName.clean(rest)?.let { return it }
         }
