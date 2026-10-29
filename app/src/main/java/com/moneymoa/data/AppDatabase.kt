@@ -19,14 +19,16 @@ import com.moneymoa.parser.TxType
 class Converters {
     @TypeConverter fun fromType(type: TxType): String = type.name
     @TypeConverter fun toType(value: String): TxType = TxType.valueOf(value)
+    @TypeConverter fun fromLogResult(r: LogResult): String = r.name
+    @TypeConverter fun toLogResult(value: String): LogResult = LogResult.entries.firstOrNull { it.name == value } ?: LogResult.IGNORED
     @TypeConverter fun fromCategory(c: Category): String = c.name
     @TypeConverter fun toCategory(value: String): Category =
         Category.entries.firstOrNull { it.name == value } ?: Category.ETC
 }
 
 @Database(
-    entities = [Transaction::class, CategoryRule::class, NameRule::class, MissedNotification::class],
-    version = 7,
+    entities = [Transaction::class, CategoryRule::class, NameRule::class, MissedNotification::class, NotificationLog::class],
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -38,7 +40,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "moneymoa.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build().also { instance = it }
         }
 
@@ -169,6 +171,17 @@ abstract class AppDatabase : RoomDatabase() {
         /** "가맹점명 : ○○" 같은 라벨 형식에서 라벨("거래시간")을 이름으로 쓰던 문제를 고쳤으므로 다시 만든다. */
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) = renameFromRawText(db)
+        }
+
+        /** 알림 수신 기록 표를 추가한다. */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `notification_log` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, `packageName` TEXT NOT NULL, `text` TEXT NOT NULL, `result` TEXT NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notification_log_timestamp` ON `notification_log` (`timestamp`)")
+            }
         }
 
         /** 알림 원문으로 거래 이름을 다시 만든다. 사용자가 바꾼 이름·고른 카테고리는 그대로 둔다. */

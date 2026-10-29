@@ -28,6 +28,11 @@ fun SettingsScreen(
     hasNotificationAccess: Boolean,
     missedCount: Int,
     onOpenMissed: () -> Unit,
+    listenerConnected: Boolean = true,
+    batteryRestricted: Boolean = false,
+    onOpenLog: () -> Unit = {},
+    onReconnect: () -> Unit = {},
+    onAllowBackground: () -> Unit = {},
     onExportCsv: () -> Unit,
     onBackup: () -> Unit,
     onRestore: () -> Unit,
@@ -40,9 +45,30 @@ fun SettingsScreen(
         SettingsGroup("자동 수집") {
             SettingRow(
                 title = "은행·카드 알림 읽기",
-                subtitle = if (hasNotificationAccess) "켜짐 · 입출금 알림을 실시간으로 모으고 있어요" else "꺼짐 · 켜야 자동으로 모여요",
-                subtitleColor = if (hasNotificationAccess) IncomeColor else MaterialTheme.colorScheme.error,
-                onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                subtitle = when {
+                    !hasNotificationAccess -> "꺼짐 · 켜야 자동으로 모여요"
+                    !listenerConnected -> "권한은 켜져 있지만 연결이 끊겼어요 · 눌러서 다시 연결"
+                    else -> "켜짐 · 입출금 알림을 실시간으로 모으고 있어요"
+                },
+                subtitleColor = if (hasNotificationAccess && listenerConnected) IncomeColor else MaterialTheme.colorScheme.error,
+                onClick = {
+                    if (hasNotificationAccess && !listenerConnected) onReconnect()
+                    else context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                },
+            )
+            if (hasNotificationAccess && !listenerConnected) {
+                Text(
+                    "다시 연결해도 그대로면 알림 접근 설정에서 머니모아를 껐다가 다시 켜 주세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
+                )
+            }
+            SettingRow(
+                title = "백그라운드 실행 허용",
+                subtitle = if (batteryRestricted) "제한됨 · 폰이 앱을 잠재우면 알림을 놓칠 수 있어요. 눌러서 허용하기" else "허용됨",
+                subtitleColor = if (batteryRestricted) MaterialTheme.colorScheme.error else IncomeColor,
+                onClick = onAllowBackground,
             )
             if (!hasNotificationAccess) {
                 Text(
@@ -63,6 +89,11 @@ fun SettingsScreen(
         }
 
         SettingsGroup("인식") {
+            SettingRow(
+                title = "알림 수신 기록",
+                subtitle = "최근 받은 금융 알림과 처리 결과. 거래가 빠졌을 때 확인하세요.",
+                onClick = onOpenLog,
+            )
             SettingRow(
                 title = "인식 못 한 알림",
                 subtitle = if (missedCount > 0) "${missedCount}건 · 눌러서 확인하고 거래로 추가하기" else "없음",

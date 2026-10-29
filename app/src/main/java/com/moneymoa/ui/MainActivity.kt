@@ -48,7 +48,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import com.moneymoa.data.MissedNotification
+import com.moneymoa.service.BankNotificationListener
+import com.moneymoa.service.ListenerStatus
 import com.moneymoa.data.Transaction
 import java.time.LocalDate
 
@@ -61,6 +67,8 @@ class MainActivity : ComponentActivity() {
         setContent { MoneyMoaTheme { MoneyMoaApp(viewModel) } }
     }
 }
+
+private enum class SubScreen(val title: String) { MISSED("인식 못 한 알림"), LOG("알림 수신 기록") }
 
 private enum class Tab(val label: String, val icon: ImageVector) {
     HOME("홈", Icons.Filled.Home),
@@ -90,18 +98,21 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
     val banks by viewModel.banks.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val missed by viewModel.missed.collectAsState()
+    val log by viewModel.log.collectAsState()
 
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     var hasAccess by remember { mutableStateOf(context.hasNotificationAccess()) }
     var showAdd by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Transaction?>(null) }
-    var showMissed by rememberSaveable { mutableStateOf(false) }
+    var subScreen by rememberSaveable { mutableStateOf<SubScreen?>(null) }
+    var listenerConnected by remember { mutableStateOf(true) }
+    var batteryRestricted by remember { mutableStateOf(false) }
     var addingFromMissed by remember { mutableStateOf<MissedNotification?>(null) }
     var confirmRestore by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
-    BackHandler(enabled = showMissed) { showMissed = false }
+    BackHandler(enabled = subScreen != null) { subScreen = null }
 
     val today = LocalDate.now()
     val exportCsv = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
@@ -116,6 +127,10 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
 
     LifecycleResumeEffect(Unit) {
         hasAccess = context.hasNotificationAccess()
+        // 앱 업데이트 뒤 알림 읽기 연결이 끊긴 채로 남는 경우가 있어, 열 때마다 다시 연결을 요청한다.
+        if (hasAccess) BankNotificationListener.rebind(context)
+        listenerConnected = ListenerStatus.isConnected(context)
+        batteryRestricted = !context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
         onPauseOrDispose { }
     }
 
@@ -126,7 +141,7 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
                 title = {
                     Text(
                         when {
-                            showMissed -> "인식 못 한 알림"
+                            subScreen != null -> subScreen!!.title
                             tab == Tab.HOME -> "머니모아"
                             else -> tab.label
                         },
@@ -134,8 +149,8 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
                     )
                 },
                 navigationIcon = {
-                    if (showMissed) {
-                        IconButton(onClick = { showMissed = false }) {
+                    if (subScreen != null) {
+                        IconButton(onClick = { subScreen = null }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로")
                         }
                     }
@@ -143,7 +158,7 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
             )
         },
         bottomBar = {
-            if (!showMissed) NavigationBar {
+            if (subScreen == null) NavigationBar {
                 Tab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t,
@@ -155,22 +170,20 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
             }
         },
         floatingActionButton = {
-            if (!showMissed && (tab == Tab.HOME || tab == Tab.HISTORY)) {
+            if (subScreen == null && (tab == Tab.HOME || tab == Tab.HISTORY)) {
                 FloatingActionButton(onClick = { showAdd = true }) { Icon(Icons.Filled.Add, "직접 추가") }
             }
         },
     ) { padding ->
         val modifier = Modifier.padding(padding)
-        if (showMissed) {
-            Box(modifier) {
-                MissedScreen(
-                    items = missed,
-                    onAdd = { addingFromMissed = it },
-                    onDelete = viewModel::deleteMissed,
-                )
+        when (subScreen) {
+            SubScreen.MISSED -> Box(modifier) {
+                MissedScreen(items = missed, onAdd = { addingFromMissed = it }, onDelete = viewModel::deleteMissed)
             }
-            return@Scaffold
+            SubScreen.LOG -> Box(modifier) { LogScreen(log) }
+            null -> {}
         }
+        if (subScreen != null) return@Scaffold
         when (tab) {
             Tab.HOME -> Box(modifier) {
                 HomeScreen(
@@ -183,7 +196,7 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
                     onSeeStats = { tab = Tab.STATS },
                     onTransactionClick = { selected = it },
                     missedCount = missed.size,
-                    onOpenMissed = { showMissed = true },
+                    onOpenMissed = { subScreen = SubScreen.MISSED },
                 )
             }
             Tab.HISTORY -> Box(modifier) {
@@ -213,7 +226,19 @@ private fun MoneyMoaApp(viewModel: MainViewModel) {
                 SettingsScreen(
                     hasNotificationAccess = hasAccess,
                     missedCount = missed.size,
-                    onOpenMissed = { showMissed = true },
+                    onOpenMissed = { subScreen = SubScreen.MISSED },
+                    listenerConnected = listenerConnected,
+                    batteryRestricted = batteryRestricted,
+                    onOpenLog = { subScreen = SubScreen.LOG },
+                    onReconnect = {
+                        BankNotificationListener.rebind(context)
+                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    },
+                    onAllowBackground = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
+                        )
+                    },
                     onExportCsv = { exportCsv.launch("머니모아_거래내역_$today.csv") },
                     onBackup = { exportBackup.launch("머니모아_백업_$today.json") },
                     onRestore = { confirmRestore = true },

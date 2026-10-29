@@ -34,6 +34,13 @@ object TransactionParser {
         "kr.co.samsungcard.mpocket" to "삼성카드",
         "com.hyundaicard.appcard" to "현대카드",
         "com.kakaopay.app" to "카카오페이",
+        "com.nonghyup.nhallonebank" to "NH농협은행",
+        "com.hanaskcard.paycla" to "하나카드",
+        "com.lcacApp" to "롯데카드",
+        "com.wooricard.smartapp" to "우리카드",
+        "kvp.jjy.MispAndroid320" to "BC카드",
+        "nh.smart.nhallonepay" to "NH농협카드",
+        "com.tossbank.app" to "토스뱅크",
     )
 
     /** 문자 앱: 기관 이름은 문장에서 찾아야 한다. */
@@ -58,7 +65,9 @@ object TransactionParser {
         "SC제일은행" to "SC제일은행", "새마을금고" to "새마을금고", "우체국" to "우체국",
         "수협" to "수협", "iM뱅크" to "iM뱅크", "대구은행" to "iM뱅크",
         "부산은행" to "부산은행", "경남은행" to "경남은행", "광주은행" to "광주은행",
-        "전북은행" to "전북은행", "신협" to "신협",
+        "전북은행" to "전북은행", "신협" to "신협", "제주은행" to "제주은행",
+        "KDB산업은행" to "KDB산업은행", "산업은행" to "KDB산업은행", "씨티카드" to "씨티카드", "씨티은행" to "씨티은행",
+        "Sh수협" to "수협", "수협은행" to "수협", "광주카드" to "광주은행",
         "카카오페이" to "카카오페이", "네이버페이" to "네이버페이", "토스" to "토스",
     )
 
@@ -77,8 +86,8 @@ object TransactionParser {
     private val INCOME_WORDS = listOf("입금", "받았어요", "받음", "환불")
     private val EXPENSE_WORDS = listOf("출금", "인출", "승인", "결제", "보냈어요", "보냄")
     // 방향이 분명한 단어가 없을 때만 쓰는 단어 ("대출이자 출금"은 지출이어야 한다)
-    private val WEAK_INCOME_WORDS = listOf("급여", "이자", "캐시백")
-    private val WEAK_EXPENSE_WORDS = listOf("자동이체", "송금", "이체", "일시불", "할부")
+    private val WEAK_INCOME_WORDS = listOf("급여", "이자", "캐시백", "환급", "지급")
+    private val WEAK_EXPENSE_WORDS = listOf("자동이체", "송금", "이체", "일시불", "할부", "사용", "이용")
 
     private val BALANCE_RE = Regex("""(잔액|잔고)\s*:?\s*(-?[\d,]+)\s*원?""")
     private val NOT_AMOUNT_RE = Regex("""(잔액|잔고|누적|한도|이용가능|가능금액)\s*(금액)?\s*:?\s*-?[\d,]+\s*원?""")
@@ -147,6 +156,11 @@ object TransactionParser {
         return institution != null && (WON_AMOUNT_RE.containsMatchIn(cleaned) || COMMA_AMOUNT_RE.containsMatchIn(cleaned))
     }
 
+    /** 수신 기록에 남길 만한지: 금융 앱이 보냈거나, 금액이 들어 있는 알림 */
+    fun mightBeFinancial(text: String, packageName: String?) =
+        packageName in PACKAGE_INSTITUTIONS || findInstitution(text) != null ||
+            (packageName in SMS_PACKAGES && WON_AMOUNT_RE.containsMatchIn(text))
+
     fun parse(text: String, packageName: String? = null): ParsedTransaction? {
         val normalized = text.replace(' ', ' ').replace("\r", "").trim()
         if (normalized.isEmpty()) return null
@@ -168,13 +182,29 @@ object TransactionParser {
         )
     }
 
+    /** 은행·카드사 대표 번호 → 기관. 문자 앱 알림 제목이 보낸 번호뿐일 때 쓴다. */
+    private val SENDER_NUMBERS = mapOf(
+        "15889999" to "KB국민은행", "15449999" to "KB국민은행",
+        "15998000" to "신한은행", "15778000" to "신한은행",
+        "15885000" to "우리은행", "15995000" to "우리은행",
+        "15991111" to "하나은행", "15881111" to "하나은행",
+        "16613000" to "NH농협은행", "15882100" to "NH농협은행",
+        "15662566" to "IBK기업은행", "15882588" to "IBK기업은행",
+        "15993333" to "카카오뱅크", "16617654" to "토스뱅크", "15221000" to "케이뱅크",
+        "15881688" to "KB국민카드", "15447000" to "신한카드", "15888700" to "삼성카드",
+        "15776000" to "현대카드", "15888100" to "롯데카드", "18001111" to "하나카드",
+        "15889955" to "우리카드", "15884000" to "BC카드", "16444000" to "NH농협카드",
+    )
+    private val SENDER_NUMBER_RE = Regex("""1[5-8]\d{2}-?\d{4}""")
+
     fun findInstitution(text: String): String? {
         BRACKET_RE.findAll(text).forEach { m ->
             val inner = m.groupValues[1].trim()
             BRACKET_ALIASES[inner]?.let { return it }
             INSTITUTION_NAMES.firstOrNull { inner.contains(it.first) }?.let { return it.second }
         }
-        return INSTITUTION_NAMES.firstOrNull { text.contains(it.first) }?.second
+        INSTITUTION_NAMES.firstOrNull { text.contains(it.first) }?.let { return it.second }
+        return SENDER_NUMBER_RE.findAll(text).firstNotNullOfOrNull { SENDER_NUMBERS[it.value.replace("-", "")] }
     }
 
     private fun detectType(raw: String): TxType? {

@@ -6,7 +6,10 @@ import com.moneymoa.parser.Categorizer
 import com.moneymoa.parser.Category
 import com.moneymoa.parser.MerchantName
 import com.moneymoa.parser.ParsedTransaction
+import com.moneymoa.parser.TransactionParser
 import com.moneymoa.parser.TxType
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.moneymoa.widget.MoneyWidget
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -22,6 +25,33 @@ class TransactionRepository private constructor(
     fun observeInstitutions() = dao.observeInstitutions()
 
     fun observeMissed() = dao.observeMissed()
+
+    fun observeLog() = dao.observeLog()
+
+    // 알림 여러 개가 한꺼번에 와도 중복 검사와 저장이 엉키지 않게 하나씩 처리한다.
+    private val notificationLock = Mutex()
+
+    /**
+     * 알림에서 뽑은 문장 하나를 처리한다: 거래면 저장, 못 알아본 금융 알림이면 '인식 못 한 알림'에 보관.
+     * 처리 결과는 수신 기록에 남긴다.
+     */
+    suspend fun handleNotificationText(text: String, packageName: String, postedAt: Long) = notificationLock.withLock {
+        // 다시 연결될 때 알림창에 남은 알림을 또 읽는 경우: 이미 처리한 문장은 다시 넣지 않는다.
+        // (지운 거래나 지운 '인식 못 한 알림'이 되살아나지 않게)
+        if (dao.logCount(packageName, text) > 0) return@withLock LogResult.DUPLICATE
+        val parsed = TransactionParser.parse(text, packageName)
+        val result = when {
+            parsed != null -> if (addFromNotification(parsed, text, packageName, postedAt)) LogResult.SAVED else LogResult.DUPLICATE
+            TransactionParser.looksFinancial(text, packageName) -> { addMissed(text, packageName, postedAt); LogResult.MISSED }
+            else -> LogResult.IGNORED
+        }
+        // 금융과 상관없어 보이는 알림은 기록하지 않는다. (금액도 기관도 없는 일반 알림)
+        if (result != LogResult.IGNORED || TransactionParser.mightBeFinancial(text, packageName)) {
+            dao.insertLog(NotificationLog(timestamp = postedAt, packageName = packageName, text = text, result = result))
+            dao.trimLog()
+        }
+        result
+    }
 
     suspend fun categorize(type: TxType, description: String, rawText: String?): Category =
         Categorizer.categorize(type, description, rawText, dao.rules().associate { it.keyword to it.category })
@@ -135,6 +165,18 @@ class TransactionRepository private constructor(
     }
 
     suspend fun deleteMissed(id: Long) = dao.deleteMissed(id)
+
+    /** 앱이 업데이트되어 새 형식을 알게 되면, 못 알아봤던 알림을 다시 읽어 거래로 옮긴다. 옮긴 수를 돌려준다. */
+    suspend fun retryMissed(): Int = notificationLock.withLock {
+        var moved = 0
+        for (item in dao.allMissed()) {
+            val parsed = TransactionParser.parse(item.text, item.sourcePackage) ?: continue
+            addFromNotification(parsed, item.text, item.sourcePackage, item.timestamp)
+            dao.deleteMissed(item.id)
+            moved++
+        }
+        moved
+    }
 
     // ---- 백업 ----
 

@@ -35,6 +35,23 @@ data class MissedNotification(
     val sourcePackage: String,
 )
 
+/** 받은 알림을 어떻게 처리했는지 기록한다. 놓친 거래를 찾을 때 쓴다. 최근 200개만 남긴다. */
+@Entity(tableName = "notification_log", indices = [Index("timestamp")])
+data class NotificationLog(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long,
+    val packageName: String,
+    val text: String,
+    val result: LogResult,
+)
+
+enum class LogResult(val label: String) {
+    SAVED("저장됨"),
+    DUPLICATE("중복이라 건너뜀"),
+    MISSED("인식 못 함"),
+    IGNORED("금융 알림 아님"),
+}
+
 data class Totals(val income: Long, val expense: Long, val savings: Long) {
     /** 수입에서 쓴 돈과 저축한 돈을 빼고 남은 돈 */
     val left get() = income - expense - savings

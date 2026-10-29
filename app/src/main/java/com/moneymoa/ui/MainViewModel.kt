@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.moneymoa.data.Backup
 import com.moneymoa.data.InstitutionKind
 import com.moneymoa.data.MissedNotification
+import com.moneymoa.data.NotificationLog
 import com.moneymoa.data.Transaction
 import com.moneymoa.data.TransactionRepository
 import com.moneymoa.data.institutionKind
@@ -85,9 +86,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val missed: StateFlow<List<MissedNotification>> = repository.observeMissed()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val log: StateFlow<List<NotificationLog>> = repository.observeLog()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** 화면 아래에 잠깐 보여 줄 안내 문구 */
     val messages: SharedFlow<String> = _messages.asSharedFlow()
+
+    init {
+        viewModelScope.launch {
+            val moved = repository.retryMissed()
+            if (moved > 0) _messages.emit("인식 못 했던 알림 ${moved}건을 거래로 옮겼어요")
+        }
+    }
 
     fun add(
         type: TxType,

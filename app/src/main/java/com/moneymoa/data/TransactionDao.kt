@@ -57,11 +57,26 @@ interface TransactionDao {
     @Query("UPDATE transactions SET excluded = 1, category = :category WHERE id = :id")
     suspend fun markExcluded(id: Long, category: Category)
 
+    @Insert
+    suspend fun insertLog(log: NotificationLog)
+
+    @Query("DELETE FROM notification_log WHERE id NOT IN (SELECT id FROM notification_log ORDER BY id DESC LIMIT 200)")
+    suspend fun trimLog()
+
+    @Query("SELECT * FROM notification_log ORDER BY id DESC")
+    fun observeLog(): Flow<List<NotificationLog>>
+
+    @Query("SELECT COUNT(*) FROM notification_log WHERE packageName = :packageName AND text = :text")
+    suspend fun logCount(packageName: String, text: String): Int
+
     @Query("SELECT * FROM missed_notifications ORDER BY timestamp DESC")
     fun observeMissed(): Flow<List<MissedNotification>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMissed(missed: MissedNotification)
+
+    @Query("SELECT * FROM missed_notifications")
+    suspend fun allMissed(): List<MissedNotification>
 
     @Query("DELETE FROM missed_notifications WHERE id = :id")
     suspend fun deleteMissed(id: Long)
