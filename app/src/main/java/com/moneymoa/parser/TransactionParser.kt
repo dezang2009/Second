@@ -78,7 +78,7 @@ object TransactionParser {
     private val EXPENSE_WORDS = listOf("출금", "인출", "승인", "결제", "보냈어요", "보냄")
     // 방향이 분명한 단어가 없을 때만 쓰는 단어 ("대출이자 출금"은 지출이어야 한다)
     private val WEAK_INCOME_WORDS = listOf("급여", "이자", "캐시백")
-    private val WEAK_EXPENSE_WORDS = listOf("자동이체", "송금", "이체")
+    private val WEAK_EXPENSE_WORDS = listOf("자동이체", "송금", "이체", "일시불", "할부")
 
     private val BALANCE_RE = Regex("""(잔액|잔고)\s*:?\s*(-?[\d,]+)\s*원?""")
     private val NOT_AMOUNT_RE = Regex("""(잔액|잔고|누적|한도|이용가능|가능금액)\s*(금액)?\s*:?\s*-?[\d,]+\s*원?""")
@@ -90,7 +90,29 @@ object TransactionParser {
     private val DATETIME_MERCHANT_RE =
         Regex("""\d{1,2}[/.\-]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?\s+([^\n]+)""")
     private val ACCOUNT_LIKE_RE = Regex("""[\d\-,.원]+""")
-    private val NAME_NIM_RE = Regex("""([가-힣A-Za-z*]{2,10})님""")
+    // "김철수님에게", "김철수님이" 처럼 주고받은 상대만. "홍길동님 계좌", "홍길동님 12,000원"의 홍길동은 나다.
+    private val COUNTERPARTY_RE = Regex("""([가-힣A-Za-z*]{2,10})님(?:에게|께|한테|이|으로부터|로부터)""")
+    // 간편결제 앱: "스타벅스 강남점에서 4,500원"
+    private val ESEO_RE = Regex("""(\S+(?: \S+)?)에서\s*[\d,]+\s*원""")
+    // 카드 문자에서 가맹점이 아닌 조각들
+    private val CARD_NOISE_RE = Regex(
+        listOf(
+            """\[[^\]]*]""",                                     // [Web발신], [일시불.승인(1234)]
+            """\(\d{2,4}\)""",                                   // (1234)
+            """(누적|잔액|잔고|한도)\s*(금액)?\s*:?\s*-?[\d,]+\s*원?""",
+            """\d{1,2}[/.\-]\d{1,2}(\s+\d{1,2}:\d{2}(:\d{2})?)?""", // 날짜·시각
+            """\d{1,2}:\d{2}""",
+            """-?[\d,]+\s*원""",
+            """\d{1,3}(,\d{3})+""",
+            """\d+\s*개월""",
+            """\S*\*\S*""",                                      // 가려진 이름·카드번호: 홍*동, 1234**
+            """[가-힣A-Za-z]{2,10}님""",                           // 카드 주인 이름
+        ).joinToString("|")
+    )
+    private val CARD_WORDS = listOf(
+        "승인취소", "취소", "승인", "일시불", "할부", "무이자", "체크카드", "체크", "신용", "출금", "결제", "사용",
+        "해외", "국내", "누적", "잔액", "금액", "Web발신", "알림", "완료",
+    )
     private val BRACKET_RE = Regex("""\[([^\]]+)]""")
 
     private const val MAX_AMOUNT = 10_000_000_000L
@@ -181,9 +203,23 @@ object TransactionParser {
             return if (card != null) "$card 대금" else "카드대금"
         }
 
-        // 카드 승인: "... 10/16 14:23 스타벅스 강남점 누적 ..."
+        // 간편결제: "스타벅스에서 4,500원 결제"
+        ESEO_RE.find(text)?.let { m ->
+            // 바로 앞 낱말만 쓰고, 그게 지점명("강남점")일 때만 그 앞 낱말(브랜드)까지 붙인다.
+            val words = m.groupValues[1].split(' ')
+            val merchant = if (words.size == 2 && Regex("""\S+(점|지점|본점|매장)""").matches(words[1])) words.joinToString(" ") else words.last()
+            MerchantName.clean(merchant)?.let { return it }
+        }
+
+        // 카드 결제: 카드 주인(나) 이름이 아니라 가맹점을 찾는다.
+        if (isCardMessage(text)) {
+            cardMerchant(text)?.let { return it }
+            return "카드 결제"
+        }
+
+        // 은행 문자: "... 10/16 14:23 110-***-123 출금 12,000 홍길동"
         DATETIME_MERCHANT_RE.find(text)?.let { m ->
-            // 은행 문자는 시간 뒤에 계좌번호·금액이 오므로 그런 조각은 버린다.
+            // 시간 뒤에 계좌번호·금액이 오므로 그런 조각은 버린다.
             val keywords = INCOME_WORDS + EXPENSE_WORDS + WEAK_EXPENSE_WORDS + CANCEL_WORDS
             val merchant = m.groupValues[1].substringBefore("누적").substringBefore("잔액")
                 .split(' ')
@@ -195,7 +231,7 @@ object TransactionParser {
             MerchantName.clean(merchant)?.let { return it }
         }
         // 간편송금: "홍길동님에게 보냈어요" (단, "고객님"은 이름이 아니다)
-        NAME_NIM_RE.findAll(text).map { it.groupValues[1] }
+        COUNTERPARTY_RE.findAll(text).map { it.groupValues[1] }
             .firstOrNull { !MerchantName.isStopWord(it) }
             ?.let { return it }
 
@@ -205,6 +241,7 @@ object TransactionParser {
             .sortedByDescending { it.length }
         var rest = BRACKET_RE.replace(text, " ")
         rest = NOT_AMOUNT_RE.replace(rest, " ")
+        rest = Regex("""[가-힣A-Za-z]{2,10}님(?!에게|께|한테|이|으로부터|로부터)""").replace(rest, " ") // 계좌 주인(나)
         noise.forEach { rest = rest.replace(it, " ") }
         rest.split(Regex("""[\s|,()/]+"""))
             .map { it.trim('.', ':', '-', '>', '→') }
@@ -219,6 +256,31 @@ object TransactionParser {
             text.contains("송금") || text.contains("이체") -> "송금"
             else -> "출금"
         }
+    }
+
+    private fun isCardMessage(text: String) =
+        text.contains("카드") || text.contains("승인") || text.contains("일시불") || text.contains("할부")
+
+    /**
+     * 카드 문자에서 가맹점 이름을 찾는다. 카드사마다 순서가 달라서
+     * (주인 이름·금액·시각·가맹점·누적액이 한 줄 또는 여러 줄로 섞여 온다)
+     * 가맹점이 아닌 조각을 모두 지우고 남는 줄을 쓴다. 시각 뒤의 줄을 먼저 본다.
+     */
+    private fun cardMerchant(text: String): String? {
+        val time = Regex("""\d{1,2}[/.\-]\d{1,2}\s+\d{1,2}:\d{2}""").find(text)
+        val after = time?.let { text.substring(it.range.last + 1) }.orEmpty()
+        val before = time?.let { text.substring(0, it.range.first) } ?: text
+        val lines = after.lines() + before.lines().reversed()
+        val institutions = INSTITUTION_NAMES.map { it.first }.sortedByDescending { it.length }
+        for (line in lines) {
+            var rest = CARD_NOISE_RE.replace(line, " ")
+            institutions.forEach { rest = rest.replace(it, " ") }
+            CARD_WORDS.forEach { rest = rest.replace(it, " ") }
+            rest = rest.replace(Regex("""[()/|:.]"""), " ").replace(Regex("""\b\d+\b"""), " ")
+                .replace(Regex("""\s+"""), " ").trim()
+            if (rest.length >= 2 && rest.any { it.isLetter() }) MerchantName.clean(rest)?.let { return it }
+        }
+        return null
     }
 
     private fun String.toAmount(): Long? {
