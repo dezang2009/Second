@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0e0d14">
+  <title>심연의 계단</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="game.js"></script>
+</head>
+<body>
+  <header id="top">
+    <div id="status"></div>
+    <div id="map" aria-label="지도"></div>
+  </header>
+  <div id="enemy" hidden></div>
+  <main id="log" aria-live="polite"></main>
+  <footer>
+    <div id="actions"></div>
+    <form id="cmd" autocomplete="off">
+      <input id="input" type="text" enterkeyhint="send" placeholder="명령 입력 (예: 북, 공격, 1)">
+      <button type="submit">입력</button>
+    </form>
+  </footer>
+</body>
+</html>

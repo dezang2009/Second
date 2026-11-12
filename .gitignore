@@ -9,3 +9,4 @@ android/release.keystore
 data/photos.json
 .official-cache/
 .official-later/
+dungeon/android/release.keystore
