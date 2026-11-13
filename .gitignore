@@ -9,3 +9,5 @@ android/release.keystore
 data/photos.json
 .official-cache/
 .official-later/
+cafe/dist/
+cafe/android/release.keystore

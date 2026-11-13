@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#2b2135">
+<title>CAfe</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <div class="hud-left">
+      <div id="gradeName">Lv.1 작은 카페</div>
+      <div class="bar-row">
+        <div class="bar"><div id="gradeBar"></div></div>
+        <div id="gradeText">0%</div>
+      </div>
+    </div>
+    <div class="hud-right">
+      <div class="coin-row"><img id="coinIcon" alt="" width="20" height="20"><span id="coins">0</span></div>
+      <div id="rate">초당 +0 코인</div>
+    </div>
+    <button id="settingsBtn" aria-label="설정">≡</button>
+  </header>
+
+  <div id="sceneWrap">
+    <div id="sceneBox">
+      <canvas id="scene" width="130" height="120"></canvas>
+      <div id="fx"></div>
+    </div>
+    <button id="rushBtn" hidden>손님 몰려온다!<br><b>탭해서 러시 타임</b></button>
+    <div id="rushBadge" hidden></div>
+    <div id="hint" hidden></div>
+  </div>
+
+  <main id="list"></main>
+
+  <nav id="tabs">
+    <button data-tab="menu" class="on">메뉴</button>
+    <button data-tab="staff">직원</button>
+    <button data-tab="shop">가게</button>
+  </nav>
+</div>
+
+<div id="overlay" hidden>
+  <div id="popup"></div>
+</div>
+
+<script src="src/data.js"></script>
+<script src="src/game.js"></script>
+<script src="src/render.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>
