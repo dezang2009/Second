@@ -15,19 +15,28 @@ function measure(s, secs) {
 }
 
 console.log('== 예상 수입 공식 vs 실제 시뮬레이션 (코인/초) ==');
+const ST = G.ST;
+function mk(o) {
+  const s = G.newState(0);
+  for (const k in o) {
+    if (k === 'staff') for (const id in o.staff) Object.assign(s.staff[ST[id]], o.staff[id]);
+    else if (k === 'menuLv') s.menu = s.menu.map(() => o.menuLv);
+    else s[k] = o[k];
+  }
+  return s;
+}
 const cases = [
   ['시작', {}],
-  ['초반', { grade: 2, baristaLv: 4, serverLv: 3, interiorLv: 3, menu0: 12 }],
+  ['초반', { grade: 2, interiorLv: 3, menuLv: 8, staff: { alba: { lv: 3 }, barista: { lv: 4 } } }],
   ['손님 많음', { grade: 3, interiorLv: 10, tables: 3 }],
-  ['직원 부족', { grade: 5, interiorLv: 15, tables: 6 }],
-  ['중반', { grade: 5, interiorLv: 12, tables: 5, baristas: 2, servers: 2, baristaLv: 12, serverLv: 12, machineLv: 6 }],
-  ['후반', { grade: 9, interiorLv: 20, tables: 6, baristas: 3, servers: 3, baristaLv: 30, serverLv: 30, machineLv: 15 }]
+  ['파티시에', { grade: 4, interiorLv: 10, tables: 4, staff: { patissier: { n: 1, lv: 3 }, mom: { n: 1 }, barista: { lv: 6 }, alba: { lv: 6 } } }],
+  ['중반', { grade: 5, interiorLv: 12, tables: 5, machineLv: 6, staff: { alba: { n: 2, lv: 12 }, mom: { n: 1, lv: 8 }, barista: { n: 2, lv: 12 }, patissier: { n: 1, lv: 8 }, manager: { n: 1, lv: 3 } } }],
+  ['후반', { grade: 9, interiorLv: 25, tables: 6, machineLv: 15, menuLv: 100, staff: { alba: { n: 2, lv: 30 }, mom: { n: 1, lv: 30 }, barista: { n: 2, lv: 30 }, patissier: { n: 1, lv: 30 }, manager: { n: 1, lv: 30 } } }]
 ];
 for (const [name, o] of cases) {
-  const s = G.newState(0);
-  for (const k in o) if (k === 'menu0') s.menu[0] = o[k]; else s[k] = o[k];
+  const s = mk(o);
   const est = G.estimateRate(s), real = measure(s, 1800);
-  console.log(name.padEnd(8), '예상', est.toFixed(2).padStart(10), '실제', real.toFixed(2).padStart(10), '비율', (est / real).toFixed(2));
+  console.log(name.padEnd(8), '예상', est.toFixed(2).padStart(12), '실제', real.toFixed(2).padStart(12), '비율', (est / real).toFixed(2));
 }
 
 console.log('\n== 계속 접속해서 최적에 가깝게 투자했을 때 등급 도달 시간 ==');
@@ -36,11 +45,11 @@ const CAL = !!process.env.CAL, calOut = [];
 const TARGET_H = [0, 0.17, 0.75, 3, 10, 30, 72, 168, 336, 720];
 const s = G.newState(0);
 let t = 0;
-const kinds = ['baristaLv', 'serverLv', 'hireBarista', 'hireServer', 'table', 'machine', 'interior', 'grade'];
 function options() {
   const out = [];
   for (let i = 0; i < D.MENUS.length; i++) out.push(['menu', i]);
-  for (const k of kinds) out.push([k, 0]);
+  for (let i = 0; i < D.STAFF.length; i++) { out.push(['train', i]); out.push(['hire', i]); }
+  for (const k of ['table', 'machine', 'interior', 'grade']) out.push([k, 0]);
   return out;
 }
 let steps = 0;
@@ -75,9 +84,9 @@ while (s.grade < D.GRADES.length && steps++ < 2000000) {
   if (!G.buy(s, k, i)) { G.earn(s, c); G.buy(s, k, i); }
   if (s.grade !== g0) {
     const h = t / 3600;
-    console.log(`등급 ${s.grade} ${D.GRADES[s.grade - 1].name.padEnd(8)} ${h < 1 ? (t / 60).toFixed(1) + '분' : h < 48 ? h.toFixed(1) + '시간' : (h / 24).toFixed(1) + '일'}  초당 ${G.fmt(G.estimateRate(s))}  메뉴Lv ${s.menu.filter((_, j) => G.menuUnlocked(s, j)).join('/')}`);
+    console.log(`등급 ${s.grade} ${D.GRADES[s.grade - 1].name.padEnd(8)} ${h < 1 ? (t / 60).toFixed(1) + '분' : h < 48 ? h.toFixed(1) + '시간' : (h / 24).toFixed(1) + '일'}  초당 ${G.fmt(G.estimateRate(s))}  메뉴Lv ${Math.min(...s.menu.filter((_, j) => G.menuUnlocked(s, j)))}~${Math.max(...s.menu)}`);
   }
 }
 if (CAL) console.log(calOut.join("\n"));
-console.log("steps", steps, "t", t, "coins", s.coins, "menu", s.menu.join("/"));
-console.log('최종 상태:', JSON.stringify({ grade: s.grade, tables: s.tables, baristas: s.baristas, servers: s.servers, bLv: s.baristaLv, sLv: s.serverLv, machine: s.machineLv, interior: s.interiorLv }));
+console.log("steps", steps, "t", t, "coins", s.coins, "staff", JSON.stringify(s.staff));
+console.log('최종 상태:', JSON.stringify({ grade: s.grade, tables: s.tables, machine: s.machineLv, interior: s.interiorLv }));

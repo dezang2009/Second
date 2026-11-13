@@ -2,10 +2,10 @@
 (function (root) {
   'use strict';
   var C = root.CAFE, D = C.D, G = C.G, R = C.R;
-  var SAVE_KEY = 'cafe.save.v1';
+  var SAVE_KEY = 'cafe.save.v2';
   var $ = function (id) { return document.getElementById(id); };
 
-  var state, rt, tab = 'menu', lastListHtml = '', popupClose = null, hintLeft = 0;
+  var state, rt, tab = 'menu', cat = 'all', lastListHtml = '', popupClose = null, hintLeft = 0;
 
   // ---- 저장 ----
   function load() {
@@ -48,7 +48,7 @@
     showPopup(
       '<img alt="" src="' + R.icon('cup') + '">' +
       '<h2>다녀오셨어요!</h2>' +
-      '<p>자리를 비운 ' + duration(off.secs) + ' 동안<br>직원들이 가게를 지켰어요' + (capped ? '<br>(최대 8시간까지만 쌓여요)' : '') + '</p>' +
+      '<p>자리를 비운 ' + duration(off.secs) + ' 동안<br>직원들이 가게를 지켰어요' + (capped ? '<br>(최대 8시간까지만 쌓여요)' : '') + '<br>오프라인 수입 ' + pct(G.offlineRate(state)) + '</p>' +
       '<div class="amount"><img alt="" src="' + R.icon('coin') + '">+' + G.fmt(off.amount) + '</div>' +
       '<button class="big" data-act="close">받기</button>',
       function () { floatText(65, 40, '+' + G.fmt(off.amount), true); }
@@ -89,29 +89,50 @@
 
   // ---- 목록 ----
   function pct(x) { return Math.round(x * 100) + '%'; }
+  var CHIPS = [['all', '전체'], ['coffee', '커피'], ['drink', '음료'], ['bakery', '베이커리'], ['dessert', '디저트']];
+  function inCat(m) { return cat === 'all' || m.cat === cat || (cat === 'drink' && (m.cat === 'tea' || m.cat === 'ade')); }
+  function renderChips() {
+    $('chips').hidden = tab !== 'menu';
+    $('chips').innerHTML = CHIPS.map(function (c) { return '<button data-cat="' + c[0] + '"' + (c[0] === cat ? ' class="on"' : '') + '>' + c[1] + '</button>'; }).join('');
+  }
+  function staffEffect(i) {
+    var s = state, t = D.STAFF[i], lv = s.staff[i].lv, sp = (t.speed * (1 + D.STAFF_SPEED_STEP * (lv - 1))).toFixed(2) + '배';
+    if (t.id === 'alba') return '서빙 속도 ' + sp;
+    if (t.id === 'mom') return '서빙 ' + sp + ' · 팁 금액 +' + pct(D.MOM_TIP_STEP * lv);
+    if (t.id === 'barista') return '음료 제조 속도 ' + sp;
+    if (t.id === 'patissier') return '디저트 제조 ' + sp + ' · 가격 +' + pct(D.PATISSIER_PRICE[0] + D.PATISSIER_PRICE[1] * (lv - 1));
+    return '전 직원 속도 +' + pct(D.MANAGER_SPEED[0] + D.MANAGER_SPEED[1] * (lv - 1)) + ' · 오프라인 ' + pct(G.offlineRate(s));
+  }
   function rows() {
     var out = [], s = state, i;
     if (tab === 'menu') {
       for (i = 0; i < D.MENUS.length; i++) {
         var m = D.MENUS[i];
-        if (!G.menuUnlocked(s, i)) { out.push({ icon: m.id, title: m.name, sub: '가게 등급 ' + m.grade + '에서 팔 수 있어요', locked: '등급 ' + m.grade + '에<br>열려요' }); continue; }
+        if (!inCat(m)) continue;
+        if (!G.menuUnlocked(s, i)) { out.push({ img: R.menuIcon(i), title: m.name, sub: D.CATS[m.cat], locked: '등급 ' + m.grade + '에<br>열려요' }); continue; }
         var ms = G.nextMilestone(s.menu[i]);
-        out.push({ icon: m.id, title: m.name, sub: 'Lv.' + s.menu[i] + ' · 한 ' + m.unit + '에 ' + G.fmt(G.price(s, i)) + (ms ? '<br><em>Lv.' + ms + '에 가격 2배</em>' : ''), kind: 'menu', idx: i, label: '강화' });
+        out.push({ img: R.menuIcon(i), title: m.name, sub: 'Lv.' + s.menu[i] + ' · 한 ' + m.unit + '에 ' + G.fmt(G.price(s, i)) + (ms ? ' <em>(Lv.' + ms + '에 2배)</em>' : ''), kind: 'menu', idx: i, label: '강화' });
       }
     } else if (tab === 'staff') {
-      out.push({ icon: 'barista', title: '바리스타 교육', sub: 'Lv.' + s.baristaLv + ' · 만드는 속도 ' + G.baristaSpeed(s).toFixed(2) + '배', kind: 'baristaLv', label: '교육' });
-      out.push({ icon: 'server', title: '서버 교육', sub: 'Lv.' + s.serverLv + ' · 나르는 속도 ' + G.serverSpeed(s).toFixed(2) + '배', kind: 'serverLv', label: '교육' });
-      out.push({ icon: 'plus', title: '바리스타 더 뽑기', sub: '지금 ' + s.baristas + '명 · 최대 3명', kind: 'hireBarista', label: '고용' });
-      out.push({ icon: 'plus', title: '서버 더 뽑기', sub: '지금 ' + s.servers + '명 · 최대 3명', kind: 'hireServer', label: '고용' });
+      for (i = 0; i < D.STAFF.length; i++) {
+        var t = D.STAFF[i], st = s.staff[i];
+        if (st.n > 0) out.push({ img: R.staffIcon(i), big: true, title: t.name + (t.max > 1 ? ' ' + st.n + '명' : '') + ' <small>Lv.' + st.lv + '</small>', sub: staffEffect(i), kind: 'train', idx: i, label: '교육' });
+        if (st.n < t.max) {
+          var first = st.n === 0;
+          var row = { img: first ? R.staffIcon(i) : R.icon('plus'), big: first, title: first ? t.name : t.name + ' 더 뽑기', sub: first ? t.desc : '지금 ' + st.n + '명 · 최대 ' + t.max + '명', kind: 'hire', idx: i, label: '고용' };
+          if (G.staffLocked(s, i)) row.locked = '등급 ' + t.grade + '에<br>고용 가능';
+          out.push(row);
+        }
+      }
     } else {
-      out.push({ icon: 'table', title: '테이블', sub: s.tables + '개 놓음 · 최대 ' + (D.TABLE_START + D.TABLE_COST.length) + '개', kind: 'table', label: '추가' });
-      out.push({ icon: 'machine', title: '에스프레소 머신', sub: 'Lv.' + s.machineLv + ' · 한 번에 ' + G.machineCups(s) + '잔' + (G.machineCups(s) < 3 ? '<br><em>Lv.' + (G.machineCups(s) * 5) + '에 한 잔 더</em>' : ''), kind: 'machine', label: '강화' });
-      out.push({ icon: 'interior', title: '인테리어', sub: 'Lv.' + s.interiorLv + ' · 손님 +' + pct(D.INTERIOR_ARRIVAL_STEP * (s.interiorLv - 1)) + ', 팁 +' + pct(D.INTERIOR_TIP_STEP * (s.interiorLv - 1)), kind: 'interior', label: '꾸미기' });
+      out.push({ img: R.icon('table'), title: '테이블', sub: s.tables + '개 놓음 · 최대 ' + (D.TABLE_START + D.TABLE_COST.length) + '개', kind: 'table', label: '추가' });
+      out.push({ img: R.icon('machine'), title: '에스프레소 머신 <small>Lv.' + s.machineLv + '</small>', sub: '한 번에 ' + G.machineCups(s) + '개씩 제조' + (G.machineCups(s) < 3 ? ' <em>(Lv.' + (G.machineCups(s) * 5) + '에 +1)</em>' : ''), kind: 'machine', label: '강화' });
+      out.push({ img: R.icon('interior'), title: '인테리어 <small>Lv.' + s.interiorLv + '</small>', sub: '손님 +' + pct(D.INTERIOR_ARRIVAL_STEP * (s.interiorLv - 1)) + ' · 팁 +' + pct(D.INTERIOR_TIP_STEP * (s.interiorLv - 1)), kind: 'interior', label: '꾸미기' });
       if (s.grade < D.GRADES.length) {
         var p = G.gradeProgress(s), next = D.GRADES[s.grade];
-        out.push({ icon: 'grade', title: '가게 등급 올리기', sub: 'Lv.' + (s.grade + 1) + ' ' + next.name + (p < 1 ? '<br><em>누적 수입 ' + G.fmt(next.need) + ' 필요</em>' : '<br><em>승급 준비 완료!</em>'), kind: 'grade', label: '승급', goal: true });
+        out.push({ img: R.icon('grade'), title: '가게 등급 올리기', sub: 'Lv.' + (s.grade + 1) + ' ' + next.name + (p < 1 ? ' <em>(누적 수입 ' + G.fmt(next.need) + ' 필요)</em>' : ' <em>(승급 준비 완료!)</em>'), kind: 'grade', label: '승급', goal: true });
       } else {
-        out.push({ icon: 'grade', title: '전설의 카페', sub: '최고 등급에 도달했어요', locked: '최고<br>등급', goal: true });
+        out.push({ img: R.icon('grade'), title: '전설의 카페', sub: '최고 등급에 도달했어요', locked: '최고<br>등급', goal: true });
       }
     }
     return out;
@@ -125,7 +146,7 @@
         if (cost === null) right = '<div class="note">최고<br>단계</div>';
         else right = '<button class="buy' + (G.canBuy(state, r.kind, r.idx || 0) ? '' : ' off') + '" data-kind="' + r.kind + '" data-idx="' + (r.idx || 0) + '"><span>' + r.label + '</span><b>' + G.fmt(cost) + '</b></button>';
       }
-      return '<div class="row' + (r.locked ? ' locked' : '') + (r.goal ? ' goal' : '') + '"><img alt="" src="' + R.icon(r.icon) + '">' +
+      return '<div class="row' + (r.locked ? ' locked' : '') + (r.goal ? ' goal' : '') + '"><img alt=""' + (r.big ? ' class="big"' : '') + ' src="' + r.img + '">' +
         '<div class="info"><div class="title">' + r.title + '</div><div class="sub">' + r.sub + '</div></div>' + right + '</div>';
     }).join('');
     if (html !== lastListHtml) { $('list').innerHTML = html; lastListHtml = html; }
@@ -145,7 +166,7 @@
     // 살 수 있는 것이 있는 탭에 표시
     var can = { menu: false, staff: false, shop: false }, i;
     for (i = 0; i < D.MENUS.length; i++) if (G.canBuy(s, 'menu', i)) can.menu = true;
-    ['baristaLv', 'serverLv', 'hireBarista', 'hireServer'].forEach(function (k) { if (G.canBuy(s, k, 0)) can.staff = true; });
+    for (i = 0; i < D.STAFF.length; i++) if (G.canBuy(s, 'train', i) || G.canBuy(s, 'hire', i)) can.staff = true;
     ['table', 'machine', 'interior', 'grade'].forEach(function (k) { if (G.canBuy(s, k, 0)) can.shop = true; });
     var btns = $('tabs').children;
     for (i = 0; i < btns.length; i++) btns[i].classList.toggle('dot', can[btns[i].dataset.tab] && btns[i].dataset.tab !== tab);
@@ -203,7 +224,13 @@
     if (!b) return;
     tab = b.dataset.tab;
     for (var i = 0; i < this.children.length; i++) this.children[i].classList.toggle('on', this.children[i] === b);
-    renderList(); renderHud(); $('list').scrollTop = 0;
+    renderChips(); renderList(); renderHud(); $('list').scrollTop = 0;
+  });
+  $('chips').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    cat = b.dataset.cat;
+    renderChips(); renderList(); $('list').scrollTop = 0;
   });
   $('scene').addEventListener('pointerdown', function (e) {
     var box = this.getBoundingClientRect();
@@ -252,7 +279,7 @@
     state = G.loadState(raw, Date.now());
     rt = G.newRuntime(state);
     lastListHtml = '';
-    renderList(); renderHud();
+    renderChips(); renderList(); renderHud();
     if (!raw) {
       $('hint').innerHTML = '손님이 오면 직원들이 알아서 일해요.<br>번 코인으로 아래에서 가게를 키워 보세요!';
       $('hint').hidden = false; hintLeft = 12;
